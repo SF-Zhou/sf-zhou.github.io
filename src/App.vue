@@ -5,6 +5,7 @@
     comp-article(v-bind:article="article")
     comp-spliter(margin="2rem auto 1rem auto")
     comp-feedback(v-bind:tags="tags")
+    comp-footer(web_master="SF-Zhou")
 </template>
 
 <script>
@@ -13,6 +14,7 @@
   import CompArticle from './components/article.vue'
   import CompFeedback from './components/feedback.vue'
   import CompSpliter from './components/spliter.vue'
+  import CompFooter from './components/footer.vue'
   import content from './js/content.js'
   import "./style/main.less"
 
@@ -32,7 +34,8 @@
       CompInfo,
       CompArticle,
       CompFeedback,
-      CompSpliter
+      CompSpliter,
+      CompFooter
     }
   }
 </script>
