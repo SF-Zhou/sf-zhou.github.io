@@ -1,3 +1,8 @@
+# Custom
+.DS_Store
+public/
+index.html
+
 # Logs
 logs
 *.log
