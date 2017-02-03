@@ -1,0 +1,21 @@
+box: node:4.2.6-slim
+build:
+  steps:
+    - npm-install
+    - script:
+        name: echo nodejs information
+        code: |
+          echo "node version $(node -v) running"
+          echo "npm version $(npm -v) running"
+          npm run build
+          node .
+          pwd
+          ls -al
+deploy:
+    steps:
+        - install-packages:
+            packages: git ssh-client
+        - lukevivier/gh-pages@0.2.1:
+            token: $GIT_TOKEN
+            basedir: public
+            branch: master
