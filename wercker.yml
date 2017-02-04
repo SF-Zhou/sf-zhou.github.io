@@ -1,4 +1,4 @@
-box: node:4.2.6-slim
+box: node
 build:
   steps:
     - npm-install
@@ -7,10 +7,10 @@ build:
         code: |
           echo "node version $(node -v) running"
           echo "npm version $(npm -v) running"
+    - script:
+        name: generate pages
+        code: |
           npm run build
-          node .
-          pwd
-          ls -al
 deploy:
     steps:
         - install-packages:

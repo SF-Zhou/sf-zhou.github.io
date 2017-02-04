@@ -1,6 +1,6 @@
 # SF-Zhou's Blog
 
-[![wercker status](https://app.wercker.com/status/94144b91388fbf8712fca882f24eb63e/s/master "wercker status")](https://app.wercker.com/project/byKey/94144b91388fbf8712fca882f24eb63e)
+[![wercker status](https://app.wercker.com/status/94144b91388fbf8712fca882f24eb63e/s/blog "wercker status")](https://app.wercker.com/project/byKey/94144b91388fbf8712fca882f24eb63e)
 
 > A Blog based on GitHub Pages, Wercker, Vue.js, Node.js & Element.
 
@@ -13,11 +13,8 @@ npm install
 # serve with hot reload at localhost:8080
 npm run dev
 
-# build for release with minification
-npm run build
-
 # generate static html pages
-node .
+npm run build
 ```
 
 ## Roadmap
