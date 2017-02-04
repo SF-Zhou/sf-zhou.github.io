@@ -68,7 +68,18 @@
     code {
         color: darkcyan;
         font-size: 1.0rem;
-        font-family: "Courier New";
+        font-family: "Courier New", Consolas, "Times New Roman";
+    }
+
+    pre {
+        max-width: 100%;
+        padding-left: 2rem;
+        overflow-x: scroll;
+
+        code {
+            color: black;
+            font-size: 0.8rem;
+        }
     }
 }
 </style>

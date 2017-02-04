@@ -24,7 +24,7 @@ npm run build
 - [x] Deploy on GitHub Pages by Wercker;
 - [x] Set custom domain;
 - [x] Render a set of MarkDown articles;
-- [ ] Support code highlight;
+- [x] Support code highlight;
 - [ ] Support LaTeX mathematics formula;
 - [ ] Add date, category and author info reading;
 - [ ] Generate site index.html page;

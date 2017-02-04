@@ -1,6 +1,7 @@
 const fs = require("mz/fs");
 const path = require("path");
-const marked = require("marked");
+
+const marked = require("./marked");
 const mkdir = require("./mkdir_recursive")
 const list_articles = require('./list_articles');
 const analyze_article = require("./analyze_article");
