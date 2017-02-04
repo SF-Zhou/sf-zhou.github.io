@@ -23,7 +23,7 @@ npm run build
 - [x] Render simple MarkDown article;
 - [x] Deploy on GitHub Pages by Wercker;
 - [x] Set custom domain;
-- [ ] Render a set of MarkDown articles;
+- [x] Render a set of MarkDown articles;
 - [ ] Support code highlight;
 - [ ] Support LaTeX mathematics formula;
 - [ ] Add date, category and author info reading;
