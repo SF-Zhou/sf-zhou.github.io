@@ -1,8 +1,12 @@
 <template lang="pug">
     .feedback
         .tags 标签：
-            a(v-for='tag in tags' v-bind:href='"#/"+tag')
-                el-tag(type="gray") {{ tag }}
+            span(v-if='tags.length')
+                a(v-for='tag in tags' v-bind:href='"/#/"+tag')
+                    el-tag(type="gray") {{ tag }}
+            span(v-else)
+                a(href='/#')
+                    el-tag(type="gray") 唔
         .score 
             span 评分：
             el-rate()

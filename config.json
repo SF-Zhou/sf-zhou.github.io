@@ -1,5 +1,7 @@
 {
     "posts_path": "posts",
     "output_path": "public",
-    "article_format": "md"
+    "article_format": "md",
+    "default_author": "SF-Zhou",
+    "web_master": "SF-Zhou"
 }

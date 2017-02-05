@@ -6,13 +6,15 @@
     <title>{{ title_string }}</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      {{ article }}
+    </div>
     <script>
       window.content = {
-        title: "{{ title }}",
-        date: "{{ date }}",
-        author: "{{ author }}",
-        article: "{{ article }}"
+        title: {{ title }},
+        date: {{ date }},
+        author: {{ author }},
+        tags: {{ tags }}
       }
     </script>
     <script src="/dist/build.js"></script>

@@ -9,6 +9,8 @@ Vue.use(Button);
 Vue.use(Tag);
 Vue.use(Rate);
 
+window.content.article = document.getElementById("app").innerHTML;
+
 new Vue({
   el: '#app',
   render: h => h(App)
