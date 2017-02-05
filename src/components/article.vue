@@ -29,6 +29,10 @@
 
     p {
         text-indent: 2rem;
+
+        .katex-display {
+            margin-left: -2rem;
+        }
     }
 
     strong {

@@ -109,3 +109,5 @@ $$
 $$
 d = \frac {H_{pixel}f_s}{c} (j + \sqrt {\frac {W_{pixel}^2(i-k)^2}{H_{pixel}^2} + j^2})
 $$
+
+$f_s$、$c$、$W_{pixel}$和$H_{pixel}$均为常数。

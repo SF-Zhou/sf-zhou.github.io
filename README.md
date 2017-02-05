@@ -25,7 +25,7 @@ npm run build
 - [x] Set custom domain;
 - [x] Render a set of MarkDown articles;
 - [x] Support code highlight;
-- [ ] Support LaTeX mathematics formula;
+- [x] Support LaTeX mathematics formula;
 - [ ] Add date, category and author info reading;
 - [ ] Generate site index.html page;
 - [ ] Generate category index.html pages;
