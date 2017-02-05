@@ -26,7 +26,7 @@ npm run build
 - [x] Render a set of MarkDown articles;
 - [x] Support code highlight;
 - [x] Support LaTeX mathematics formula;
-- [ ] Add date, category and author info reading;
+- [x] Add date, category and author info reading;
 - [ ] Generate site index.html page;
 - [ ] Generate category index.html pages;
 - [ ] Support tag search;
