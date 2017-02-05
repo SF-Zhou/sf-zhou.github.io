@@ -81,5 +81,10 @@
             font-size: 0.8rem;
         }
     }
+
+    .math {
+        max-width: 100%;
+        overflow-x: scroll;
+    }
 }
 </style>

@@ -26,6 +26,8 @@ This design is used for accelerating DAS algorithm with CAPI acceleration core o
 
 ## 3. 引用、列表和代码
 
+### 3.1 引用
+
 > 活在这珍贵的人间，太阳强烈，水波温柔。——海子
 
 > 在向你挥舞的各色手帕中
@@ -51,6 +53,8 @@ This design is used for accelerating DAS algorithm with CAPI acceleration core o
 >
 > ——舒婷，《神女峰》
 
+### 3.2 有序列表
+
 1. 现代诗歌
    1. 海子
    2. 舒婷
@@ -58,8 +62,50 @@ This design is used for accelerating DAS algorithm with CAPI acceleration core o
    1. 李白
    2. 白居易
 
+### 3.3 无序列表
+
 李白的诗有：
 
 * 《早发白帝城》
 * 《赠汪伦》
 * 《静夜思》
+
+### 3.4 代码
+
+```python
+class HashTable:
+    valid_clock = 0
+
+    def __init__(self, size):
+        self.size = size
+
+        self.valid = [0] * size
+        self.keys = [None] * size
+        self.values = [None] * size
+
+    def get_value(self, item):
+        idx = item % self.size
+        while self.valid[idx] == self.valid_clock and self.keys[idx] != item:
+            idx = 0 if idx + 1 == self.size else idx + 1
+
+        return self.values[idx] if self.valid[idx] == self.valid_clock else None
+
+    def set_value(self, item, value):
+        idx = item % self.size
+        while self.valid[idx] == self.valid_clock and self.keys[idx] != item:
+            idx = 0 if idx + 1 == self.size else idx + 1
+
+        self.valid[idx] = self.valid_clock
+        self.keys[idx] = item
+        self.values[idx] = value
+```
+
+### 3.5 公式
+
+$$
+f(x) = \frac {\sqrt {a^2+b^2}} {\alpha }
+$$
+
+$$
+d = \frac {H_{pixel}f_s}{c} (j + \sqrt {\frac {W_{pixel}^2(i-k)^2}{H_{pixel}^2} + j^2})
+$$
