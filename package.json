@@ -6,7 +6,7 @@
   "private": true,
   "main": "render.js",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development webpack-dev-server --open --inline --hot",
+    "dev": "cross-env NODE_ENV=development webpack-dev-server --content-base public --open --inline --hot",
     "front": "cross-env NODE_ENV=production webpack --progress --hide-modules",
     "gene": "node .",
     "build": "npm run front && npm run gene"
@@ -32,6 +32,7 @@
     "less-loader": "^2.2.3",
     "markdown-it": "^8.2.2",
     "markdown-it-katex": "^2.0.3",
+    "mustache": "^2.3.0",
     "mz": "^2.6.0",
     "pug": "^2.0.0-beta10",
     "style-loader": "^0.13.1",
