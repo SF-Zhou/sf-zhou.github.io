@@ -18,4 +18,3 @@ deploy:
         - sf-zhou/gh-pages:
             token: $GIT_TOKEN
             basedir: public
-            domain: blog.sfzhou.cn
