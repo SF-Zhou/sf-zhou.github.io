@@ -31,7 +31,11 @@
         text-indent: 2rem;
 
         .katex-display {
-            margin-left: -2rem;
+            margin-left: -2rem; // against the text-indent
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+            max-width: 100%;
+            overflow-x: scroll;
         }
     }
 
@@ -86,9 +90,14 @@
         }
     }
 
-    .math {
-        max-width: 100%;
-        overflow-x: scroll;
+    table {
+        margin-left: auto;
+        margin-right: auto;
+        border-collapse: collapse;
+        border: 2px solid black;
+        th, td {
+            border: 1px solid black;
+        }
     }
 }
 </style>

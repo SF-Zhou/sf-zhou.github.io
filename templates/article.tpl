@@ -7,7 +7,9 @@
   </head>
   <body>
     <div id="app">
-      {{ article }}
+      <div id="original_article" hidden>
+        {{ article }}
+      </div>
     </div>
     <script>
       window.content = {
