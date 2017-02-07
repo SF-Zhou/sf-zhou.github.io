@@ -71,6 +71,9 @@
         margin: 0 auto;
         display: block;
         max-width: 100%;
+        border-radius: 4px;
+        border: 1px solid #d1dbe5;
+        box-shadow: 0 2px 4px 0 rgba(0,0,0,.12),0 0 6px 0 rgba(0,0,0,.04);
     }
 
     code {
@@ -81,8 +84,11 @@
 
     pre {
         max-width: 100%;
-        padding-left: 2rem;
         overflow-x: scroll;
+        padding: 0.5rem 0.8rem;
+        border-radius: 4px;
+        border: 1px solid #d1dbe5;
+        box-shadow: 0 2px 4px 0 rgba(0,0,0,.12),0 0 6px 0 rgba(0,0,0,.04);
 
         code {
             color: black;
