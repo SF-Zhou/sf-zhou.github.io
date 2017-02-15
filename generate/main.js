@@ -33,7 +33,7 @@ async function main() {
             index: "undefined",
             title_string: article.title,
             title: JSON.stringify(article.title),
-            date: JSON.stringify(article.date),
+            date: article.date ? JSON.stringify(article.date) : "undefined",
             author: JSON.stringify(article.author),
             tags: JSON.stringify(article.tags),
             article: article.html
