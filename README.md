@@ -6,6 +6,8 @@
 
 ## Generate Steps
 
+Node 7.6.0 or later is required, or using babel for async/await support.
+
 ``` bash
 # install dependencies
 npm install
@@ -27,7 +29,7 @@ npm run build
 - [x] Support code highlight;
 - [x] Support LaTeX mathematics formula;
 - [x] Add date, category and author info reading;
-- [ ] Generate site index.html page;
+- [x] Generate site index.html page;
 - [ ] Generate category index.html pages;
 - [ ] Support tag search;
 - [ ] Support global text search;
