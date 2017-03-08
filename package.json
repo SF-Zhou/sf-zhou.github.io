@@ -8,8 +8,8 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development webpack-dev-server --content-base public --open --inline --hot",
     "front": "cross-env NODE_ENV=production webpack --progress --hide-modules",
-    "gene": "node .",
-    "build": "npm run front && npm run gene"
+    "gene": "mkdir -p public && node .",
+    "build": "npm run gene && npm run front"
   },
   "dependencies": {
     "vue": "^2.1.0"
@@ -30,6 +30,7 @@
     "less-loader": "^2.2.3",
     "markdown-it": "^8.2.2",
     "markdown-it-katex": "^2.0.3",
+    "md5": "^2.2.1",
     "mustache": "^2.3.0",
     "mz": "^2.6.0",
     "pug": "^2.0.0-beta10",

@@ -3,8 +3,13 @@
 </template>
 
 <script>
+    import Vue from 'vue'
+
     export default {
-        props: ['article']
+        props: ['article'],
+        mounted: function() {
+            new Vue({el: '.markdown'});
+        }
     };
 </script>
 
@@ -104,6 +109,11 @@
         th, td {
             border: 1px solid black;
         }
+    }
+
+    .vue_in_posts_container {
+        border: 1px solid #d1dbe5;
+        box-shadow: 0 2px 4px 0 rgba(0,0,0,.12),0 0 6px 0 rgba(0,0,0,.04);
     }
 }
 </style>

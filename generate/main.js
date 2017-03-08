@@ -17,6 +17,11 @@ async function main() {
         await mkdir(path.join(config.output_path, dir));
     }
 
+    // delete exists vue component in posts
+    await Promise.all((await fs.readdir('compiled')).filter(filename => filename.endsWith(".vue")).map(async filename => {
+        await fs.unlink(`compiled/${filename}`);
+    }));
+
     const article_template_name = "./templates/article.tpl";
     const article_template = fs.readFileSync(article_template_name).toString();
 
@@ -73,6 +78,13 @@ async function main() {
     const render_result = mustache.render(article_template, view);
     const html_path = path.join(config.output_path, "index.html");
     await fs.writeFile(html_path, render_result);
+
+    const vue_in_posts = (await fs.readdir('compiled')).filter(filename => filename.endsWith(".vue"));
+    const componenet_command = vue_in_posts.map(filename => {
+        return `Vue.component('${path.basename(filename, '.vue')}', require('./${filename}'));`
+    }).join('\n');
+    const plugin_template = `import Vue from 'vue'\nexports.install = function() { ${componenet_command} };`
+    await fs.writeFile('compiled/vue_in_posts.js', plugin_template);
 }
 
 main();
