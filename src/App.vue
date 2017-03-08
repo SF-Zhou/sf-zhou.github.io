@@ -2,7 +2,7 @@
   .app
     comp-title(v-bind:title="title")
     .index(v-if="index")
-      comp-abstract(v-for="info in index" v-bind:info="info")
+      comp-abstract(v-for="info in index" v-if="!tag || info.tags.indexOf(tag) != -1" v-bind:info="info")
     .article(v-else)
       comp-info(v-bind:date="date" v-bind:author="author")
       comp-article(v-bind:article="article")
@@ -34,8 +34,17 @@
         author: content.author,
         article: content.article,
         tags: content.tags,
+        tag: window.location.hash.slice(2),
         web_master: config.web_master
       }
+    },
+    methods: {
+      anchor_changed: function() {
+        this.tag = window.location.hash.slice(2);
+      }
+    },
+    created: function() {
+      window.onhashchange = this.anchor_changed;
     },
     components: {
       CompAbstract,
