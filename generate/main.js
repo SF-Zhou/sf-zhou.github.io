@@ -9,6 +9,16 @@ const analyze_article = require("./analyze_article");
 
 const config = require("../config.json");
 
+const write_when_change = async function(file_path, new_content) {
+    if (await fs.exists(file_path)) {
+        const old_content = (await fs.readFile(file_path)).toString();
+        if (old_content === new_content) {
+            return;
+        }
+    }
+    await fs.writeFile(file_path, new_content);
+}
+
 async function main() {
     const {dirs, articles_path} = await list_articles(config.posts_path, config.article_format);
 
@@ -55,7 +65,7 @@ async function main() {
         }
 
         const html_path = path.join(config.output_path, article.url_path);
-        await fs.writeFile(html_path, render_result);
+        await write_when_change(html_path, render_result);
     }));
 
     // sort articles by date
@@ -77,14 +87,14 @@ async function main() {
     };
     const render_result = mustache.render(article_template, view);
     const html_path = path.join(config.output_path, "index.html");
-    await fs.writeFile(html_path, render_result);
+    await write_when_change(html_path, render_result);
 
     const vue_in_posts = (await fs.readdir('compiled')).filter(filename => filename.endsWith(".vue"));
     const componenet_command = vue_in_posts.map(filename => {
         return `Vue.component('${path.basename(filename, '.vue')}', require('./${filename}'));`
     }).join('\n');
     const plugin_template = `import Vue from 'vue'\nexports.install = function() { ${componenet_command} };`
-    await fs.writeFile('compiled/vue_in_posts.js', plugin_template);
+    await write_when_change('compiled/vue_in_posts.js', plugin_template);
 }
 
 main();
