@@ -2,7 +2,7 @@
   .app
     comp-title(v-bind:title="title")
     .index(v-if="index")
-      comp-abstract(v-for="info in index" v-if="!tag || info.tags.indexOf(tag) != -1" v-bind:info="info")
+      comp-abstract(v-for="info in index" v-if="!tag || info.tags.indexOf(tag) !== -1" v-bind:current_tag="tag" v-bind:info="info")
     .article(v-else)
       comp-info(v-bind:date="date" v-bind:author="author")
       comp-article(v-bind:article="article")
@@ -23,6 +23,7 @@
   import "./style/main.less"
   
   const content = window.content;
+  const current_tag = () => decodeURI(window.location.hash.slice(2));
 
   export default {
     name: 'app',
@@ -34,13 +35,13 @@
         author: content.author,
         article: content.article,
         tags: content.tags,
-        tag: window.location.hash.slice(2),
+        tag: current_tag(),
         web_master: config.web_master
       }
     },
     methods: {
-      anchor_changed: function() {
-        this.tag = window.location.hash.slice(2);
+      anchor_changed: function(anchor) {
+        this.tag = current_tag();
       }
     },
     created: function() {

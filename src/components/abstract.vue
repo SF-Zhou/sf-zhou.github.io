@@ -8,13 +8,21 @@
                 span.author {{ info.author }}
             .tags
                 span(v-if='info.tags.length')
-                    a(v-for='tag in info.tags' v-bind:href='"/#/"+tag')
-                        el-tag(type="gray") {{ tag }}
+                    span(v-for='tag in info.tags')
+                        el-tag(v-if="current_tag && current_tag === tag" closable type="primary" v-on:close="go_home()")
+                            a(v-bind:href='"/#/"+tag') {{ tag }}
+                        el-tag(v-else type="gray")
+                            a(v-bind:href='"/#/"+tag') {{ tag }}
 </template>
 
 <script>
 export default {
-    props: ["info"]
+    props: ["info", "current_tag"],
+    methods: {
+        go_home: function() {
+            window.location.hash = "";
+        }
+    }
 }
 </script>
 
