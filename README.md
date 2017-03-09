@@ -12,10 +12,13 @@ Node 7.6.0 or later is required, or using babel for async/await support.
 # install dependencies
 npm install
 
+# generate static html pages
+npm gene
+
 # serve with hot reload at localhost:8080
 npm run dev
 
-# generate static html pages
+# generate final site
 npm run build
 ```
 
@@ -30,8 +33,8 @@ npm run build
 - [x] Support LaTeX mathematics formula;
 - [x] Add date, category and author info reading;
 - [x] Generate site index.html page;
+- [x] Support tag search;
 - [ ] Generate category index.html pages;
-- [ ] Support tag search;
 - [ ] Support global text search;
 - [ ] Support comment with RESTful API;
 - [ ] Support comment @ notification;
