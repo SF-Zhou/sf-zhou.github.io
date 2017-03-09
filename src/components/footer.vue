@@ -20,7 +20,8 @@
 
 <style lang="less" scoped>
     .footer {
-        margin-top: 2rem;
+        margin-top: 1rem;
+        margin-bottom: 1rem;
         font-size: 0.8rem;
         line-height: 1.2;
         text-align: center

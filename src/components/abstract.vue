@@ -28,7 +28,7 @@ export default {
 
 <style lang="less">
     .abstract {
-        margin-top: 2rem;
+        margin-bottom: 2rem;
 
         .title {
             font-size: 1.2rem;

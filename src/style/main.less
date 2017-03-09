@@ -9,14 +9,17 @@ html {
 }
 
 body {
-    margin: 1em;
+    margin: 0 1em 0 1em;
 }
 
 .app {
     font-family: STFangSong, Helvetica, Arial, Vernada, Tahoma, STXihei, "Microsoft YaHei", "Songti SC", SimSun, Heiti, sans-serif;
     max-width: 40rem;
+    min-height: 100vh;
     line-height: 1.6;
-    margin: 2rem auto 1rem auto;
+    margin: 0 auto 0 auto;
+    display: flex;
+    flex-direction: column;
     a {
         text-decoration: none;
         color: black;
@@ -24,5 +27,9 @@ body {
     a:hover {
         color: darkslategray;
         transition: 300ms
+    }
+
+    .index {
+        flex: 1;
     }
 }

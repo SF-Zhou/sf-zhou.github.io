@@ -11,7 +11,9 @@
 
 <style lang="less" scoped>
     .title {
+        padding-top: 2rem;
         h1 {
+            margin-top: 0;
             text-align: center;
             font-size: 3rem;
 
