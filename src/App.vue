@@ -21,6 +21,7 @@
   import CompFooter from './components/footer.vue'
   import config from '../config.json'
   import "./style/main.less"
+  import "./assets/favicon.ico"
   
   const content = window.content;
   const current_tag = () => decodeURI(window.location.hash.slice(2));
