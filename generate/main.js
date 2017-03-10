@@ -1,6 +1,8 @@
+const md5 = require("md5");
 const fs = require("mz/fs");
 const path = require("path");
 const mustache = require("mustache");
+const download = require('download');
 
 const marked = require("./marked");
 const mkdir = require("./mkdir_recursive")
@@ -39,7 +41,34 @@ async function main() {
     await Promise.all(articles_path.map(async article_path => {
         const article_dir = path.dirname(article_path);
         const article_filename = path.basename(article_path).replace(/\.[^.]+$/, '');
-        const article_content = (await fs.readFile(path.join(config.posts_path, article_path))).toString();
+        let article_content = (await fs.readFile(path.join(config.posts_path, article_path))).toString();
+
+        const outer_image_block_regexp = /\!\[.?\]\((http[s]?[^)]+)\)/g;
+        const image_blocks = article_content.match(outer_image_block_regexp);
+        if (image_blocks) {
+            const relative_image_folder_path = '../'.repeat(article_path.match('/').length);
+
+            const outer_image_url_regexp = /\(([^)]+)\)$/;
+            const image_url_list = image_blocks.map(block => outer_image_url_regexp.exec(block)[1]);
+
+            const replacing_list = {};
+            await Promise.all(image_url_list.map(async url => {
+                console.log('downloading...', url);
+                const image_data = await download(url);
+                const ext_name = path.extname(url);
+                const image_filename = `${md5(image_data)}${ext_name}`;
+                const image_path = `images/${image_filename}`;
+                await fs.writeFile(path.join(config.posts_path, image_path), image_data);
+
+                const replacing_path = path.join(relative_image_folder_path, image_path);
+                replacing_list[url] = replacing_path;
+            }));
+
+            for (const key in replacing_list) {
+                article_content = article_content.replace(key, replacing_list[key]);
+            }
+            await fs.writeFile(path.join(config.posts_path, article_path), article_content);
+        }
 
         const article = analyze_article(article_content, article_filename);
         article.html = marked(article.markdown);
