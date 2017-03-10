@@ -3,6 +3,7 @@ const fs = require("mz/fs");
 const path = require("path");
 const mustache = require("mustache");
 const download = require('download');
+const file_type = require('file-type');
 
 const marked = require("./marked");
 const mkdir = require("./mkdir_recursive")
@@ -55,8 +56,8 @@ async function main() {
             await Promise.all(image_url_list.map(async url => {
                 console.log('downloading...', url);
                 const image_data = await download(url);
-                const ext_name = path.extname(url);
-                const image_filename = `${md5(image_data)}${ext_name}`;
+                const ext_name = file_type(image_data).ext;
+                const image_filename = `${md5(image_data)}.${ext_name}`;
                 const image_path = `images/${image_filename}`;
                 await fs.writeFile(path.join(config.posts_path, image_path), image_data);
 
