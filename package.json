@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development webpack-dev-server --content-base public --open --inline --hot",
     "front": "cross-env NODE_ENV=production webpack --progress --hide-modules",
-    "gene": "mkdir -p public && node .",
+    "gene": "mkdir -p public && node . && cp -r posts/images public",
     "build": "npm run gene && npm run front"
   },
   "dependencies": {
