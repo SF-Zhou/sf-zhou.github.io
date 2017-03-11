@@ -13,14 +13,29 @@ const md = markdown_it({
     linkify: true,
     typography: true,
     highlight: function (str, lang) {
-        const highlight_result = `<pre class="hljs"><code>${hljs.highlightAuto(str).value}</code></pre>`;
+        const just_vue_code = (lang === 'vue');
+        const just_vue_component = (lang === 'VUE');
+        lang = lang.toLowerCase();
+        const is_vue = (lang === 'vue');
 
-        if (lang === 'Vue') {
-            const comp_name = `comp-${md5(str)}`;
-            save_component(str, comp_name);
-            return highlight_result + `<div class="vue_in_posts_container"><${comp_name} class="vue_in_posts"/></div>`;
+        if (lang && hljs.getLanguage(lang)) {
+            return `<pre class="hljs"><code>${hljs.highlight(lang, str).value}</code></pre>`;
         } else {
-            return highlight_result;
+            const highlight_result = `<pre class="hljs"><code>${hljs.highlightAuto(str).value}</code></pre>`;
+
+            if (is_vue && !just_vue_code) {
+                const comp_name = `comp-${md5(str)}`;
+                save_component(str, comp_name);
+                const component = `<div class="vue_in_posts_container"><${comp_name} class="vue_in_posts"/></div>`;
+
+                if (just_vue_component) {
+                    return component;
+                } else {
+                    return highlight_result + component;
+                }
+            } else {
+                return highlight_result;
+            }
         }
     }
 });
