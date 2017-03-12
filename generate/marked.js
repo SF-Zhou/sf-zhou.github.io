@@ -29,7 +29,7 @@ const md = markdown_it({
                 const component = `<div class="vue_in_posts_container"><${comp_name} class="vue_in_posts"/></div>`;
 
                 if (just_vue_component) {
-                    return component;
+                    return `<pre hidden><code></code></pre>` + component;
                 } else {
                     return highlight_result + component;
                 }
