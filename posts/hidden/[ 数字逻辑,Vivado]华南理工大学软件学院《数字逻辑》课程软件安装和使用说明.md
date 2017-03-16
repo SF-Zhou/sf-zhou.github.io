@@ -15,6 +15,6 @@ Vivado 软件拥有众多版本，但由于实验室计算机操作系统 Window
 
 如果上述地址不可用，也可以通过科学上网的方式，前往官网注册、下载。地址：https://www.xilinx.com/support/download/index.html/content/xilinx/en/downloadNav/vivado-design-tools/2014-2.html。
 
-下载完安装包后，解压缩，找到 xsteup.exe，双击运行安装。在选择安装的版本时，选择 Vivado Webpack。这是 Xilinx 提供的免费版本，可以通过上面的正版 License 激活使用。其他选项均默认、同意即可。
+下载完安装包后，解压缩（忽略文件错误），找到 "Xilinx_Vivado_SDK_Win_2014.2_0612_1/bin/xsetup.bat" 文件，双击运行安装。在选择安装的版本时，选择 Vivado Webpack。这是 Xilinx 提供的免费版本，可以通过上面的正版 License 激活使用。其他选项均默认、同意即可。
 
-安装完成后将自动打开 Vivado License Manager。如果没有打开或意外关闭可自行在开始菜单中找到并打开。找到 Manage License，点击第一个框内的 Copy License，最后选择下载好的 Xilinx.lic 即可完成激活。
+安装完成后将自动打开 Vivado License Manager。如果没有打开或意外关闭可自行在开始菜单中找到并打开。在软件左侧选项卡，点击 Get License -> Load License，点击 Certificate Base Licenses 框内的 Copy License...，最后选择下载好的 Xilinx.lic 即可完成激活。
