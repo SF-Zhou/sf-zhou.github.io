@@ -108,6 +108,8 @@
         border: 2px solid black;
         th, td {
             border: 1px solid black;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
         }
     }
 
