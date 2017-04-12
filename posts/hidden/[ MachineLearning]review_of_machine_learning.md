@@ -4,6 +4,12 @@
 
 ## Linear Regression & Logistic Regression
 
+### Gradient Descent
+
+$$
+w = w - \alpha \frac {1}{m} \sum_{i}{L(y_i, f(x_i, w))'}
+$$
+
 ### Target
 
 $$
