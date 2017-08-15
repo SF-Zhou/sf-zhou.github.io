@@ -13,7 +13,7 @@ Node 7.6.0 or later is required, or using babel for async/await support.
 npm install
 
 # generate static html pages
-npm gene
+npm run gene
 
 # serve with hot reload at localhost:8080
 npm run dev
