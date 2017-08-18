@@ -40,7 +40,7 @@
             padding-top: 0.5rem;
             padding-bottom: 0.5rem;
             max-width: 100%;
-            overflow-x: scroll;
+            overflow-x: auto;
         }
     }
 
@@ -89,7 +89,7 @@
 
     pre {
         max-width: 100%;
-        overflow-x: scroll;
+        overflow-x: auto;
         padding: 0.5rem 0.8rem;
         border-radius: 4px;
         border: 1px solid #d1dbe5;
