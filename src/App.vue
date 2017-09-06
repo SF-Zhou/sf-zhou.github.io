@@ -22,6 +22,7 @@
   import config from '../config.json'
   import "./style/main.less"
   import "./assets/favicon.ico"
+  import 'gitalk/dist/gitalk.css'
   
   const content = window.content;
   const current_tag = () => decodeURI(window.location.hash.slice(2));

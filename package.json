@@ -12,6 +12,7 @@
     "build": "npm run gene && npm run front"
   },
   "dependencies": {
+    "gitalk": "^1.1.3",
     "vue": "^2.1.0"
   },
   "devDependencies": {
