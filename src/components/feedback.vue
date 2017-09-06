@@ -23,7 +23,7 @@
             repo: 'sf-zhou.github.io',
             owner: 'SF-Zhou',
             admin: ['SF-Zhou'],
-            distractionFreeMode: false
+            id: window.location.pathname,
           });
 
           gitalk.render(this.$refs.gitalk_container)
