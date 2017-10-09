@@ -1,10 +1,11 @@
 import Vue from 'vue'
-import { Button, Tag, Rate, Card } from 'element-ui'
+import { Button, Tag, Rate, Card, Input } from 'element-ui'
 
 Vue.use(Button);
 Vue.use(Tag);
 Vue.use(Rate);
 Vue.use(Card);
+Vue.use(Input);
 
 import VueInPosts from "../compiled/vue_in_posts.js"
 Vue.use(VueInPosts);
