@@ -6,7 +6,7 @@
 
 ## Generate Steps
 
-Node 7.6.0 or later is required, or using babel for async/await support.
+Node 7.6.0 or later is required.
 
 ``` bash
 # install dependencies
@@ -35,6 +35,6 @@ npm run build
 - [x] Generate site index.html page;
 - [x] Support tag search;
 - [ ] Generate category index.html pages;
-- [ ] Support global text search;
-- [ ] Support comment with RESTful API;
-- [ ] Support comment @ notification;
+- [x] Support global text search (Google with 'something site:sf-zhou.github.io');
+- [x] Support comment with RESTful API (Gitalk);
+- [x] Support comment @ notification (Gitalk);
