@@ -19,11 +19,3 @@ deploy:
             token: $GIT_TOKEN
             basedir: public
             branch: master
-        - sf-zhou/gh-pages@0.2.6:
-            user: SF-Zhou
-            email: sf-zhou.scut@gmail.com
-            server: git.coding.net
-            repo: sf-zhou/sf-zhou.coding.me
-            token: $CODING_TOKEN
-            branch: master
-            basedir: public
