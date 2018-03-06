@@ -17,6 +17,10 @@
     export default {
         props: ["tags"],
         mounted: function() {
+          if (window.location.pathname.startsWith('/hidden')) {
+            return;
+          }
+
           const gitalk = new Gitalk({
             clientID: '49aeab30501e804c71b0',
             clientSecret: '6d3c8320ac0c5c461afc2c01994833f05056b0de',
