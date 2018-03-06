@@ -8,10 +8,10 @@
 
 Vivado 软件拥有众多版本，但由于实验室计算机操作系统 Windows XP 版本限制，能使用的 Vivado 版本上限为 2014.2。这也是推荐大家在自己电脑上安装的版本（有需要的话）。
 
-由于安装包过大，这里提供校内的下载地址（校内教育网可用）。由于 IP 为动态 IP，进而可能发生下载链接的改变，如有下载需求请持续关注本页面。
+由于安装包过大，这里提供校内的下载地址（校内教育网可用）。
 
-1. 下载 Vivado 软件：[Vivado 2014.2](http://125.216.238.189/Xilinx_Vivado_SDK_Win_2014.2_0612_1.tar.gz) 或者 [Vivado 2014.4](http://125.216.238.189/Xilinx_Vivado_SDK_Win_2014.4_1119_1.zip)，Win 10 用户请下载后者；
-2. 下载 Vivado License：[Xilinx.lic](http://125.216.238.189/Xilinx.lic)。
+1. 下载 Vivado 软件：[Vivado 2014.2](http://116.56.129.146:780/Xilinx_Vivado_SDK_Win_2014.2_0612_1.tar.gz) 或者 [Vivado 2014.4](http://116.56.129.146:780/Xilinx_Vivado_SDK_Win_2014.4_1119_1.zip)，Win 10 用户请下载后者；
+2. 下载 Vivado License：[Xilinx.lic](http://116.56.129.146:780/Xilinx.lic)。
 
 如果上述地址不可用，也可以通过科学上网的方式，前往官网注册、下载。地址：https://www.xilinx.com/support/download/index.html/content/xilinx/en/downloadNav/vivado-design-tools/2014-2.html。
 
