@@ -119,6 +119,9 @@ async function main() {
     const html_path = path.join(config.output_path, "index.html");
     await write_when_change(html_path, render_result);
 
+    const json_path = path.join(config.output_path, "index.json");
+    await write_when_change(json_path, JSON.stringify(articles_info, null, 2));
+
     const vue_in_posts = (await fs.readdir('compiled')).filter(filename => filename.endsWith(".vue"));
     const componenet_command = vue_in_posts.map(filename => {
         return `Vue.component('${path.basename(filename, '.vue')}', require('./${filename}'));`
