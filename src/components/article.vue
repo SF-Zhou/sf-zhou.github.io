@@ -34,9 +34,10 @@
 
     p {
         text-indent: 2rem;
+    }
 
+    eqn {
         .katex-display {
-            margin-left: -2rem; // against the text-indent
             padding-top: 0.5rem;
             padding-bottom: 0.5rem;
             max-width: 100%;

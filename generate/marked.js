@@ -1,7 +1,8 @@
 const fs = require("fs");
 const md5 = require("md5");
 const hljs = require('highlight.js');
-const mk = require('markdown-it-katex');
+const kt = require('katex');
+const tm = require('markdown-it-texmath').use(kt);
 const mi = require('markdown-it-linkify-images');
 const markdown_it = require('markdown-it');
 
@@ -39,7 +40,7 @@ const md = markdown_it({
         }
     }
 });
-md.use(mk);
+md.use(tm);
 md.use(mi);
 
 module.exports = (markdown) => {
