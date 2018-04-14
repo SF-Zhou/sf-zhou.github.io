@@ -20,7 +20,6 @@
         text-align: center;
         @media screen and (max-width: 600px) {
             font-size: 1.1rem;
-            transition: 200ms;
         }
     }
 
@@ -28,7 +27,6 @@
         font-size: 1.6rem;
         @media screen and (max-width: 600px) {
             font-size: 1.0rem;
-            transition: 200ms;
         }
     }
 

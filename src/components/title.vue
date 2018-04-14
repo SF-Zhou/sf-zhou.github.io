@@ -20,7 +20,6 @@
             @media screen and (max-width: 600px) {
                 font-size: 1.2rem;
                 font-weight: bold;
-                transition: 200ms;
             }
         }
     }
