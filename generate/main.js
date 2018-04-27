@@ -76,7 +76,7 @@ async function main() {
 
         const view = {
             index: "undefined",
-            title_string: article.title,
+            title_string: `${article.title} | ${config.site_name}`,
             title: JSON.stringify(article.title),
             date: article.date ? JSON.stringify(article.date) : "undefined",
             author: JSON.stringify(article.author),
