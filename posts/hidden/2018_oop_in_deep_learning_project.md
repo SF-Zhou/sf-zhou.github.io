@@ -21,6 +21,7 @@
 2. Low Coupling
 3. Separation of Concerns
 
+Ensure:
 
 1. Extendable
 2. Maintainable
