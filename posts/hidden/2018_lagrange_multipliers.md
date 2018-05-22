@@ -77,9 +77,34 @@ $$
 x^4 - 8x^3 + 24 x^2 + 32x - 64 = 0
 $$
 
-根据[四次方程求根公式](https://zh.wikipedia.org/wiki/%E5%9B%9B%E6%AC%A1%E6%96%B9%E7%A8%8B#%E6%B1%82%E6%A0%B9%E5%85%AC%E5%BC%8F)，可解得 $x_1 \approx 1.24, x_2 \approx -1.71$。由 $\lambda > 0$ 可得 $x > 0, y > 0$，最终可求得 $x \approx 1.24, y \approx 1.36, \min f(x, y) \approx 0.19$。
+根据[四次方程求根公式](https://zh.wikipedia.org/wiki/%E5%9B%9B%E6%AC%A1%E6%96%B9%E7%A8%8B#%E6%B1%82%E6%A0%B9%E5%85%AC%E5%BC%8F)，可解得 $x_1 \approx 1.24, x_2 \approx -1.71$。
+
+易知 $x > 0, y > 0$，最终可求得 $x \approx 1.24, y \approx 1.36, \min f(x, y) \approx 0.19$。
 
 > 上面这道题目是笔者高中的时候想到却不会解决的问题。后来大一的《工科数学分析》课程中有拉格朗日乘子法，却没有好好学习，实在惭愧。
+
+### 二、不等式约束
+
+$$
+\begin{aligned}
+& \min_{\boldsymbol x} && f(\boldsymbol x) \\
+& \textrm{s.t.} && g(\boldsymbol x) \le 0
+\end{aligned}
+$$
+
+此时最优点 $\boldsymbol x^*$ 或在 $\nabla g(\boldsymbol x) < 0$ 的区域中，可直接通过条件 $\nabla f(\boldsymbol x) = 0$ 求解，等价于将 $\lambda$ 置零后对 $\nabla _{\boldsymbol x} L(\boldsymbol x, \lambda)$ 置零得到最优点；或在边界 $\nabla g(\boldsymbol x) = 0$ 上，此时 $\nabla f(\boldsymbol x^*)$ 的方向必与 $\nabla g(\boldsymbol x^*)$ 相反，$\lambda > 0$。
+
+整合这两种情形，必满足 $\lambda \nabla g(\boldsymbol x) = 0$。因此在约束 $g(\boldsymbol x) \le 0$ 下最小化 $f(\boldsymbol x)$，可转化为在如下约束下最小化 $L(\boldsymbol x, \lambda)$ 的拉格朗日函数：
+
+$$
+\begin{cases}
+g(\boldsymbol x) \le 0 \\
+\lambda \ge 0  \\
+\lambda g(\boldsymbol x) = 0
+\end{cases}
+$$
+
+上式称为 Karush-Kuhn-Tucker（`KTT`）条件。
 
 [未完待续]
 
