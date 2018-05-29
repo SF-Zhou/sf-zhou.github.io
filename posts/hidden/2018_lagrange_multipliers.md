@@ -50,7 +50,7 @@ $$
 对应的 Jacobian 矩阵为：
 
 $$
-J_L = \left [ 2(x - 1)+\frac {\lambda} {2}x, 2(y - 1)+\frac {2\lambda }{3}y, \frac {x^2}{4} + \frac {y^2}{3} - 1 \right ] = \boldsymbol 0
+J_L = \left [ 2(x - 1)+\frac {\lambda} {2}x, 2(y - 1)+\frac {2\lambda }{3}y, \frac {x^2}{4} + \frac {y^2}{3} - 1 \right ]^T = \boldsymbol 0
 $$
 
 可得：
@@ -104,7 +104,45 @@ g(\boldsymbol x) \le 0 \\
 \end{cases}
 $$
 
-上式称为 Karush-Kuhn-Tucker（`KTT`）条件。
+上式称为 [Karush-Kuhn-Tucker（`KTT`）条件](https://en.wikipedia.org/wiki/Karush%E2%80%93Kuhn%E2%80%93Tucker_conditions)。KKT 条件是原问题求解的必要条件。具体求解过程中可以分情况讨论不等式约束是否有效。
+
+依然举个例子🌰：
+
+$$
+\begin{aligned}
+& \min_{x, y} && f(x, y) = {(x - 1)^2+(y - 1)^2} \\
+& \textrm{s.t.} && g(x, y) = \frac {x^2}{4} + \frac {y^2}{3} - 1 <= 0
+\end{aligned}
+$$
+
+解：定义拉格朗日函数：
+
+$$
+L(x, y, \lambda) = f(x, y) + \lambda g(x, y)
+$$
+
+KKT 条件为：
+
+$$
+\begin{cases}
+g(x, y) \le 0 \\
+\lambda \ge 0  \\
+\lambda g(x, y) = 0
+\end{cases}
+$$
+
+若 $g(x, y) = 0$，则类似简单情况求解，不再赘述；若 $g(x, y) < 0$，则 $\lambda = 0$，易知：
+
+$$
+\begin{aligned}
+\nabla_x L(x, y, \lambda) &= 2(x - 1) = 0\\
+\nabla_y L(x, y, \lambda) &= 2(y - 1) = 0
+\end{aligned}
+$$
+
+由上式易得 $x = 1, y = 1$，$f(x, y) = 0$。此时 $g(x, y) < 0$，条件满足。
+
+对比可得 $x = 1, y = 1$ 时 $f(x, y)$ 为最优解。
 
 [未完待续]
 
@@ -112,4 +150,5 @@ $$
 
 1. 周志华. "机器学习." 清华大学出版社，北京.
 2. ["Lagrange multiplier." 维基百科.](https://en.wikipedia.org/wiki/Lagrange_multiplier)
+3. ["Karush-Kuhn-Tucker conditions." 维基百科](https://en.wikipedia.org/wiki/Karush%E2%80%93Kuhn%E2%80%93Tucker_conditions)
 
