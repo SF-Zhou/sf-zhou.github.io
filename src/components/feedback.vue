@@ -1,12 +1,12 @@
 <template lang="pug">
   .feedback
-    .tags 标签：
+    .tags Tags:&nbsp;
       span(v-if='tags.length')
         a(v-for='tag in tags' v-bind:href='"/#/"+tag')
           el-tag(type="gray") {{ tag }}
       span(v-else)
         a(href='/#')
-        el-tag(type="gray") 唔
+        el-tag(type="gray") None
 
     .comments(ref="gitalk_container")
 </template>
