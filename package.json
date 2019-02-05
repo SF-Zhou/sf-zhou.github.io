@@ -1,47 +1,24 @@
 {
-  "name": "static.blog",
-  "description": "A Vue.js project",
+  "name": "sf-zhou-blog",
+  "description": "SF-Zhou's static Blog",
   "version": "1.0.0",
   "author": "SF-Zhou <sfzhou.scut@gmail.com>",
   "private": true,
-  "main": "generate/main.js",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development webpack-dev-server --content-base public --open --inline --hot",
-    "front": "cross-env NODE_ENV=production webpack --progress --hide-modules",
-    "gene": "mkdir -p public && node . && cp -r posts/images public",
-    "build": "npm run gene && npm run front"
-  },
-  "dependencies": {
-    "gitalk": "^1.2.2",
-    "vue": "^2.1.0"
+    "build": "./build.sh"
   },
   "devDependencies": {
-    "babel-core": "^6.23.1",
-    "babel-loader": "^6.3.2",
-    "babel-plugin-component": "^0.9.0",
-    "babel-plugin-transform-runtime": "^6.23.0",
-    "babel-preset-latest": "^6.22.0",
-    "cross-env": "^3.0.0",
-    "css-loader": "^0.25.0",
-    "download": "^5.0.3",
-    "element-ui": "^1.1.6",
-    "file-loader": "^0.9.0",
-    "file-type": "^4.1.0",
-    "highlight.js": "^9.10.0",
-    "katex": "^0.9.0",
-    "less": "^2.7.2",
-    "less-loader": "^2.2.3",
-    "markdown-it": "^8.4.1",
-    "markdown-it-linkify-images": "^1.0.0",
-    "markdown-it-texmath": "^0.4.7",
-    "md5": "^2.2.1",
-    "mustache": "^2.3.0",
-    "mz": "^2.6.0",
-    "pug": "^2.0.0-beta10",
-    "style-loader": "^0.13.1",
-    "vue-loader": "^10.0.0",
-    "vue-template-compiler": "^2.1.0",
-    "webpack": "^2.2.0",
-    "webpack-dev-server": ">=3.1.11"
+    "download": "^7.1.0",
+    "file-type": "^10.7.1",
+    "gitalk": "^1.5.0",
+    "highlight.js": "^9.14.2",
+    "katex": "^0.10.0",
+    "less": "^3.9.0",
+    "markdown-it": "^8.4.2",
+    "markdown-it-linkify-images": "^1.1.0",
+    "markdown-it-texmath": "^0.5.4",
+    "md5": ">=2.2.1",
+    "mustache": "^3.0.1",
+    "mz": "^2.7.0"
   }
 }

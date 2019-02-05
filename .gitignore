@@ -1,7 +1,6 @@
 # Custom
-.DS_Store
-public
-index.html
+/public
+/package-lock.json
 
 # Logs
 logs
