@@ -1,8 +1,6 @@
-# SF-Zhou's Blog
+# SF-Zhou's Blog [![Build Status](https://travis-ci.com/SF-Zhou/sf-zhou.github.io.svg?branch=blog)](https://travis-ci.com/SF-Zhou/sf-zhou.github.io)
 
-[![wercker status](https://app.wercker.com/status/94144b91388fbf8712fca882f24eb63e/s/blog "wercker status")](https://app.wercker.com/project/byKey/94144b91388fbf8712fca882f24eb63e)
-
-> A Blog based on GitHub Pages, Wercker, Vue.js, Node.js & Element.
+> A Blog based on GitHub Pages, Travis CI, Vue.js, Node.js & Element.
 
 ## Generate Steps
 
@@ -26,7 +24,7 @@ npm run build
 
 - [x] Design article page;
 - [x] Render simple MarkDown article;
-- [x] Deploy on GitHub Pages by Wercker;
+- [x] Deploy on GitHub Pages by Travis CI;
 - [x] Set custom domain;
 - [x] Render a set of MarkDown articles;
 - [x] Support code highlight;

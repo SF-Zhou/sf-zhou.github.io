@@ -1,0 +1,19 @@
+language: node_js
+node_js: 10
+cache: npm
+
+script:
+  - node -v
+  - npm -v
+  - npm install
+  - npm run build
+
+deploy:
+  provider: pages
+  local-dir: public
+  skip-cleanup: true
+  github-token: $GITHUB_TOKEN
+  keep-history: false
+  target-branch: master
+  on:
+    branch: blog
