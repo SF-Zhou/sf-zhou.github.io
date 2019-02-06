@@ -1,8 +1,8 @@
 {
-    "site_name": "SF-Zhou's Blog",
-    "posts_path": "posts",
-    "output_path": "public",
-    "article_format": "md",
-    "default_author": "SF-Zhou",
-    "web_master": "SF-Zhou"
+  "site_name": "SF-Zhou's Blog",
+  "posts_path": "posts",
+  "output_path": "public",
+  "article_format": "md",
+  "default_author": "SF-Zhou",
+  "web_master": "SF-Zhou"
 }

@@ -95,7 +95,7 @@ main() {
     delete article.html;
     delete article.markdown;
     const html_filename = article.filename + '.html';
-    article.url_path = path.join(article_dir, html_filename);
+    article.url_path = path.join('/', article_dir, html_filename);
 
     if (article.date) {
       articles_info.push(article);
@@ -120,7 +120,9 @@ main() {
   const view = {
     title_string: config.site_name,
     title: config.site_name,
-    article: index_result
+    article: index_result,
+    year: (new Date()).getFullYear(),
+    web_master: config.web_master
   };
   const render_result = mustache.render(article_template, view);
   const html_path = path.join(config.output_path, 'index.html');

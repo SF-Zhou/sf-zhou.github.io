@@ -28,7 +28,6 @@ body {
     color: darkslategray;
     transition: 300ms
   }
-  .index,
   .markdown {
     flex: 1;
   }
@@ -38,8 +37,8 @@ body {
       margin-top: 0;
       text-align: center;
       font-size: 2.5rem;
-      @media screen and (max-width: 600px) {
-        font-size: 1.2rem;
+      @media screen and (max-width: 700px) {
+        font-size: 1.5rem;
         font-weight: bold;
       }
     }
@@ -67,6 +66,12 @@ body {
     overflow: hidden;
     box-shadow: 0 2px 4px 0 rgba(0, 0, 0, .12), 0 0 6px 0 rgba(0, 0, 0, .04);
     margin-bottom: 2rem;
+    p {
+      text-indent: 0rem;
+      display: inline-block;
+      margin-block-start: 0rem;
+      margin-block-end: 0rem;
+    }
   }
   .abstract {
     padding: 20px;
@@ -81,7 +86,6 @@ body {
       margin-right: .5rem;
     }
   }
-
   .tags {
     display: inline-block;
     .tag {
