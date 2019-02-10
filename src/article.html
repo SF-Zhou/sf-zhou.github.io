@@ -16,10 +16,12 @@
       <div class="title">
         <h1> {{{ title }}} </h1>
       </div>
+      {{#author}}
       <div class="info">
         <div class="date"> {{{ date }}} </div>
         <div class="date"> {{{ author }}} </div>
       </div>
+      {{/author}}
       <div class="markdown">
         {{{ article }}}
       </div>
@@ -30,7 +32,7 @@
           Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
         </div>
         <div class="copyright">
-          Copyright©{{{ year }}} {{{ web_master }}}, All Rights Reserved.
+          Copyright©{{{ year }}} {{{ web_master }}}, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://travis-ci.com/SF-Zhou/sf-zhou.github.io">Travis CI</a>.
         </div>
       </div>
     </div>
