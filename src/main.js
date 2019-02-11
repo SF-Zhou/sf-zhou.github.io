@@ -59,7 +59,10 @@ main() {
       await Promise.all(image_url_list.map(async url => {
         console.log('downloading...', url);
         const image_data = await download(url);
-        const ext_name = file_type(image_data).ext;
+        let ext_name = file_type(image_data).ext;
+        if (ext_name === 'xml') {
+          ext_name = 'svg';
+        }
         const image_filename = `${md5(image_data)}.${ext_name}`;
         const image_path = `images/${image_filename}`;
         await fs.writeFile(
