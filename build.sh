@@ -17,5 +17,5 @@ cp ./node_modules/katex/dist/katex.min.js public/dist
 cp -r ./node_modules/katex/dist/fonts public/dist
 
 # Gitalk
-cp ./node_modules/gitalk/dist/gitalk.css public/dist
-cp ./node_modules/gitalk/dist/gitalk.min.js public/dist
+sed /sourceMappingURL=/d ./node_modules/gitalk/dist/gitalk.css > public/dist/gitalk.css
+sed /sourceMappingURL=/d ./node_modules/gitalk/dist/gitalk.min.js > public/dist/gitalk.min.js
