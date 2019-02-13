@@ -6,7 +6,7 @@ cp -r posts/images public
 cp -r dist public
 
 # Less to CSS
-./node_modules/.bin/lessc dist/main.less public/dist/main.css
+$(npm bin)/lessc dist/main.less public/dist/main.css
 
 # Highlight JS
 cp ./node_modules/highlight.js/styles/github.css public/dist
