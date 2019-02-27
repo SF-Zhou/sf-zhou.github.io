@@ -1,22 +1,39 @@
-const hljs = require('highlight.js');
-const kt = require('katex');
-const tm = require('markdown-it-texmath').use(kt);
-const mi = require('markdown-it-linkify-images');
+const prism = require('prismjs');
+const katex = require('katex');
+const texmath = require('markdown-it-texmath').use(katex);
+const linkify_image = require('markdown-it-linkify-images');
 const markdown_it = require('markdown-it');
+
+var load_languages = require('prismjs/components/');
+load_languages(['cpp', 'python', 'bash', 'json', 'yaml']);
 
 const md = markdown_it({
   linkify: true,
   typography: true,
   highlight: function (str, lang) {
-    if (lang && hljs.getLanguage(lang)) {
-      return `<pre class="hljs"><code>${hljs.highlight(lang, str).value}</code></pre>`;
-    } else {
-      return `<pre class="hljs"><code>${hljs.highlightAuto(str).value}</code></pre>`;
+    lang = lang.toLowerCase();
+    const map = {
+      '': 'markup',
+      'cmake': 'markup',
+      'c++': 'cpp',
+      'yml': 'yaml',
     }
+    if (lang in map) {
+      lang = map[lang];
+    }
+
+    let hl;
+    try {
+      hl = prism.highlight(str, prism.languages[lang]);
+    } catch (error) {
+      console.log(lang, error);
+      hl = md.utils.escapeHtml(str)
+    }
+    return `<pre class="language-${lang}"><code class="language-${lang}">${hl}</code></pre>`;
   }
 });
-md.use(tm);
-md.use(mi);
+md.use(texmath);
+md.use(linkify_image);
 
 module.exports = (markdown) => {
   return md.render(markdown);

@@ -9,7 +9,7 @@ cp -r dist public
 $(npm bin)/lessc dist/main.less public/dist/main.css
 
 # Highlight JS
-cp ./node_modules/highlight.js/styles/github.css public/dist
+cp ./node_modules/prismjs/themes/prism-tomorrow.css public/dist/highlight.css
 
 # KaTeX
 cp ./node_modules/katex/dist/katex.min.css public/dist
