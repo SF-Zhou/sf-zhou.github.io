@@ -24,6 +24,15 @@ e^{ix} &= 1 + ix + \frac {(ix)^2} {2!} + \frac {(ix)^3} {3!} + \frac {(ix)^4} {4
 \end{aligned}
 $$
 
+### Geometric Interpretation
+
+$$
+\begin{aligned}
+e^{ix} &= \lim_{n \to \infty} (1 + \frac {ix} {n})^n\\
+&=\lim_{n \to \infty} \underbrace{(1+\frac {x}{n}i) \cdots (1+\frac {x}{n}i)}_{n}\\
+\end{aligned}
+$$
+
 ### Trigonometric Addition Formulas
 
 $$
