@@ -14,7 +14,7 @@
     "katex": "^0.10.1",
     "less": "^3.9.0",
     "markdown-it": "^8.4.2",
-    "markdown-it-linkify-images": "^1.1.0",
+    "markdown-it-implicit-figures": "^0.9.0",
     "markdown-it-texmath": "^0.5.5",
     "md5": ">=2.2.1",
     "mustache": "^3.0.1",

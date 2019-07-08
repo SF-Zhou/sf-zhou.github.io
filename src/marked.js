@@ -1,7 +1,7 @@
 const prism = require('prismjs');
 const katex = require('katex');
 const texmath = require('markdown-it-texmath').use(katex);
-const linkify_image = require('markdown-it-linkify-images');
+const implicit_figures = require('markdown-it-implicit-figures');
 const markdown_it = require('markdown-it');
 
 var load_languages = require('prismjs/components/');
@@ -32,8 +32,13 @@ const md = markdown_it({
     return `<pre class="language-${lang}"><code class="language-${lang}">${hl}</code></pre>`;
   }
 });
+md.use(implicit_figures, {
+  dataType: false,
+  figcaption: true,
+  tabindex: true,
+  link: true,
+})
 md.use(texmath);
-md.use(linkify_image);
 
 module.exports = (markdown) => {
   return md.render(markdown);
