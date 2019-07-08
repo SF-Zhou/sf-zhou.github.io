@@ -45,7 +45,7 @@ main() {
         (await fs.readFile(path.join(config.posts_path, article_path)))
             .toString();
 
-    const outer_image_block_regexp = /\!\[.?\]\((http[s]?[^)]+)\)/g;
+    const outer_image_block_regexp = /\!\[.*\]\((http[s]?[^)]+)\)/g;
     const image_blocks = article_content.match(outer_image_block_regexp);
     if (image_blocks) {
       const relative_image_folder_path =
