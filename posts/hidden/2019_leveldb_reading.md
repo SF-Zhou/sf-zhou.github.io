@@ -17,7 +17,7 @@
 | ./db/db\_impl.h | |
 | ./db/db\_iter.cc | |
 | ./db/db\_iter.h | |
-| ./db/db\_test.cc | |
+| ./db/db\_test.cc | 2000 多行的测试（还没细读） |
 | ./db/dbformat.cc | InternalKey、LookupKey 封装函数 |
 | ./db/dbformat.h | 定一了 DB 内部的核心 Config，以及 InternalKey 和 LookupKey 包装，在 db 目录下均使用封装后的 key 值 |
 | ./db/dbformat\_test.cc | DBFormat 测试 |
@@ -39,9 +39,9 @@
 | ./db/repair.cc | RepairDB 的实现（没细读） |
 | ./db/skiplist.h | SkipList，支持遍历、快速查找，无删除。同步机制还需要再研究下 |
 | ./db/skiplist\_test.cc | SkipList 测试 |
-| ./db/snapshot.h | |
-| ./db/table\_cache.cc | |
-| ./db/table\_cache.h | |
+| ./db/snapshot.h | Snapshot 双向链表 |
+| ./db/table\_cache.cc | Table LRU Cache 实现 |
+| ./db/table\_cache.h | Table LRU Cache 接口 |
 | ./db/version\_edit.cc | |
 | ./db/version\_edit.h | |
 | ./db/version\_edit\_test.cc | |
@@ -76,24 +76,24 @@
 | ./port/port\_example.h | 平台适配 |
 | ./port/port\_stdcxx.h | 平台适配 |
 | ./port/thread\_annotations.h | 平台适配 |
-| ./table/block.cc | |
-| ./table/block.h | |
-| ./table/block\_builder.cc | |
-| ./table/block\_builder.h | |
-| ./table/filter\_block.cc | |
-| ./table/filter\_block.h | |
-| ./table/filter\_block\_test.cc | |
-| ./table/format.cc | |
-| ./table/format.h | |
-| ./table/iterator.cc | |
-| ./table/iterator\_wrapper.h | |
-| ./table/merger.cc | |
-| ./table/merger.h | |
-| ./table/table.cc | |
-| ./table/table\_builder.cc | |
-| ./table/table\_test.cc | |
-| ./table/two\_level\_iterator.cc | |
-| ./table/two\_level\_iterator.h | |
+| ./table/block.cc | Block Iterator 的实现，包括共享 key 下的二分查找 |
+| ./table/block.h | Block 的定义，最后 4 位存储 NumRestarts |
+| ./table/block\_builder.cc | BlockBuilder 实现，注释中描述了 Block 的 Form |
+| ./table/block\_builder.h | BlockBuilder 接口 |
+| ./table/filter\_block.cc | FilterBlockBuilder 和 FilterBlockReader 的实现 |
+| ./table/filter\_block.h | FilterBlockBuilder 和 FilterBlockReader 的接口 |
+| ./table/filter\_block\_test.cc | FilterBlock 的测试 |
+| ./table/format.cc | BlockHandle 和 Footer 的 Encode 和 Decode，以及 ReadBlock 实现 |
+| ./table/format.h | BlockHandle、Footer 的定义。BlockHandle 包含 offset 和 size，Footer 包含 MetaIndex 和 Index 的 BlockHandle。Block 的尾部包含 Block Type 和 CRC 校验值。 |
+| ./table/iterator.cc | Iterator 的函数实现，包括 EmptyIterator |
+| ./table/iterator\_wrapper.h | Iterator Wrapper，缓存 Key 值和 Valid，avoid virtual function calls |
+| ./table/merger.cc | Iterator Merge，Sharded 实现 |
+| ./table/merger.h | Iterator Merge 接口 |
+| ./table/table.cc | Table Reader |
+| ./table/table\_builder.cc | Table Writer |
+| ./table/table\_test.cc | Table 测试（还没细读） |
+| ./table/two\_level\_iterator.cc | TwoLevelIterator 实现（还需要细读） |
+| ./table/two\_level\_iterator.h | TwoLevelIterator 接口 |
 | ./util/arena.cc | `MemoryPool` 的实现。提供 `Allocate` 和 `AllocateAligned` 两种接口，后者保证申请的内存起始地址对齐。默认申请 4k 的 Block，每次消费 Block 中的剩余空间。析构时依次删除每个 Block。 |
 | ./util/arena.h | `MemoryPool` 接口 |
 | ./util/arena\_test.cc | `Arena` 测试 |
