@@ -9,8 +9,8 @@
 | ./benchmarks/db\_bench\_tree\_db.cc | Benchmark |
 | ./build/include/port/port\_config.h | Generated |
 | ./db/autocompact\_test.cc | 测试（还没细读） |
-| ./db/builder.cc | |
-| ./db/builder.h | |
+| ./db/builder.cc | 根据 Iter 构建 Table 并写文件 |
+| ./db/builder.h | BuildTable 接口 |
 | ./db/c.cc | C 封装 |
 | ./db/corruption\_test.cc | 测试（还没细读） |
 | ./db/db\_impl.cc | |
@@ -42,12 +42,12 @@
 | ./db/snapshot.h | Snapshot 双向链表 |
 | ./db/table\_cache.cc | Table LRU Cache 实现 |
 | ./db/table\_cache.h | Table LRU Cache 接口 |
-| ./db/version\_edit.cc | |
-| ./db/version\_edit.h | |
-| ./db/version\_edit\_test.cc | |
-| ./db/version\_set.cc | |
-| ./db/version\_set.h | |
-| ./db/version\_set\_test.cc | |
+| ./db/version\_edit.cc | Version Meta 编解码 |
+| ./db/version\_edit.h | 可 Edit 的 Version Meta |
+| ./db/version\_edit\_test.cc | Version Meta 编解码测试 |
+| ./db/version\_set.cc |  |
+| ./db/version\_set.h | Version、VersionSet 和 Compaction 的定义 |
+| ./db/version\_set\_test.cc | 一半是 FindFile 和 SomeFileOverlapsRange 的测试 |
 | ./db/write\_batch.cc | WriteBatch 构造、合并及写入 MemTable |
 | ./db/write\_batch\_internal.h | WriteBatch 内部接口 |
 | ./db/write\_batch\_test.cc | WriteBatch 测试（还没细读） |
