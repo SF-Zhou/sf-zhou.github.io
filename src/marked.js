@@ -1,4 +1,5 @@
 const prism = require('prismjs');
+require('prismjs/components/prism-cmake');
 const katex = require('katex');
 const texmath = require('markdown-it-texmath').use(katex);
 const implicit_figures = require('markdown-it-implicit-figures');
@@ -15,7 +16,6 @@ const md = markdown_it({
     lang = lang.toLowerCase();
     const map = {
       '': 'markup',
-      'cmake': 'markup',
       'c++': 'cpp',
       'yml': 'yaml',
     }
