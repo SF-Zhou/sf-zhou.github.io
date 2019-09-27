@@ -7,7 +7,7 @@ const anchor = require('markdown-it-anchor');
 const markdown_it = require('markdown-it');
 
 var load_languages = require('prismjs/components/');
-load_languages(['cpp', 'python', 'bash', 'json', 'yaml']);
+load_languages(['cpp', 'python', 'bash', 'json', 'yaml', 'nasm']);
 
 const md = markdown_it({
   linkify: true,
@@ -18,6 +18,7 @@ const md = markdown_it({
       '': 'markup',
       'c++': 'cpp',
       'yml': 'yaml',
+      'assembly': 'nasm',
     }
     if (lang in map) {
       lang = map[lang];
