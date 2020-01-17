@@ -13,7 +13,7 @@
     "gitalk": "^1.5.0",
     "katex": "^0.11.0",
     "less": "^3.10.3",
-    "markdown-it": "^8.4.2",
+    "markdown-it": "^10.0.0",
     "markdown-it-anchor": "^5.2.4",
     "markdown-it-implicit-figures": "^0.9.0",
     "markdown-it-texmath": "^0.6.0",
