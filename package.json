@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "download": "^7.1.0",
-    "file-type": "^10.11.0",
+    "file-type": "^13.1.0",
     "gitalk": "^1.5.0",
     "katex": "^0.11.0",
     "less": "^3.10.3",
