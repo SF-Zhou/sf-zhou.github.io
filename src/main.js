@@ -59,7 +59,8 @@ main() {
       await Promise.all(image_url_list.map(async url => {
         console.log('downloading...', url);
         const image_data = await download(url);
-        let ext_name = file_type(image_data).ext;
+        const type_info = await file_type.fromBuffer(image_data);
+        let ext_name = type_info.ext;
         if (ext_name === 'xml') {
           ext_name = 'svg';
         }
