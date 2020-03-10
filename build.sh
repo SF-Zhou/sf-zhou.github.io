@@ -13,7 +13,6 @@ cp ./node_modules/prismjs/themes/prism-tomorrow.css public/dist/highlight.css
 
 # KaTeX
 cp ./node_modules/katex/dist/katex.min.css public/dist
-cp ./node_modules/katex/dist/katex.min.js public/dist
 cp -r ./node_modules/katex/dist/fonts public/dist
 
 # Gitalk
