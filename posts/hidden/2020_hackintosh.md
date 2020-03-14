@@ -29,3 +29,11 @@
 
 ![](../images/c987b7fdfef6f954bb8b66798bee5fa0.png)
 
+### 4. 超频
+
+BIOS 里折腾了下超频，不改变电压的情况下 CPU 全核心最高睿频设为 4.7GHz（默认 4.3GHz），不改变时序的情况下内存超到 3900MHz，跑 Geekbench 5 还是很稳的。
+
+再往上 CPU 4.8GHz 跑 Geekbench 5 会跪掉，加电压肯定会升温，小风冷不太行就算了。内存 4000MHz 跑 MemTest 很稳，但是玩游戏会崩掉，懒得改时序了。
+
+![](../images/d89c794cac47ea087d1e7f03c135c3a9.png)
+
