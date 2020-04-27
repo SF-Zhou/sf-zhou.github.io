@@ -101,7 +101,7 @@ main() {
     const html_filename = article.filename + '.html';
     article.url_path = path.join('/', article_dir, html_filename);
 
-    if (article.date) {
+    if (article.date && !article.tags.includes('Hidden')) {
       articles_info.push(article);
     }
 
