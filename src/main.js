@@ -98,10 +98,11 @@ main() {
 
     delete article.html;
     delete article.markdown;
-    const html_filename = article.filename + '.html';
+    const hidden = article.tags.includes('Hidden');
+    const html_filename = article.filename + (hidden ? '.htm' : '.html');
     article.url_path = path.join('/', article_dir, html_filename);
 
-    if (article.date && !article.tags.includes('Hidden')) {
+    if (!hidden) {
       articles_info.push(article);
     }
 
