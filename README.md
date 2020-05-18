@@ -4,7 +4,7 @@
 
 ## Generate Steps
 
-Node 7.6.0 or later is required.
+Node 10 or later is required.
 
 ``` bash
 # install dependencies

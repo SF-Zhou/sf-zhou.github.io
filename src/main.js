@@ -1,59 +1,58 @@
 const md5 = require('md5');
-const fs = require('mz/fs');
+const fs = require('fs').promises;
+const exists = require('fs').existsSync;
 const path = require('path');
 const mustache = require('mustache');
 const download = require('download');
 const file_type = require('file-type');
 
 const marked = require('./marked');
-const mkdir = require('./mkdir_recursive')
 const list_articles = require('./list_articles');
 const analyze_article = require('./analyze_article');
 
 const config = require('../config.json');
 
 const write_when_change =
-    async function(file_path, new_content) {
-  if (await fs.exists(file_path)) {
-    const old_content = (await fs.readFile(file_path)).toString();
-    if (old_content === new_content) {
-      return;
+  async function (file_path, new_content) {
+    if (exists(file_path)) {
+      const old_content = (await fs.readFile(file_path)).toString();
+      if (old_content === new_content) {
+        return;
+      }
     }
+    await fs.writeFile(file_path, new_content);
   }
-  await fs.writeFile(file_path, new_content);
-}
 
-async function
-main() {
-  const {dirs, articles_path} =
-      await list_articles(config.posts_path, config.article_format);
+async function main() {
+  const { dirs, articles_path } =
+    await list_articles(config.posts_path, config.article_format);
 
-  mkdir(config.output_path);
+  await fs.mkdir(config.output_path, { recursive: true });
   for (const dir of [...dirs]) {
-    await mkdir(path.join(config.output_path, dir));
+    await fs.mkdir(path.join(config.output_path, dir), { recursive: true });
   }
 
   const article_template_name = './src/article.html';
-  const article_template = fs.readFileSync(article_template_name).toString();
+  const article_template = (await fs.readFile(article_template_name)).toString();
 
   let articles_info = [];
   await Promise.all(articles_path.map(async article_path => {
     const article_dir = path.dirname(article_path);
     const article_filename =
-        path.basename(article_path).replace(/\.[^.]+$/, '');
+      path.basename(article_path).replace(/\.[^.]+$/, '');
     let article_content =
-        (await fs.readFile(path.join(config.posts_path, article_path)))
-            .toString();
+      (await fs.readFile(path.join(config.posts_path, article_path)))
+        .toString();
 
     const outer_image_block_regexp = /\!\[.*\]\((http[s]?[^)]+)\)/g;
     const image_blocks = article_content.match(outer_image_block_regexp);
     if (image_blocks) {
       const relative_image_folder_path =
-          '../'.repeat(article_path.match('/').length);
+        '../'.repeat(article_path.match('/').length);
 
       const outer_image_url_regexp = /\(([^)]+)\)$/;
       const image_url_list =
-          image_blocks.map(block => outer_image_url_regexp.exec(block)[1]);
+        image_blocks.map(block => outer_image_url_regexp.exec(block)[1]);
 
       const replacing_list = {};
       await Promise.all(image_url_list.map(async url => {
@@ -67,10 +66,10 @@ main() {
         const image_filename = `${md5(image_data)}.${ext_name}`;
         const image_path = `images/${image_filename}`;
         await fs.writeFile(
-            path.join(config.posts_path, image_path), image_data);
+          path.join(config.posts_path, image_path), image_data);
 
         const replacing_path =
-            path.join(relative_image_folder_path, image_path);
+          path.join(relative_image_folder_path, image_path);
         replacing_list[url] = replacing_path;
       }));
 
@@ -78,7 +77,7 @@ main() {
         article_content = article_content.replace(key, replacing_list[key]);
       }
       await fs.writeFile(
-          path.join(config.posts_path, article_path), article_content);
+        path.join(config.posts_path, article_path), article_content);
     }
 
     const article = analyze_article(article_content, article_filename);
@@ -118,9 +117,9 @@ main() {
   });
 
   const index_template_name = './src/card.html';
-  const index_template = fs.readFileSync(index_template_name).toString();
+  const index_template = (await fs.readFile(index_template_name)).toString();
   const index_result =
-      mustache.render(index_template, {articles: articles_info});
+    mustache.render(index_template, { articles: articles_info });
 
   const view = {
     title_string: config.site_name,

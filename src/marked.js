@@ -1,5 +1,4 @@
 const prism = require('prismjs');
-require('prismjs/components/prism-cmake');
 const katex = require('katex');
 const texmath = require('markdown-it-texmath').use(katex);
 const implicit_figures = require('markdown-it-implicit-figures');
@@ -7,7 +6,7 @@ const anchor = require('markdown-it-anchor');
 const markdown_it = require('markdown-it');
 
 var load_languages = require('prismjs/components/');
-load_languages(['cpp', 'bash', 'json', 'nasm', 'protobuf', 'python', 'rust', 'yaml']);
+load_languages(['bash', 'cmake', 'cpp', 'json', 'nasm', 'protobuf', 'python', 'rust', 'yaml']);
 
 const md = markdown_it({
   linkify: true,

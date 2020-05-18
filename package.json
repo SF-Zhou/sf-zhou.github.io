@@ -19,7 +19,6 @@
     "markdown-it-texmath": "^0.6.0",
     "md5": ">=2.2.1",
     "mustache": "^4.0.0",
-    "mz": "^2.7.0",
     "prismjs": "^1.19.0"
   }
 }
