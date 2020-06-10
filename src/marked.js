@@ -5,7 +5,7 @@ const implicit_figures = require('markdown-it-implicit-figures');
 const anchor = require('markdown-it-anchor');
 const markdown_it = require('markdown-it');
 
-var load_languages = require('prismjs/components/');
+const load_languages = require('prismjs/components/');
 load_languages(['bash', 'cmake', 'cpp', 'json', 'nasm', 'protobuf', 'python', 'rust', 'yaml']);
 
 const md = markdown_it({
@@ -17,6 +17,7 @@ const md = markdown_it({
       '': 'markup',
       'c++': 'cpp',
       'yml': 'yaml',
+      'asm': 'nasm',
       'assembly': 'nasm',
     }
     if (lang in map) {
