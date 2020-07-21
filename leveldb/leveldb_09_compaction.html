@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>LevelDB 源码分析「九、Compaction」 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> LevelDB 源码分析「九、Compaction」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2019.09.13 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p><em>祝大家中秋快乐！</em></p>
+<p>LevelDB 源码分析系列也步入尾声，本篇将分析 LevelDB 中至关重要的 Compaction 过程，依然从代码的角度出发。建议大家同时阅读<a href="https://leveldb-handbook.readthedocs.io/zh/latest/compaction.html">参考文献 1</a> 了解 Compaction 的作用和过程的描述。</p>
+<h3 id="1.-触发-compaction"><a href="#1.-%E8%A7%A6%E5%8F%91-compaction">1. 触发 Compaction</a></h3>
+<p><a href="/leveldb/leveldb_05_sorted_table.html">本系列第三篇</a>中描述了内存数据库转为 Sorted Table 的过程，其中会执行 <code>DBImpl::BackgroundCompaction</code> 这一后台任务：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">BackgroundCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>imm_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CompactMemTable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  Compaction<span class="token operator">*</span> c<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> is_manual <span class="token operator">=</span> <span class="token punctuation">(</span>manual_compaction_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  InternalKey manual_end<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>is_manual<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    c <span class="token operator">=</span> versions_<span class="token operator">-></span><span class="token function">PickCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>现在假设 <code>imm_</code> 为空，并且不考虑手动 Compaction，那么这里会执行 <code>versions_-&gt;PickCompaction</code> 去选择一个 Compaction，其实现位于 <a href="https://github.com/google/leveldb/blob/master/db/version_set.cc"><code>db/version_set.cc</code></a>：</p>
+<pre class="language-cpp"><code class="language-cpp">Compaction<span class="token operator">*</span> VersionSet<span class="token operator">::</span><span class="token function">PickCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  Compaction<span class="token operator">*</span> c<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> level<span class="token punctuation">;</span>
+
+  <span class="token comment">// We prefer compactions triggered by too much data in a level over</span>
+  <span class="token comment">// the compactions triggered by seeks.</span>
+  <span class="token keyword">const</span> <span class="token keyword">bool</span> size_compaction <span class="token operator">=</span> <span class="token punctuation">(</span>current_<span class="token operator">-></span>compaction_score_ <span class="token operator">>=</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">bool</span> seek_compaction <span class="token operator">=</span> <span class="token punctuation">(</span>current_<span class="token operator">-></span>file_to_compact_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>这里会有两种需要 Compaction 的情况，一种是某一 Level 的分数超过了 1，一种是某一个文件的无效查询次数超过阈值。分数的计算位于版本更新之后的 <code>VersionSet::Finalize</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> VersionSet<span class="token operator">::</span><span class="token function">Finalize</span><span class="token punctuation">(</span>Version<span class="token operator">*</span> v<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Precomputed best level for next compaction</span>
+  <span class="token keyword">int</span> best_level <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token keyword">double</span> best_score <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> level <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> level <span class="token operator">&lt;</span> config<span class="token operator">::</span>kNumLevels <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">;</span> level<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">double</span> score<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>level <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// We treat level-0 specially by bounding the number of files</span>
+      <span class="token comment">// instead of number of bytes for two reasons:</span>
+      <span class="token comment">//</span>
+      <span class="token comment">// (1) With larger write-buffer sizes, it is nice not to do too</span>
+      <span class="token comment">// many level-0 compactions.</span>
+      <span class="token comment">//</span>
+      <span class="token comment">// (2) The files in level-0 are merged on every read and</span>
+      <span class="token comment">// therefore we wish to avoid too many files when the individual</span>
+      <span class="token comment">// file size is small (perhaps because of a small write-buffer</span>
+      <span class="token comment">// setting, or very high compression ratios, or lots of</span>
+      <span class="token comment">// overwrites/deletions).</span>
+      score <span class="token operator">=</span> v<span class="token operator">-></span>files_<span class="token punctuation">[</span>level<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">/</span>
+              <span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">double</span><span class="token operator">></span><span class="token punctuation">(</span>config<span class="token operator">::</span>kL0_CompactionTrigger<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token comment">// Compute the ratio of current size to size limit.</span>
+      <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> level_bytes <span class="token operator">=</span> <span class="token function">TotalFileSize</span><span class="token punctuation">(</span>v<span class="token operator">-></span>files_<span class="token punctuation">[</span>level<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      score <span class="token operator">=</span>
+          <span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">double</span><span class="token operator">></span><span class="token punctuation">(</span>level_bytes<span class="token punctuation">)</span> <span class="token operator">/</span> <span class="token function">MaxBytesForLevel</span><span class="token punctuation">(</span>options_<span class="token punctuation">,</span> level<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>score <span class="token operator">></span> best_score<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      best_level <span class="token operator">=</span> level<span class="token punctuation">;</span>
+      best_score <span class="token operator">=</span> score<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  v<span class="token operator">-></span>compaction_level_ <span class="token operator">=</span> best_level<span class="token punctuation">;</span>
+  v<span class="token operator">-></span>compaction_score_ <span class="token operator">=</span> best_score<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>对于 0 层文件，当文件数量超过阈值（默认 4）时触发 Compaction；对于其他层的文件，当文件的总大小超过阈值（默认 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><msup><mn>0</mn><mi>l</mi></msup></mrow><annotation encoding="application/x-tex">10^{l}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.849108em;vertical-align:0em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.849108em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.01968em;">l</span></span></span></span></span></span></span></span></span></span></span></span></eq>MB）时触发 Compaction。而一个文件的的查询次数阈值定义于 <code>VersionSet::Builder::Apply</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// We arrange to automatically compact this file after</span>
+<span class="token comment">// a certain number of seeks.  Let's assume:</span>
+<span class="token comment">//   (1) One seek costs 10ms</span>
+<span class="token comment">//   (2) Writing or reading 1MB costs 10ms (100MB/s)</span>
+<span class="token comment">//   (3) A compaction of 1MB does 25MB of IO:</span>
+<span class="token comment">//         1MB read from this level</span>
+<span class="token comment">//         10-12MB read from next level (boundaries may be misaligned)</span>
+<span class="token comment">//         10-12MB written to next level</span>
+<span class="token comment">// This implies that 25 seeks cost the same as the compaction</span>
+<span class="token comment">// of 1MB of data.  I.e., one seek costs approximately the</span>
+<span class="token comment">// same as the compaction of 40KB of data.  We are a little</span>
+<span class="token comment">// conservative and allow approximately one seek for every 16KB</span>
+<span class="token comment">// of data before triggering a compaction.</span>
+f<span class="token operator">-></span>allowed_seeks <span class="token operator">=</span> <span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span><span class="token punctuation">(</span><span class="token punctuation">(</span>f<span class="token operator">-></span>file_size <span class="token operator">/</span> <span class="token number">16384U</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">if</span> <span class="token punctuation">(</span>f<span class="token operator">-></span>allowed_seeks <span class="token operator">&lt;</span> <span class="token number">100</span><span class="token punctuation">)</span> f<span class="token operator">-></span>allowed_seeks <span class="token operator">=</span> <span class="token number">100</span><span class="token punctuation">;</span>
+</code></pre>
+<p>英文注释写得十分详细。首先假设：</p>
+<ol>
+<li>一次查询耗时 10ms；</li>
+<li>读/写 1MB 耗时 10ms （假设速度 100MB/s）；</li>
+<li>1MB 的 Compaction 需要做 25 MB 的 IO
+<ol>
+<li>本层读 1MB；</li>
+<li>下一层读 10-12 MB</li>
+<li>Compaction 后写 10-12 MB</li>
+</ol>
+</li>
+</ol>
+<p>整体来看，1MB 的数据做 25 次查询和 Compaction 的时间差不多，1 次查询就相当于做 40KB 数据的 Compaction。LevelDB 将其设为更保守的 16KB，进而一个文件的查询次数阈值设定为 <code>FileSize / 16KB</code>。当一次查询中读取了多个文件，则将第一个文件的查询次数 +1，直到其超过阈值、触发 Compaction。继续看 <code>VersionSet::PickCompaction</code>：</p>
+<pre class="language-cpp"><code class="language-cpp">Compaction<span class="token operator">*</span> VersionSet<span class="token operator">::</span><span class="token function">PickCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>size_compaction<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    level <span class="token operator">=</span> current_<span class="token operator">-></span>compaction_level_<span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>level <span class="token operator">>=</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>level <span class="token operator">+</span> <span class="token number">1</span> <span class="token operator">&lt;</span> config<span class="token operator">::</span>kNumLevels<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    c <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">Compaction</span><span class="token punctuation">(</span>options_<span class="token punctuation">,</span> level<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// Pick the first file that comes after compact_pointer_[level]</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> current_<span class="token operator">-></span>files_<span class="token punctuation">[</span>level<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      FileMetaData<span class="token operator">*</span> f <span class="token operator">=</span> current_<span class="token operator">-></span>files_<span class="token punctuation">[</span>level<span class="token punctuation">]</span><span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>compact_pointer_<span class="token punctuation">[</span>level<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">||</span>
+          icmp_<span class="token punctuation">.</span><span class="token function">Compare</span><span class="token punctuation">(</span>f<span class="token operator">-></span>largest<span class="token punctuation">.</span><span class="token function">Encode</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> compact_pointer_<span class="token punctuation">[</span>level<span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>f<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">break</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// Wrap-around to the beginning of the key space</span>
+      c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>current_<span class="token operator">-></span>files_<span class="token punctuation">[</span>level<span class="token punctuation">]</span><span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>seek_compaction<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    level <span class="token operator">=</span> current_<span class="token operator">-></span>file_to_compact_level_<span class="token punctuation">;</span>
+    c <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">Compaction</span><span class="token punctuation">(</span>options_<span class="token punctuation">,</span> level<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>current_<span class="token operator">-></span>file_to_compact_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  c<span class="token operator">-></span>input_version_ <span class="token operator">=</span> current_<span class="token punctuation">;</span>
+  c<span class="token operator">-></span>input_version_<span class="token operator">-></span><span class="token function">Ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Files in level 0 may overlap each other, so pick up all overlapping ones</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>level <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    InternalKey smallest<span class="token punctuation">,</span> largest<span class="token punctuation">;</span>
+    <span class="token function">GetRange</span><span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>smallest<span class="token punctuation">,</span> <span class="token operator">&amp;</span>largest<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// Note that the next call will discard the file we placed in</span>
+    <span class="token comment">// c->inputs_[0] earlier and replace it with an overlapping set</span>
+    <span class="token comment">// which will include the picked file.</span>
+    current_<span class="token operator">-></span><span class="token function">GetOverlappingInputs</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>smallest<span class="token punctuation">,</span> <span class="token operator">&amp;</span>largest<span class="token punctuation">,</span> <span class="token operator">&amp;</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">SetupOtherInputs</span><span class="token punctuation">(</span>c<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">return</span> c<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>对于数据大小触发的 Compaction，会选取 <code>compact_pointer_</code> 后的第一个文件作为 Compaction 对象，即本层上一次 Compaction 区间之后的文件；而查询次数触发的 Compaction 其本身对应一个文件。对于 0 层文件，因为之间存在 Overlap，需要将存在重叠的文件都加入 Compaction 集合里。至此本层的文件选择完毕。</p>
+<h3 id="2.-扩大-compaction-文件集合"><a href="#2.-%E6%89%A9%E5%A4%A7-compaction-%E6%96%87%E4%BB%B6%E9%9B%86%E5%90%88">2. 扩大 Compaction 文件集合</a></h3>
+<p><code>VersionSet::PickCompaction</code> 随后执行 <code>SetupOtherInputs</code> 以扩大 Compaction 文件集合：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Finds the largest key in a vector of files. Returns true if files it not</span>
+<span class="token comment">// empty.</span>
+<span class="token keyword">bool</span> <span class="token function">FindLargestKey</span><span class="token punctuation">(</span><span class="token keyword">const</span> InternalKeyComparator<span class="token operator">&amp;</span> icmp<span class="token punctuation">,</span>
+                    <span class="token keyword">const</span> std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>FileMetaData<span class="token operator">*</span><span class="token operator">></span><span class="token operator">&amp;</span> files<span class="token punctuation">,</span>
+                    InternalKey<span class="token operator">*</span> largest_key<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>files<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token operator">*</span>largest_key <span class="token operator">=</span> files<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token operator">-></span>largest<span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> files<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    FileMetaData<span class="token operator">*</span> f <span class="token operator">=</span> files<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>icmp<span class="token punctuation">.</span><span class="token function">Compare</span><span class="token punctuation">(</span>f<span class="token operator">-></span>largest<span class="token punctuation">,</span> <span class="token operator">*</span>largest_key<span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token operator">*</span>largest_key <span class="token operator">=</span> f<span class="token operator">-></span>largest<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Finds minimum file b2=(l2, u2) in level file for which l2 > u1 and</span>
+<span class="token comment">// user_key(l2) = user_key(u1)</span>
+FileMetaData<span class="token operator">*</span> <span class="token function">FindSmallestBoundaryFile</span><span class="token punctuation">(</span>
+    <span class="token keyword">const</span> InternalKeyComparator<span class="token operator">&amp;</span> icmp<span class="token punctuation">,</span>
+    <span class="token keyword">const</span> std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>FileMetaData<span class="token operator">*</span><span class="token operator">></span><span class="token operator">&amp;</span> level_files<span class="token punctuation">,</span>
+    <span class="token keyword">const</span> InternalKey<span class="token operator">&amp;</span> largest_key<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> Comparator<span class="token operator">*</span> user_cmp <span class="token operator">=</span> icmp<span class="token punctuation">.</span><span class="token function">user_comparator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  FileMetaData<span class="token operator">*</span> smallest_boundary_file <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> level_files<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    FileMetaData<span class="token operator">*</span> f <span class="token operator">=</span> level_files<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>icmp<span class="token punctuation">.</span><span class="token function">Compare</span><span class="token punctuation">(</span>f<span class="token operator">-></span>smallest<span class="token punctuation">,</span> largest_key<span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span>
+        user_cmp<span class="token operator">-></span><span class="token function">Compare</span><span class="token punctuation">(</span>f<span class="token operator">-></span>smallest<span class="token punctuation">.</span><span class="token function">user_key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> largest_key<span class="token punctuation">.</span><span class="token function">user_key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">==</span>
+            <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>smallest_boundary_file <span class="token operator">==</span> <span class="token keyword">nullptr</span> <span class="token operator">||</span>
+          icmp<span class="token punctuation">.</span><span class="token function">Compare</span><span class="token punctuation">(</span>f<span class="token operator">-></span>smallest<span class="token punctuation">,</span> smallest_boundary_file<span class="token operator">-></span>smallest<span class="token punctuation">)</span> <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        smallest_boundary_file <span class="token operator">=</span> f<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> smallest_boundary_file<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Extracts the largest file b1 from |compaction_files| and then searches for a</span>
+<span class="token comment">// b2 in |level_files| for which user_key(u1) = user_key(l2). If it finds such a</span>
+<span class="token comment">// file b2 (known as a boundary file) it adds it to |compaction_files| and then</span>
+<span class="token comment">// searches again using this new upper bound.</span>
+<span class="token comment">//</span>
+<span class="token comment">// If there are two blocks, b1=(l1, u1) and b2=(l2, u2) and</span>
+<span class="token comment">// user_key(u1) = user_key(l2), and if we compact b1 but not b2 then a</span>
+<span class="token comment">// subsequent get operation will yield an incorrect result because it will</span>
+<span class="token comment">// return the record from b2 in level i rather than from b1 because it searches</span>
+<span class="token comment">// level by level for records matching the supplied user key.</span>
+<span class="token comment">//</span>
+<span class="token comment">// parameters:</span>
+<span class="token comment">//   in     level_files:      List of files to search for boundary files.</span>
+<span class="token comment">//   in/out compaction_files: List of files to extend by adding boundary files.</span>
+<span class="token keyword">void</span> <span class="token function">AddBoundaryInputs</span><span class="token punctuation">(</span><span class="token keyword">const</span> InternalKeyComparator<span class="token operator">&amp;</span> icmp<span class="token punctuation">,</span>
+                       <span class="token keyword">const</span> std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>FileMetaData<span class="token operator">*</span><span class="token operator">></span><span class="token operator">&amp;</span> level_files<span class="token punctuation">,</span>
+                       std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>FileMetaData<span class="token operator">*</span><span class="token operator">></span><span class="token operator">*</span> compaction_files<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  InternalKey largest_key<span class="token punctuation">;</span>
+
+  <span class="token comment">// Quick return if compaction_files is empty.</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">FindLargestKey</span><span class="token punctuation">(</span>icmp<span class="token punctuation">,</span> <span class="token operator">*</span>compaction_files<span class="token punctuation">,</span> <span class="token operator">&amp;</span>largest_key<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> continue_searching <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>continue_searching<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    FileMetaData<span class="token operator">*</span> smallest_boundary_file <span class="token operator">=</span>
+        <span class="token function">FindSmallestBoundaryFile</span><span class="token punctuation">(</span>icmp<span class="token punctuation">,</span> level_files<span class="token punctuation">,</span> largest_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// If a boundary file was found advance largest_key, otherwise we're done.</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>smallest_boundary_file <span class="token operator">!=</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      compaction_files<span class="token operator">-></span><span class="token function">push_back</span><span class="token punctuation">(</span>smallest_boundary_file<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      largest_key <span class="token operator">=</span> smallest_boundary_file<span class="token operator">-></span>largest<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      continue_searching <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> VersionSet<span class="token operator">::</span><span class="token function">SetupOtherInputs</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> level <span class="token operator">=</span> c<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  InternalKey smallest<span class="token punctuation">,</span> largest<span class="token punctuation">;</span>
+
+  <span class="token function">AddBoundaryInputs</span><span class="token punctuation">(</span>icmp_<span class="token punctuation">,</span> current_<span class="token operator">-></span>files_<span class="token punctuation">[</span>level<span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>首先执行的是 <code>AddBoundaryInputs</code>。其英文注释中解释地非常详细：当 Compaction 的范围为 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mi>l</mi><mn>1</mn><mo separator="true">,</mo><mi>u</mi><mn>1</mn><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[l1, u1]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord mathnormal" style="margin-right:0.01968em;">l</span><span class="mord">1</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.16666666666666666em;"></span><span class="mord mathnormal">u</span><span class="mord">1</span><span class="mclose">]</span></span></span></span></eq> 时，该范围的数据将会被移动到 Level+1。如果当前 Level 存在文件 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mi>l</mi><mn>2</mn><mo separator="true">,</mo><mi>u</mi><mn>2</mn><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[l2, u2]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord mathnormal" style="margin-right:0.01968em;">l</span><span class="mord">2</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.16666666666666666em;"></span><span class="mord mathnormal">u</span><span class="mord">2</span><span class="mclose">]</span></span></span></span></eq>，并且 <code>user_key(u1) = user_key(l2)</code>，那么下一次查询 <code>user_key(u1)</code> 时会在 Level 层提前返回旧的数据！故需要将受影响的文件全部加到 Compaction 文件范围中。继续看 <code>VersionSet::SetupOtherInputs</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> VersionSet<span class="token operator">::</span><span class="token function">SetupOtherInputs</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token function">GetRange</span><span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>smallest<span class="token punctuation">,</span> <span class="token operator">&amp;</span>largest<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  current_<span class="token operator">-></span><span class="token function">GetOverlappingInputs</span><span class="token punctuation">(</span>level <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>smallest<span class="token punctuation">,</span> <span class="token operator">&amp;</span>largest<span class="token punctuation">,</span>
+                                 <span class="token operator">&amp;</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Get entire range covered by compaction</span>
+  InternalKey all_start<span class="token punctuation">,</span> all_limit<span class="token punctuation">;</span>
+  <span class="token function">GetRange2</span><span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">,</span> c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>all_start<span class="token punctuation">,</span> <span class="token operator">&amp;</span>all_limit<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// See if we can grow the number of inputs in "level" without</span>
+  <span class="token comment">// changing the number of "level+1" files we pick up.</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>FileMetaData<span class="token operator">*</span><span class="token operator">></span> expanded0<span class="token punctuation">;</span>
+    current_<span class="token operator">-></span><span class="token function">GetOverlappingInputs</span><span class="token punctuation">(</span>level<span class="token punctuation">,</span> <span class="token operator">&amp;</span>all_start<span class="token punctuation">,</span> <span class="token operator">&amp;</span>all_limit<span class="token punctuation">,</span> <span class="token operator">&amp;</span>expanded0<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">AddBoundaryInputs</span><span class="token punctuation">(</span>icmp_<span class="token punctuation">,</span> current_<span class="token operator">-></span>files_<span class="token punctuation">[</span>level<span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>expanded0<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">const</span> <span class="token keyword">int64_t</span> inputs0_size <span class="token operator">=</span> <span class="token function">TotalFileSize</span><span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">const</span> <span class="token keyword">int64_t</span> inputs1_size <span class="token operator">=</span> <span class="token function">TotalFileSize</span><span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">const</span> <span class="token keyword">int64_t</span> expanded0_size <span class="token operator">=</span> <span class="token function">TotalFileSize</span><span class="token punctuation">(</span>expanded0<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>expanded0<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span>
+        inputs1_size <span class="token operator">+</span> expanded0_size <span class="token operator">&lt;</span>
+            <span class="token function">ExpandedCompactionByteSizeLimit</span><span class="token punctuation">(</span>options_<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      InternalKey new_start<span class="token punctuation">,</span> new_limit<span class="token punctuation">;</span>
+      <span class="token function">GetRange</span><span class="token punctuation">(</span>expanded0<span class="token punctuation">,</span> <span class="token operator">&amp;</span>new_start<span class="token punctuation">,</span> <span class="token operator">&amp;</span>new_limit<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>FileMetaData<span class="token operator">*</span><span class="token operator">></span> expanded1<span class="token punctuation">;</span>
+      current_<span class="token operator">-></span><span class="token function">GetOverlappingInputs</span><span class="token punctuation">(</span>level <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>new_start<span class="token punctuation">,</span> <span class="token operator">&amp;</span>new_limit<span class="token punctuation">,</span>
+                                     <span class="token operator">&amp;</span>expanded1<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>expanded1<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">Log</span><span class="token punctuation">(</span>options_<span class="token operator">-></span>info_log<span class="token punctuation">,</span>
+            <span class="token string">"Expanding@%d %d+%d (%ld+%ld bytes) to %d+%d (%ld+%ld bytes)\n"</span><span class="token punctuation">,</span>
+            level<span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token keyword">long</span><span class="token punctuation">(</span>inputs0_size<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">long</span><span class="token punctuation">(</span>inputs1_size<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token punctuation">(</span>expanded0<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token keyword">int</span><span class="token punctuation">(</span>expanded1<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">long</span><span class="token punctuation">(</span>expanded0_size<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">long</span><span class="token punctuation">(</span>inputs1_size<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        smallest <span class="token operator">=</span> new_start<span class="token punctuation">;</span>
+        largest <span class="token operator">=</span> new_limit<span class="token punctuation">;</span>
+        c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span> <span class="token operator">=</span> expanded0<span class="token punctuation">;</span>
+        c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span> <span class="token operator">=</span> expanded1<span class="token punctuation">;</span>
+        <span class="token function">GetRange2</span><span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">,</span> c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>all_start<span class="token punctuation">,</span> <span class="token operator">&amp;</span>all_limit<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Compute the set of grandparent files that overlap this compaction</span>
+  <span class="token comment">// (parent == level+1; grandparent == level+2)</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>level <span class="token operator">+</span> <span class="token number">2</span> <span class="token operator">&lt;</span> config<span class="token operator">::</span>kNumLevels<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    current_<span class="token operator">-></span><span class="token function">GetOverlappingInputs</span><span class="token punctuation">(</span>level <span class="token operator">+</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>all_start<span class="token punctuation">,</span> <span class="token operator">&amp;</span>all_limit<span class="token punctuation">,</span>
+                                   <span class="token operator">&amp;</span>c<span class="token operator">-></span>grandparents_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Update the place where we will do the next compaction for this level.</span>
+  <span class="token comment">// We update this immediately instead of waiting for the VersionEdit</span>
+  <span class="token comment">// to be applied so that if the compaction fails, we will try a different</span>
+  <span class="token comment">// key range next time.</span>
+  compact_pointer_<span class="token punctuation">[</span>level<span class="token punctuation">]</span> <span class="token operator">=</span> largest<span class="token punctuation">.</span><span class="token function">Encode</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  c<span class="token operator">-></span>edit_<span class="token punctuation">.</span><span class="token function">SetCompactPointer</span><span class="token punctuation">(</span>level<span class="token punctuation">,</span> largest<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>首先在 Level+1 层将所有存在重叠的文件加入 Compaction 文件集合里，更新 Compaction 的区间 <code>[all_start, all_limit]</code>。再回过头来使用新区间获得 Level 层重叠的文件 <code>expanded0</code>，如果新的数据大小在阈值以内且不会改变 Level+1 层选择的文件，那么则将 Level 层的文件集合更新为 <code>expanded0</code>。最后将当前 Level 的 <code>compact_pointer_</code> 设为当前 Compaction 的最大键。至此扩大 Compaction 文件集合结束，<code>VersionSet::PickCompaction</code> 也返回了 Compaction 对象。</p>
+<h3 id="3.-执行-compaction"><a href="#3.-%E6%89%A7%E8%A1%8C-compaction">3. 执行 Compaction</a></h3>
+<p>回到 <code>DBImpl::BackgroundCompaction</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span>CompactionState <span class="token punctuation">{</span>
+  <span class="token comment">// Files produced by compaction</span>
+  <span class="token keyword">struct</span> <span class="token class-name">Output</span> <span class="token punctuation">{</span>
+    <span class="token keyword">uint64_t</span> number<span class="token punctuation">;</span>
+    <span class="token keyword">uint64_t</span> file_size<span class="token punctuation">;</span>
+    InternalKey smallest<span class="token punctuation">,</span> largest<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  Output<span class="token operator">*</span> <span class="token function">current_output</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token operator">&amp;</span>outputs<span class="token punctuation">[</span>outputs<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">explicit</span> <span class="token function">CompactionState</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">compaction</span><span class="token punctuation">(</span>c<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">smallest_snapshot</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">outfile</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">builder</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">total_bytes</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  Compaction<span class="token operator">*</span> <span class="token keyword">const</span> compaction<span class="token punctuation">;</span>
+
+  <span class="token comment">// Sequence numbers &lt; smallest_snapshot are not significant since we</span>
+  <span class="token comment">// will never have to service a snapshot below smallest_snapshot.</span>
+  <span class="token comment">// Therefore if we have seen a sequence number S &lt;= smallest_snapshot,</span>
+  <span class="token comment">// we can drop all entries for the same key with sequence numbers &lt; S.</span>
+  SequenceNumber smallest_snapshot<span class="token punctuation">;</span>
+
+  std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>Output<span class="token operator">></span> outputs<span class="token punctuation">;</span>
+
+  <span class="token comment">// State kept for output being generated</span>
+  WritableFile<span class="token operator">*</span> outfile<span class="token punctuation">;</span>
+  TableBuilder<span class="token operator">*</span> builder<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint64_t</span> total_bytes<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">BackgroundCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+
+  Status status<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>c <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Nothing to do</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>is_manual <span class="token operator">&amp;&amp;</span> c<span class="token operator">-></span><span class="token function">IsTrivialMove</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    CompactionState<span class="token operator">*</span> compact <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">CompactionState</span><span class="token punctuation">(</span>c<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    status <span class="token operator">=</span> <span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>compact<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">RecordBackgroundError</span><span class="token punctuation">(</span>status<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token function">CleanupCompaction</span><span class="token punctuation">(</span>compact<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    c<span class="token operator">-></span><span class="token function">ReleaseInputs</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">DeleteObsoleteFiles</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">delete</span> c<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Done</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>shutting_down_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Ignore compaction errors found during shutting down</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token function">Log</span><span class="token punctuation">(</span>options_<span class="token punctuation">.</span>info_log<span class="token punctuation">,</span> <span class="token string">"Compaction error: %s"</span><span class="token punctuation">,</span> status<span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>is_manual<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>不考虑手动模式和 TrivialMove，接下来会根据 <code>Compaction</code> 对象构建 <code>CompactionState</code>，并执行 <code>DBImpl::DoCompactionWork</code>：</p>
+<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> start_micros <span class="token operator">=</span> env_<span class="token operator">-></span><span class="token function">NowMicros</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">int64_t</span> imm_micros <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>  <span class="token comment">// Micros spent doing imm_ compactions</span>
+
+  <span class="token function">Log</span><span class="token punctuation">(</span>options_<span class="token punctuation">.</span>info_log<span class="token punctuation">,</span> <span class="token string">"Compacting %d@%d + %d@%d files"</span><span class="token punctuation">,</span>
+      compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">num_input_files</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">num_input_files</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">assert</span><span class="token punctuation">(</span>versions_<span class="token operator">-></span><span class="token function">NumLevelFiles</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>builder <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>outfile <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>snapshots_<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    compact<span class="token operator">-></span>smallest_snapshot <span class="token operator">=</span> versions_<span class="token operator">-></span><span class="token function">LastSequence</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    compact<span class="token operator">-></span>smallest_snapshot <span class="token operator">=</span> snapshots_<span class="token punctuation">.</span><span class="token function">oldest</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">sequence_number</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  Iterator<span class="token operator">*</span> input <span class="token operator">=</span> versions_<span class="token operator">-></span><span class="token function">MakeInputIterator</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>compaction<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>compact-&gt;smallest_snapshot</code> 是为了让当前的 Snapshot 的数据在 Compaction 过程中不丢失。<code>versions_-&gt;MakeInputIterator</code> 返回 Compaction 文件集合的合并迭代器：</p>
+<pre class="language-cpp"><code class="language-cpp">Iterator<span class="token operator">*</span> VersionSet<span class="token operator">::</span><span class="token function">MakeInputIterator</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  ReadOptions options<span class="token punctuation">;</span>
+  options<span class="token punctuation">.</span>verify_checksums <span class="token operator">=</span> options_<span class="token operator">-></span>paranoid_checks<span class="token punctuation">;</span>
+  options<span class="token punctuation">.</span>fill_cache <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Level-0 files have to be merged together.  For other levels,</span>
+  <span class="token comment">// we will make a concatenating iterator per level.</span>
+  <span class="token comment">// TODO(opt): use concatenating iterator for level-0 if there is no overlap</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> space <span class="token operator">=</span> <span class="token punctuation">(</span>c<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span> <span class="token operator">?</span> c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span> <span class="token operator">:</span> <span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Iterator<span class="token operator">*</span><span class="token operator">*</span> list <span class="token operator">=</span> <span class="token keyword">new</span> Iterator<span class="token operator">*</span><span class="token punctuation">[</span>space<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token keyword">int</span> num <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> which <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> which <span class="token operator">&lt;</span> <span class="token number">2</span><span class="token punctuation">;</span> which<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span>which<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>c<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> which <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">const</span> std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>FileMetaData<span class="token operator">*</span><span class="token operator">></span><span class="token operator">&amp;</span> files <span class="token operator">=</span> c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span>which<span class="token punctuation">]</span><span class="token punctuation">;</span>
+        <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> files<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          list<span class="token punctuation">[</span>num<span class="token operator">++</span><span class="token punctuation">]</span> <span class="token operator">=</span> table_cache_<span class="token operator">-></span><span class="token function">NewIterator</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> files<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token operator">-></span>number<span class="token punctuation">,</span>
+                                                  files<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token operator">-></span>file_size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token comment">// Create concatenating iterator for the files from this level</span>
+        list<span class="token punctuation">[</span>num<span class="token operator">++</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token function">NewTwoLevelIterator</span><span class="token punctuation">(</span>
+            <span class="token keyword">new</span> Version<span class="token operator">::</span><span class="token function">LevelFileNumIterator</span><span class="token punctuation">(</span>icmp_<span class="token punctuation">,</span> <span class="token operator">&amp;</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span>which<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token operator">&amp;</span>GetFileIterator<span class="token punctuation">,</span> table_cache_<span class="token punctuation">,</span> options<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>num <span class="token operator">&lt;=</span> space<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Iterator<span class="token operator">*</span> result <span class="token operator">=</span> <span class="token function">NewMergingIterator</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>icmp_<span class="token punctuation">,</span> list<span class="token punctuation">,</span> num<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">delete</span><span class="token punctuation">[</span><span class="token punctuation">]</span> list<span class="token punctuation">;</span>
+  <span class="token keyword">return</span> result<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>继续看 <code>DBImpl::DoCompactionWork</code>：</p>
+<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token comment">// Release mutex while we're actually doing the compaction work</span>
+  mutex_<span class="token punctuation">.</span><span class="token function">Unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  input<span class="token operator">-></span><span class="token function">SeekToFirst</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Status status<span class="token punctuation">;</span>
+  ParsedInternalKey ikey<span class="token punctuation">;</span>
+  std<span class="token operator">::</span>string current_user_key<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> has_current_user_key <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  SequenceNumber last_sequence_for_key <span class="token operator">=</span> kMaxSequenceNumber<span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>input<span class="token operator">-></span><span class="token function">Valid</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> <span class="token operator">!</span>shutting_down_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Prioritize immutable compaction work</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>has_imm_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> imm_start <span class="token operator">=</span> env_<span class="token operator">-></span><span class="token function">NowMicros</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      mutex_<span class="token punctuation">.</span><span class="token function">Lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>imm_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">CompactMemTable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">// Wake up MakeRoomForWrite() if necessary.</span>
+        background_work_finished_signal_<span class="token punctuation">.</span><span class="token function">SignalAll</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      mutex_<span class="token punctuation">.</span><span class="token function">Unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      imm_micros <span class="token operator">+=</span> <span class="token punctuation">(</span>env_<span class="token operator">-></span><span class="token function">NowMicros</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> imm_start<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    Slice key <span class="token operator">=</span> input<span class="token operator">-></span><span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">ShouldStopBefore</span><span class="token punctuation">(</span>key<span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span>
+        compact<span class="token operator">-></span>builder <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      status <span class="token operator">=</span> <span class="token function">FinishCompactionOutputFile</span><span class="token punctuation">(</span>compact<span class="token punctuation">,</span> input<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">break</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// Handle key/value, add to state, etc.</span>
+    <span class="token keyword">bool</span> drop <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">ParseInternalKey</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> <span class="token operator">&amp;</span>ikey<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// Do not hide error keys</span>
+      current_user_key<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      has_current_user_key <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+      last_sequence_for_key <span class="token operator">=</span> kMaxSequenceNumber<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>has_current_user_key <span class="token operator">||</span>
+          <span class="token function">user_comparator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">Compare</span><span class="token punctuation">(</span>ikey<span class="token punctuation">.</span>user_key<span class="token punctuation">,</span> <span class="token function">Slice</span><span class="token punctuation">(</span>current_user_key<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">!=</span>
+              <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// First occurrence of this user key</span>
+        current_user_key<span class="token punctuation">.</span><span class="token function">assign</span><span class="token punctuation">(</span>ikey<span class="token punctuation">.</span>user_key<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> ikey<span class="token punctuation">.</span>user_key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        has_current_user_key <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+        last_sequence_for_key <span class="token operator">=</span> kMaxSequenceNumber<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>last_sequence_for_key <span class="token operator">&lt;=</span> compact<span class="token operator">-></span>smallest_snapshot<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// Hidden by an newer entry for same user key</span>
+        drop <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>  <span class="token comment">// (A)</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>ikey<span class="token punctuation">.</span>type <span class="token operator">==</span> kTypeDeletion <span class="token operator">&amp;&amp;</span>
+                 ikey<span class="token punctuation">.</span>sequence <span class="token operator">&lt;=</span> compact<span class="token operator">-></span>smallest_snapshot <span class="token operator">&amp;&amp;</span>
+                 compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">IsBaseLevelForKey</span><span class="token punctuation">(</span>ikey<span class="token punctuation">.</span>user_key<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// For this user key:</span>
+        <span class="token comment">// (1) there is no data in higher levels</span>
+        <span class="token comment">// (2) data in lower levels will have larger sequence numbers</span>
+        <span class="token comment">// (3) data in layers that are being compacted here and have</span>
+        <span class="token comment">//     smaller sequence numbers will be dropped in the next</span>
+        <span class="token comment">//     few iterations of this loop (by rule (A) above).</span>
+        <span class="token comment">// Therefore this deletion marker is obsolete and can be dropped.</span>
+        drop <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+
+      last_sequence_for_key <span class="token operator">=</span> ikey<span class="token punctuation">.</span>sequence<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>drop<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// Open output file if necessary</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>compact<span class="token operator">-></span>builder <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        status <span class="token operator">=</span> <span class="token function">OpenCompactionOutputFile</span><span class="token punctuation">(</span>compact<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">break</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>compact<span class="token operator">-></span>builder<span class="token operator">-></span><span class="token function">NumEntries</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        compact<span class="token operator">-></span><span class="token function">current_output</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>smallest<span class="token punctuation">.</span><span class="token function">DecodeFrom</span><span class="token punctuation">(</span>key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      compact<span class="token operator">-></span><span class="token function">current_output</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>largest<span class="token punctuation">.</span><span class="token function">DecodeFrom</span><span class="token punctuation">(</span>key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      compact<span class="token operator">-></span>builder<span class="token operator">-></span><span class="token function">Add</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> input<span class="token operator">-></span><span class="token function">value</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token comment">// Close output file if it is big enough</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>compact<span class="token operator">-></span>builder<span class="token operator">-></span><span class="token function">FileSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">>=</span>
+          compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">MaxOutputFileSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        status <span class="token operator">=</span> <span class="token function">FinishCompactionOutputFile</span><span class="token punctuation">(</span>compact<span class="token punctuation">,</span> input<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">break</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    input<span class="token operator">-></span><span class="token function">Next</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+</code></pre>
+<p>一个巨大的循环。首先判断是否已经 <code>shutting_down_</code>，如果已经关闭了，则终止当前的 Compaction 过程；随后判断当前是否有 <code>imm_</code>，如果存在的话则也先执行 <code>CompactMemTable</code>；再来判断当前输出的文件是否可以结束了，如果是的话就执行 <code>FinishCompactionOutputFile</code> 完成当前文件。</p>
+<p>接下来是是否丢弃键值对的判定。如果某个 <code>user_key</code> 的非最新版本小于快照版本，则可以直接丢弃，因为读最新的版本就足够了；如果某个删除操作的版本小于快照版本，并且在更高层没有相同的 <code>user_key</code>，那么这个删除操作及其之前更早的插入操作可以同时丢弃了。</p>
+<p>对于没有丢弃的键值对，将其写入当前的 Table Builder。当输出的大小超过阈值，同样执行 <code>FinishCompactionOutputFile</code>：</p>
+<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">OpenCompactionOutputFile</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>compact <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>builder <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> file_number<span class="token punctuation">;</span>
+  <span class="token punctuation">{</span>
+    mutex_<span class="token punctuation">.</span><span class="token function">Lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    file_number <span class="token operator">=</span> versions_<span class="token operator">-></span><span class="token function">NewFileNumber</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    pending_outputs_<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span>file_number<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    CompactionState<span class="token operator">::</span>Output out<span class="token punctuation">;</span>
+    out<span class="token punctuation">.</span>number <span class="token operator">=</span> file_number<span class="token punctuation">;</span>
+    out<span class="token punctuation">.</span>smallest<span class="token punctuation">.</span><span class="token function">Clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    out<span class="token punctuation">.</span>largest<span class="token punctuation">.</span><span class="token function">Clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    compact<span class="token operator">-></span>outputs<span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>out<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    mutex_<span class="token punctuation">.</span><span class="token function">Unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Make the output file</span>
+  std<span class="token operator">::</span>string fname <span class="token operator">=</span> <span class="token function">TableFileName</span><span class="token punctuation">(</span>dbname_<span class="token punctuation">,</span> file_number<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Status s <span class="token operator">=</span> env_<span class="token operator">-></span><span class="token function">NewWritableFile</span><span class="token punctuation">(</span>fname<span class="token punctuation">,</span> <span class="token operator">&amp;</span>compact<span class="token operator">-></span>outfile<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    compact<span class="token operator">-></span>builder <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">TableBuilder</span><span class="token punctuation">(</span>options_<span class="token punctuation">,</span> compact<span class="token operator">-></span>outfile<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> s<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+Status DBImpl<span class="token operator">::</span><span class="token function">FinishCompactionOutputFile</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">,</span>
+                                          Iterator<span class="token operator">*</span> input<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>compact <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>outfile <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>builder <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> output_number <span class="token operator">=</span> compact<span class="token operator">-></span><span class="token function">current_output</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>number<span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>output_number <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Check for iterator errors</span>
+  Status s <span class="token operator">=</span> input<span class="token operator">-></span><span class="token function">status</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> current_entries <span class="token operator">=</span> compact<span class="token operator">-></span>builder<span class="token operator">-></span><span class="token function">NumEntries</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    s <span class="token operator">=</span> compact<span class="token operator">-></span>builder<span class="token operator">-></span><span class="token function">Finish</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    compact<span class="token operator">-></span>builder<span class="token operator">-></span><span class="token function">Abandon</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> current_bytes <span class="token operator">=</span> compact<span class="token operator">-></span>builder<span class="token operator">-></span><span class="token function">FileSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  compact<span class="token operator">-></span><span class="token function">current_output</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>file_size <span class="token operator">=</span> current_bytes<span class="token punctuation">;</span>
+  compact<span class="token operator">-></span>total_bytes <span class="token operator">+=</span> current_bytes<span class="token punctuation">;</span>
+  <span class="token keyword">delete</span> compact<span class="token operator">-></span>builder<span class="token punctuation">;</span>
+  compact<span class="token operator">-></span>builder <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Finish and check for file errors</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    s <span class="token operator">=</span> compact<span class="token operator">-></span>outfile<span class="token operator">-></span><span class="token function">Sync</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    s <span class="token operator">=</span> compact<span class="token operator">-></span>outfile<span class="token operator">-></span><span class="token function">Close</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">delete</span> compact<span class="token operator">-></span>outfile<span class="token punctuation">;</span>
+  compact<span class="token operator">-></span>outfile <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> current_entries <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Verify that the table is usable</span>
+    Iterator<span class="token operator">*</span> iter <span class="token operator">=</span>
+        table_cache_<span class="token operator">-></span><span class="token function">NewIterator</span><span class="token punctuation">(</span><span class="token function">ReadOptions</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> output_number<span class="token punctuation">,</span> current_bytes<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    s <span class="token operator">=</span> iter<span class="token operator">-></span><span class="token function">status</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">delete</span> iter<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">Log</span><span class="token punctuation">(</span>options_<span class="token punctuation">.</span>info_log<span class="token punctuation">,</span> <span class="token string">"Generated table #%llu@%d: %lld keys, %lld bytes"</span><span class="token punctuation">,</span>
+          <span class="token punctuation">(</span><span class="token keyword">unsigned</span> <span class="token keyword">long</span> <span class="token keyword">long</span><span class="token punctuation">)</span>output_number<span class="token punctuation">,</span> compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+          <span class="token punctuation">(</span><span class="token keyword">unsigned</span> <span class="token keyword">long</span> <span class="token keyword">long</span><span class="token punctuation">)</span>current_entries<span class="token punctuation">,</span>
+          <span class="token punctuation">(</span><span class="token keyword">unsigned</span> <span class="token keyword">long</span> <span class="token keyword">long</span><span class="token punctuation">)</span>current_bytes<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> s<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>继续来看 <code>DBImpl::DoCompactionWork</code>：</p>
+<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">InstallCompactionResults</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">Log</span><span class="token punctuation">(</span>options_<span class="token punctuation">.</span>info_log<span class="token punctuation">,</span> <span class="token string">"Compacted %d@%d + %d@%d files => %lld bytes"</span><span class="token punctuation">,</span>
+      compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">num_input_files</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">num_input_files</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">,</span> compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span>
+      <span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">long</span> <span class="token keyword">long</span><span class="token operator">></span><span class="token punctuation">(</span>compact<span class="token operator">-></span>total_bytes<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Add compaction outputs</span>
+  compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">AddInputDeletions</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">edit</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> level <span class="token operator">=</span> compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> compact<span class="token operator">-></span>outputs<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> CompactionState<span class="token operator">::</span>Output<span class="token operator">&amp;</span> out <span class="token operator">=</span> compact<span class="token operator">-></span>outputs<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span>
+    compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">edit</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">AddFile</span><span class="token punctuation">(</span>level <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> out<span class="token punctuation">.</span>number<span class="token punctuation">,</span> out<span class="token punctuation">.</span>file_size<span class="token punctuation">,</span>
+                                         out<span class="token punctuation">.</span>smallest<span class="token punctuation">,</span> out<span class="token punctuation">.</span>largest<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> versions_<span class="token operator">-></span><span class="token function">LogAndApply</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">edit</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+Status DBImpl<span class="token operator">::</span><span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> shutting_down_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    status <span class="token operator">=</span> Status<span class="token operator">::</span><span class="token function">IOError</span><span class="token punctuation">(</span><span class="token string">"Deleting DB during compaction"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> compact<span class="token operator">-></span>builder <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    status <span class="token operator">=</span> <span class="token function">FinishCompactionOutputFile</span><span class="token punctuation">(</span>compact<span class="token punctuation">,</span> input<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    status <span class="token operator">=</span> input<span class="token operator">-></span><span class="token function">status</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">delete</span> input<span class="token punctuation">;</span>
+  input <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+
+  CompactionStats stats<span class="token punctuation">;</span>
+  stats<span class="token punctuation">.</span>micros <span class="token operator">=</span> env_<span class="token operator">-></span><span class="token function">NowMicros</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> start_micros <span class="token operator">-</span> imm_micros<span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> which <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> which <span class="token operator">&lt;</span> <span class="token number">2</span><span class="token punctuation">;</span> which<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">num_input_files</span><span class="token punctuation">(</span>which<span class="token punctuation">)</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      stats<span class="token punctuation">.</span>bytes_read <span class="token operator">+=</span> compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">input</span><span class="token punctuation">(</span>which<span class="token punctuation">,</span> i<span class="token punctuation">)</span><span class="token operator">-></span>file_size<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> compact<span class="token operator">-></span>outputs<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    stats<span class="token punctuation">.</span>bytes_written <span class="token operator">+=</span> compact<span class="token operator">-></span>outputs<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>file_size<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  mutex_<span class="token punctuation">.</span><span class="token function">Lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  stats_<span class="token punctuation">[</span>compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">Add</span><span class="token punctuation">(</span>stats<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    status <span class="token operator">=</span> <span class="token function">InstallCompactionResults</span><span class="token punctuation">(</span>compact<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">RecordBackgroundError</span><span class="token punctuation">(</span>status<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  VersionSet<span class="token operator">::</span>LevelSummaryStorage tmp<span class="token punctuation">;</span>
+  <span class="token function">Log</span><span class="token punctuation">(</span>options_<span class="token punctuation">.</span>info_log<span class="token punctuation">,</span> <span class="token string">"compacted to: %s"</span><span class="token punctuation">,</span> versions_<span class="token operator">-></span><span class="token function">LevelSummary</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>tmp<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> status<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>执行 <code>InstallCompactionResults</code> 时将 Compaction 的文件集合加入到 <code>VersionEdit</code> 的删除列表中，并将新生成的文件加入到新文件列表里，随后执行 <code>versions_-&gt;LogAndApply</code> 更新版本。最后再执行一些清理操作，Compaction 过程就结束了。</p>
+<h3 id="题外话"><a href="#%E9%A2%98%E5%A4%96%E8%AF%9D">题外话</a></h3>
+<p>看 <code>VersionSet::AddBoundaryInputs</code> 部分的代码时，VS Code 上显示提交于 4 年前，而大部分的 LevelDB 代码提交于 8 年前。这引起了我的警觉：这个 Bug 竟然影响了 4 年。随即用 VS Code 的 <a href="https://marketplace.visualstudio.com/items?itemName=waderyan.gitblame">Git Blame 插件</a>查看修复该 Bug 对应的 <a href="https://github.com/google/leveldb/commit/20fb601aa9f68ff0aa147df22524b7d01758552b">Commit</a> 及对应的 <a href="https://github.com/google/leveldb/pull/339">Pull Request</a>，发现了不得了的事情：这个提交是 16 年初的，但 19 年 4 月才合并进去。</p>
+<p>该 Bug 最早报告于 2015 年的 <a href="https://github.com/google/leveldb/issues/320">Issue 320</a>，当时 <a href="https://github.com/richcole">richcole</a> 就给出了 <a href="https://github.com/google/leveldb/issues/320#issuecomment-160186125">Bug 的分析</a>，并在 16 年初提交了该 Bug 的修复，但一直无人理会。直到 19 年 3 月 <a href="https://github.com/vonnyfly">vonnyfly</a> <a href="https://github.com/google/leveldb/pull/339#issuecomment-471896373">发现了这个严重问题</a>，这才引起了官方的重视，之后在大家的协作下终于将修复 patch 合并到主分支。</p>
+<p>而基于 LevelDB 开发的 RocksDB 则在该问题上做出了快速响应。16 年 <a href="https://github.com/facebook/rocksdb/issues/993">Issue 993</a> 中有人询问 RocksDB 是否同样受到该 Bug 影响，RocksDB 的主要贡献者 <a href="https://github.com/igorcanadi">igorcanadi</a> 在 12 小时内及时回复，<a href="https://github.com/facebook/rocksdb/issues/993#issuecomment-184830547">表示 RocksDB 不受该 Bug 影响</a>：</p>
+<blockquote>
+<p>I just read the issue more throughly. RocksDB doesn't have the same bug. Looks like we actually found and fixed that bug years ago. I don't know why we didn't contribute back to LevelDB :(</p>
+</blockquote>
+<p>笔者只是通过 GitHub 的 Issue 和 PR 恢复了该事件的发展过程，不对此作出任何评价。不过这个严重的 Bug 应该仍然影响着很多项目，毕竟小概率触发比 100% 触发更可怕，希望能引起大家的重视，检查下自己使用的 LevelDB 是不是 <a href="https://github.com/google/leveldb/releases/tag/1.22">Release 1.22</a> 之前的版本。</p>
+<h3 id="references"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://leveldb-handbook.readthedocs.io/zh/latest/compaction.html">&quot;Compaction&quot;, <em>leveldb-handbook</em></a></li>
+<li><a href="https://github.com/google/leveldb/pull/339">&quot;Fix snapshot compaction bug&quot;, <em>leveldb#339</em></a></li>
+<li><a href="https://github.com/google/leveldb/issues/320">&quot;Compaction causes data inconsistency when using snapshots&quot;, <em>leveldb#320</em></a></li>
+<li><a href="https://github.com/facebook/rocksdb/issues/993">&quot;Dose rocksdb have the bug found in leveldb?&quot;, <em>rocksdb#993</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://travis-ci.com/SF-Zhou/sf-zhou.github.io">Travis CI</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

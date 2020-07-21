@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>PaxosStore 源码分析「三、共识协议」 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> PaxosStore 源码分析「三、共识协议」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2020.02.17 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p><a href="/#/Paxos">本系列</a>的前两篇分析了 PaxosStore 中网络通信和消息传递的实现，本篇将正式介绍 Paxos 算法，并分析 PaxosStore 中共识协议的实现。</p>
+<h3 id="1.-paxos-算法"><a href="#1.-paxos-%E7%AE%97%E6%B3%95">1. Paxos 算法</a></h3>
+<p>Paxos 算法是 Leslie Lamport 于 1990 年提出的一种基于消息传递且具有高度容错特性的共识（consensus）算法。其论文于 1998 年 TOCS 会议上首次公开发表，<a href="https://www.zhihu.com/question/309020860/answer/606733148">中间的八年显然是有故事的</a>。Paxos 算法已经问世 30 年了，至今依然折磨着学习分布式系统的同学们。入门学习的话，建议阅读作者 2001 年重新描述的论文 <a href="https://lamport.azurewebsites.net/pubs/paxos-simple.pdf">&quot;Paxos Made Simple&quot;</a>。下面笔者说说自己对 Paxos 的理解。</p>
+<figure tabindex="1"><a href="../images/997b0f6728f590f8c461e6816ff694e6.gif"><img src="../images/997b0f6728f590f8c461e6816ff694e6.gif" alt=""></a><figcaption>达成共识 from &quot;黑金&quot;</figcaption></figure>
+<p>首先 Paxos 是一个共识算法，即最终目标是达成共识，至于共识是什么、对不对，在这里并不重要，重要的是达成共识后，共识不可修改；其次，一个经典 Paxos 实例只能达成一个共识，或者说确定（chosen）一个值，这一点很重要；最后，算法执行的环境是异步通信环境，使用非拜占庭模型，允许消息延迟、丢失、乱序，但不允许数据损坏（corruption）。</p>
+<p>Paxos 算法中一共有三种角色：proposers，acceptors 和 learners，这里先忽略 learners。算法的步骤描述如下（摘录自论文原文 2.2 节）：</p>
+<p><strong>Phase 1.</strong></p>
+<ol>
+<li>A proposer selects a proposal number <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">n</span></span></span></span></eq> and sends a prepare request with number <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">n</span></span></span></span></eq> to a majority of acceptors.</li>
+<li>If an acceptor receives a prepare request with number <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">n</span></span></span></span></eq> greater than that of any prepare request to which it has already responded, then it responds to the request with a promise not to accept any more proposals numbered less than <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">n</span></span></span></span></eq> and with the highest-numbered proposal (if any) that it has accepted.</li>
+</ol>
+<p><strong>Phase 2.</strong></p>
+<ol>
+<li>If the proposer receives a response to its prepare requests (numbered <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">n</span></span></span></span></eq>) from a majority of acceptors, then it sends an accept request to each of those acceptors for a proposal numbered <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">n</span></span></span></span></eq> with a value <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>v</mi></mrow><annotation encoding="application/x-tex">v</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span></span></span></span></eq>, where <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>v</mi></mrow><annotation encoding="application/x-tex">v</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span></span></span></span></eq> is the value of the highest-numbered proposal among the responses, or is any value if the responses reported no proposals.</li>
+<li>If an acceptor receives an accept request for a proposal numbered <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">n</span></span></span></span></eq>, it accepts the proposal unless it has already responded to a prepare request having a number greater than <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">n</span></span></span></span></eq>.</li>
+</ol>
+<p>因为消息本身的传递是不可靠的，所以可以从各个角色的响应来思考 Paxos 的流程，这会比面向过程的思考容易些。可以认为每个角色都是一个独立的线程，当收到特定的消息时做出对应的响应。这里先定义下消息类和角色自身的状态类：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">Prepare</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> n<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">Accept</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> n<span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token operator">*</span>value<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">Promised</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> n<span class="token punctuation">;</span>
+  Accept <span class="token operator">*</span>proposal <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">Accepted</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> n<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">Acceptor</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> last_n <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  Accept <span class="token operator">*</span>proposal <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p>对于 Acceptor，其会对两种请求做出响应：</p>
+<ol>
+<li><code>Prepare</code>：如果 <code>prepare.n &gt; acceptor.last_n</code>，则更新 <code>acceptor.last_n</code>，并返回 <code>Promised(n, acceptor.proposal)</code>；</li>
+<li><code>Accept</code>：如果 <code>accept.n &gt;= acceptor.last_n</code>，则接受该提案，更新 <code>acceptor.last_n</code> 和 <code>acceptor.proposal</code> 并返回 <code>Accepted(n)</code>。</li>
+</ol>
+<p>对于 Proposer，除主动发送 <code>Prepare</code> 请求外，同时会接收两种响应：</p>
+<ol>
+<li><code>Promised</code>：当 <code>Promised</code> 数量足够组成多数派时，进入算法的 Phase 2、广播 <code>Accept</code> 请求；</li>
+<li><code>Accepted</code>：当 <code>Accepted</code> 数量足够组成多数派时，Proposer 确认提议通过，反之 Proposer 不确定，但提案可能还是通过的。</li>
+</ol>
+<p>Paxos 算法里，对确定（chosen）的理解至关重要。当多数派通过提案的一瞬间，共识即已达成且不可推翻，理解了这一点就理解了 Paxos。</p>
+<p>对于单个 Acceptor，个体的 Accepted 和多数派的 Chosen 是有本质区别的，个体的 Accepted 是可以被覆盖的。而当 Chosen 发生后，之后的提案返回的 Promised 中得到的多数派里一定会返回群体 Chosen 的值，这保证了提案的值不会被推翻。关于这点，可以<a href="http://drmingdrmer.github.io/post-res/paxos-slide/pdf/paxos.html">参考文献 2</a> 中的例子。</p>
+<p>Paxos 算法的证明网上可以找到很多，然后 MIT 6.824 2015 年前的课程里有对应的实验，<a href="http://nil.csail.mit.edu/6.824/2015/index.html">参见文献 3</a>。对应的代码笔者自己找了一份，<a href="https://github.com/SF-Zhou/mit-6.824-2015">放在 GitHub 上</a>，可以自己完成以加深理解。2016 之后他们改用 Raft 了，有兴趣的话可以继续完成 Raft 的学习。</p>
+<h3 id="2.-协议实现"><a href="#2.-%E5%8D%8F%E8%AE%AE%E5%AE%9E%E7%8E%B0">2. 协议实现</a></h3>
+<p>PaxosStore 的实现中弃用了原版的 Paxos 消息协议，并提出了使用<strong>半对称消息</strong>传递来实现 Paxos 过程，这里参考<a href="http://www.vldb.org/pvldb/vol10/p1730-lin.pdf">其论文中的描述</a>。首先定义提案 <code>Proposal</code>：</p>
+<section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi mathvariant="script">P</mi><mo>=</mo><mo stretchy="false">(</mo><mi>n</mi><mo separator="true">,</mo><mi>v</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">
+\mathcal P = (n, v)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathcal" style="margin-right:0.08222em;">P</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal">n</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.16666666666666666em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span><span class="mclose">)</span></span></span></span></span></eqn></section><p>其中 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">n</span></span></span></span></eq> 表示提案号，<eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>v</mi></mrow><annotation encoding="application/x-tex">v</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span></span></span></span></eq> 表示提案的值。定义状态 <code>State</code>：</p>
+<section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi mathvariant="script">S</mi><mo>=</mo><mo stretchy="false">(</mo><mi>m</mi><mo separator="true">,</mo><mi mathvariant="script">P</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">
+\mathcal S = (m, \mathcal P)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal">m</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.16666666666666666em;"></span><span class="mord mathcal" style="margin-right:0.08222em;">P</span><span class="mclose">)</span></span></span></span></span></eqn></section><p>其中 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi></mrow><annotation encoding="application/x-tex">m</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathnormal">m</span></span></span></span></eq> 表示承诺过不会拒绝的最小提案号，<eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="script">P</mi></mrow><annotation encoding="application/x-tex">\mathcal P</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathcal" style="margin-right:0.08222em;">P</span></span></span></span></eq> 表示已经接受的提案。定义 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi mathvariant="script">S</mi><mi>X</mi></msub></mrow><annotation encoding="application/x-tex">\mathcal S_X</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.83333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.32833099999999993em;"><span style="top:-2.5500000000000003em;margin-left:-0.075em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.07847em;">X</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></eq> 为机器 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>X</mi></mrow><annotation encoding="application/x-tex">X</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">X</span></span></span></span></eq> 的状态，定义 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msubsup><mi mathvariant="script">S</mi><mi>Y</mi><mi>X</mi></msubsup></mrow><annotation encoding="application/x-tex">\mathcal S^X_Y</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.1166619999999998em;vertical-align:-0.275331em;"></span><span class="mord"><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8413309999999999em;"><span style="top:-2.424669em;margin-left:-0.075em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.22222em;">Y</span></span></span><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.07847em;">X</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.275331em;"><span></span></span></span></span></span></span></span></span></span></eq> 为机器 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>X</mi></mrow><annotation encoding="application/x-tex">X</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">X</span></span></span></span></eq> 已知的机器 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>Y</mi></mrow><annotation encoding="application/x-tex">Y</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.22222em;">Y</span></span></span></span></eq> 的状态，称之为视图状态。显然 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msubsup><mi mathvariant="script">S</mi><mi>Y</mi><mi>X</mi></msubsup><mo stretchy="false">(</mo><mi>X</mi><mo mathvariant="normal">≠</mo><mi>Y</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\mathcal S_Y^X(X \ne Y)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.1166619999999998em;vertical-align:-0.275331em;"></span><span class="mord"><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8413309999999999em;"><span style="top:-2.424669em;margin-left:-0.075em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.22222em;">Y</span></span></span><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.07847em;">X</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.275331em;"><span></span></span></span></span></span></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.07847em;">X</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span><span class="mrel"><span class="mrel"><span class="mord vbox"><span class="thinbox"><span class="rlap"><span class="strut" style="height:0.8888799999999999em;vertical-align:-0.19444em;"></span><span class="inner"><span class="mrel"></span></span><span class="fix"></span></span></span></span></span><span class="mrel">=</span></span><span class="mspace" style="margin-right:0.2777777777777778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.22222em;">Y</span><span class="mclose">)</span></span></span></span></eq> 与 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi mathvariant="script">S</mi><mi>Y</mi></msub></mrow><annotation encoding="application/x-tex">\mathcal S_Y</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.83333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.32833099999999993em;"><span style="top:-2.5500000000000003em;margin-left:-0.075em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.22222em;">Y</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></eq> 可能是不同的，不同机器上的状态依赖 Paxos 过程完成同步。定义机器 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>X</mi></mrow><annotation encoding="application/x-tex">X</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">X</span></span></span></span></eq> 发送给机器 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>Y</mi></mrow><annotation encoding="application/x-tex">Y</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.22222em;">Y</span></span></span></span></eq> 的消息 <code>Message</code>：</p>
+<section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi mathvariant="double-struck">M</mi><mrow><mi>X</mi><mo>→</mo><mi>Y</mi></mrow></msub><mo>=</mo><mrow><mo fence="true">{</mo><msubsup><mi mathvariant="script">S</mi><mi>X</mi><mi>X</mi></msubsup><mo separator="true">,</mo><msubsup><mi mathvariant="script">S</mi><mi>Y</mi><mi>X</mi></msubsup><mo fence="true">}</mo></mrow></mrow><annotation encoding="application/x-tex">
+\mathbb M_{X \rightarrow Y} = \left \{ \mathcal S_X^X, \mathcal S_Y^X \right \}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.83889em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathbb">M</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.32833099999999993em;"><span style="top:-2.5500000000000003em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.07847em;">X</span><span class="mrel mtight">→</span><span class="mord mathnormal mtight" style="margin-right:0.22222em;">Y</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2777777777777778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span></span><span class="base"><span class="strut" style="height:1.2413409999999998em;vertical-align:-0.35001em;"></span><span class="minner"><span class="mopen delimcenter" style="top:0em;"><span class="delimsizing size1">{</span></span><span class="mord"><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8913309999999999em;"><span style="top:-2.4530000000000003em;margin-left:-0.075em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.07847em;">X</span></span></span><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.07847em;">X</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.247em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.16666666666666666em;"></span><span class="mord"><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8913309999999999em;"><span style="top:-2.4530000000000003em;margin-left:-0.075em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.22222em;">Y</span></span></span><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.07847em;">X</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.247em;"><span></span></span></span></span></span></span><span class="mclose delimcenter" style="top:0em;"><span class="delimsizing size1">}</span></span></span></span></span></span></span></eqn></section><p>简单来说，该消息中包含了 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>X</mi></mrow><annotation encoding="application/x-tex">X</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">X</span></span></span></span></eq> 自己的实际状态，以及自己已知的对方的视图状态。PaxosStore 全局仅使用这一种消息来实现 Paxos 协议，具体的协议过程如下（摘录自原论文）：</p>
+<figure tabindex="2"><a href="../images/30c861a02d200df37ac67b3ed7bc22e3.svg"><img src="../images/30c861a02d200df37ac67b3ed7bc22e3.svg" alt=""></a><figcaption>PaxosStore 中的 Paxos 实现 from 参考文献 4</figcaption></figure>
+<p>当节点 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>A</mi></mrow><annotation encoding="application/x-tex">A</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal">A</span></span></span></span></eq> 收到一个写请求时，其会触发 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mrow><mi mathvariant="bold">I</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">u</mi><mi mathvariant="bold">e</mi></mrow><mo stretchy="false">(</mo><msub><mi>m</mi><mi>i</mi></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\mathbf {Issue}(m_i)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathbf">I</span><span class="mord mathbf">s</span><span class="mord mathbf">s</span><span class="mord mathbf">u</span><span class="mord mathbf">e</span></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">m</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.31166399999999994em;"><span style="top:-2.5500000000000003em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></eq>，发送 <code>Prepare</code> 消息给所有节点；节点 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>X</mi></mrow><annotation encoding="application/x-tex">X</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">X</span></span></span></span></eq> 收到消息后触发 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mrow><mi mathvariant="bold">O</mi><mi mathvariant="bold">n</mi><mi mathvariant="bold">M</mi><mi mathvariant="bold">e</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">a</mi><mi mathvariant="bold">g</mi><mi mathvariant="bold">e</mi></mrow><mo stretchy="false">(</mo><msub><mi mathvariant="double-struck">M</mi><mrow><mi>A</mi><mo>→</mo><mi>X</mi></mrow></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\mathbf {OnMessage}(\mathbb M_{A \rightarrow X})</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathbf">O</span><span class="mord mathbf">n</span><span class="mord mathbf">M</span><span class="mord mathbf">e</span><span class="mord mathbf">s</span><span class="mord mathbf">s</span><span class="mord mathbf">a</span><span class="mord mathbf" style="margin-right:0.01597em;">g</span><span class="mord mathbf">e</span></span><span class="mopen">(</span><span class="mord"><span class="mord mathbb">M</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.32833099999999993em;"><span style="top:-2.5500000000000003em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">A</span><span class="mrel mtight">→</span><span class="mord mathnormal mtight" style="margin-right:0.07847em;">X</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></eq>，更新自身的状态，若自身状态更新则会发送消息回节点 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>A</mi></mrow><annotation encoding="application/x-tex">A</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal">A</span></span></span></span></eq>；节点 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>A</mi></mrow><annotation encoding="application/x-tex">A</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal">A</span></span></span></span></eq> 收到回复的消息同样会执行 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mrow><mi mathvariant="bold">O</mi><mi mathvariant="bold">n</mi><mi mathvariant="bold">M</mi><mi mathvariant="bold">e</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">a</mi><mi mathvariant="bold">g</mi><mi mathvariant="bold">e</mi></mrow><mo stretchy="false">(</mo><msub><mi mathvariant="double-struck">M</mi><mrow><mi>X</mi><mo>→</mo><mi>A</mi></mrow></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\mathbf {OnMessage}(\mathbb M_{X \rightarrow A})</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathbf">O</span><span class="mord mathbf">n</span><span class="mord mathbf">M</span><span class="mord mathbf">e</span><span class="mord mathbf">s</span><span class="mord mathbf">s</span><span class="mord mathbf">a</span><span class="mord mathbf" style="margin-right:0.01597em;">g</span><span class="mord mathbf">e</span></span><span class="mopen">(</span><span class="mord"><span class="mord mathbb">M</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.32833099999999993em;"><span style="top:-2.5500000000000003em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.07847em;">X</span><span class="mrel mtight">→</span><span class="mord mathnormal mtight">A</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></eq>，判断 <code>Preprare</code> 是否被多数派接受，若是则触发 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mrow><mi mathvariant="bold">I</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">u</mi><mi mathvariant="bold">e</mi></mrow><mo stretchy="false">(</mo><msub><mi mathvariant="script">P</mi><mi>i</mi></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\mathbf {Issue}(\mathcal P_i)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathbf">I</span><span class="mord mathbf">s</span><span class="mord mathbf">s</span><span class="mord mathbf">u</span><span class="mord mathbf">e</span></span><span class="mopen">(</span><span class="mord"><span class="mord mathcal" style="margin-right:0.08222em;">P</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.31166399999999994em;"><span style="top:-2.5500000000000003em;margin-left:-0.08222em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></eq> 发送 <code>Accept</code> 消息给所有节点；而后是一轮类似的消息处理，节点 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>X</mi></mrow><annotation encoding="application/x-tex">X</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">X</span></span></span></span></eq> 收到消息并更新，回复消息，节点 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>A</mi></mrow><annotation encoding="application/x-tex">A</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathnormal">A</span></span></span></span></eq> 收到消息判断 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="bold">I</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">V</mi><mi mathvariant="bold">a</mi><mi mathvariant="bold">l</mi><mi mathvariant="bold">u</mi><mi mathvariant="bold">e</mi><mi mathvariant="bold">C</mi><mi mathvariant="bold">h</mi><mi mathvariant="bold">o</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">e</mi><mi mathvariant="bold">n</mi></mrow><annotation encoding="application/x-tex">\mathbf {IsValueChosen}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.69444em;vertical-align:0em;"></span><span class="mord"><span class="mord mathbf">I</span><span class="mord mathbf">s</span><span class="mord mathbf" style="margin-right:0.01597em;">V</span><span class="mord mathbf">a</span><span class="mord mathbf">l</span><span class="mord mathbf">u</span><span class="mord mathbf">e</span><span class="mord mathbf">C</span><span class="mord mathbf">h</span><span class="mord mathbf">o</span><span class="mord mathbf">s</span><span class="mord mathbf">e</span><span class="mord mathbf">n</span></span></span></span></span></eq>。</p>
+<p>可以看到，PaxosStore 使用了统一的消息格式，同时使用了统一的消息处理函数  <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="bold">O</mi><mi mathvariant="bold">n</mi><mi mathvariant="bold">M</mi><mi mathvariant="bold">e</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">s</mi><mi mathvariant="bold">a</mi><mi mathvariant="bold">g</mi><mi mathvariant="bold">e</mi></mrow><annotation encoding="application/x-tex">\mathbf {OnMessage}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8805499999999999em;vertical-align:-0.19444em;"></span><span class="mord"><span class="mord mathbf">O</span><span class="mord mathbf">n</span><span class="mord mathbf">M</span><span class="mord mathbf">e</span><span class="mord mathbf">s</span><span class="mord mathbf">s</span><span class="mord mathbf">a</span><span class="mord mathbf" style="margin-right:0.01597em;">g</span><span class="mord mathbf">e</span></span></span></span></span></eq>，以此驱动整个 Paxos 协议过程。这大大简化了代码的实现，按照论文描述的，核心算法实现只使用了约 800 行 C++ 代码。这种实现的正确性已经在微信的大规模应用上得到验证，另外也通过了基于 TLA+ 的形式化规约和验证，见<a href="https://zhuanlan.zhihu.com/p/85864733">参考文献 5</a>。</p>
+<h3 id="3.-代码实现"><a href="#3.-%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0">3. 代码实现</a></h3>
+<p>PaxosStore 中基本是按照论文中描述的方案来实现的。首先状态 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="script">S</mi></mrow><annotation encoding="application/x-tex">\mathcal S</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathcal" style="margin-right:0.075em;">S</span></span></span></span></eq> 对应 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/Common.h"><code>src/Common.h</code></a> 中的 <code>EntryRecord_t</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">PaxosValue_t</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint64_t</span> iValueID<span class="token punctuation">;</span>
+  vector<span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span> vecValueUUID<span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> bHasValue<span class="token punctuation">;</span>
+  string strValue<span class="token punctuation">;</span>
+
+  <span class="token function">PaxosValue_t</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">iValueID</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">bHasValue</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+  <span class="token function">PaxosValue_t</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iValueID_<span class="token punctuation">,</span> <span class="token keyword">const</span> vector<span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span> vecValueUUID_<span class="token punctuation">,</span> <span class="token keyword">bool</span> bHasValue_<span class="token punctuation">,</span>
+               <span class="token keyword">const</span> string <span class="token operator">&amp;</span>strValue_<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">iValueID</span><span class="token punctuation">(</span>iValueID_<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">vecValueUUID</span><span class="token punctuation">(</span>vecValueUUID_<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">bHasValue</span><span class="token punctuation">(</span>bHasValue_<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">strValue</span><span class="token punctuation">(</span>strValue_<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">==</span><span class="token punctuation">(</span><span class="token keyword">const</span> PaxosValue_t <span class="token operator">&amp;</span>tOther<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iValueID <span class="token operator">==</span> tOther<span class="token punctuation">.</span>iValueID <span class="token operator">&amp;&amp;</span> vecValueUUID <span class="token operator">==</span> tOther<span class="token punctuation">.</span>vecValueUUID <span class="token operator">&amp;&amp;</span>
+        bHasValue <span class="token operator">==</span> tOther<span class="token punctuation">.</span>bHasValue <span class="token operator">&amp;&amp;</span> strValue <span class="token operator">==</span> tOther<span class="token punctuation">.</span>strValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">EntryRecord_t</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint32_t</span> iPreparedNum<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iPromisedNum<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">;</span>
+
+  PaxosValue_t tValue<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> bChosen<span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> bCheckedEmpty<span class="token punctuation">;</span>  <span class="token comment">// For Read Opt.</span>
+
+  <span class="token keyword">uint64_t</span> iStoredValueID<span class="token punctuation">;</span>  <span class="token comment">// For PutValue Opt.</span>
+
+  <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">==</span><span class="token punctuation">(</span><span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tOther<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iPreparedNum <span class="token operator">==</span> tOther<span class="token punctuation">.</span>iPreparedNum <span class="token operator">&amp;&amp;</span> iPromisedNum <span class="token operator">==</span> tOther<span class="token punctuation">.</span>iPromisedNum <span class="token operator">&amp;&amp;</span>
+        iAcceptedNum <span class="token operator">==</span> tOther<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">&amp;&amp;</span> tValue <span class="token operator">==</span> tOther<span class="token punctuation">.</span>tValue <span class="token operator">&amp;&amp;</span>
+        bChosen <span class="token operator">==</span> tOther<span class="token punctuation">.</span>bChosen<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="script">S</mi><mi mathvariant="normal">.</mi><mi>m</mi></mrow><annotation encoding="application/x-tex">\mathcal S.m</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="mord">.</span><span class="mord mathnormal">m</span></span></span></span></eq> 对应 <code>iPromisedNum</code>，<eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="script">S</mi><mi mathvariant="normal">.</mi><mi mathvariant="script">P</mi><mi mathvariant="normal">.</mi><mi>n</mi></mrow><annotation encoding="application/x-tex">\mathcal S.\mathcal P.n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="mord">.</span><span class="mord mathcal" style="margin-right:0.08222em;">P</span><span class="mord">.</span><span class="mord mathnormal">n</span></span></span></span></eq> 对应 <code>iAcceptedNum</code>，<eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="script">S</mi><mi mathvariant="normal">.</mi><mi mathvariant="script">P</mi><mi mathvariant="normal">.</mi><mi>v</mi></mrow><annotation encoding="application/x-tex">\mathcal S.\mathcal P.v</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.68333em;vertical-align:0em;"></span><span class="mord mathcal" style="margin-right:0.075em;">S</span><span class="mord">.</span><span class="mord mathcal" style="margin-right:0.08222em;">P</span><span class="mord">.</span><span class="mord mathnormal" style="margin-right:0.03588em;">v</span></span></span></span></eq> 对应 <code>tValue</code>。每个节点会存储自己的状态，以及其他节点的视图状态，这些状态被存储于 <code>clsEntryStateMachine</code> 中，定义于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/EntryState.h"><code>src/EntryState.h</code></a>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">enum</span> <span class="token class-name">enumEntryState</span> <span class="token punctuation">{</span>
+  kEntryStateNormal <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">,</span>
+  kEntryStatePromiseLocal<span class="token punctuation">,</span>
+  kEntryStatePromiseRemote<span class="token punctuation">,</span>
+  kEntryStateMajorityPromise<span class="token punctuation">,</span>
+  kEntryStateAcceptRemote<span class="token punctuation">,</span>
+  kEntryStateAcceptLocal<span class="token punctuation">,</span>
+  kEntryStateChosen
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">clsEntryStateMachine</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">static</span> <span class="token keyword">uint32_t</span> s_iAcceptorNum<span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">uint32_t</span> s_iMajorityNum<span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">uint32_t</span> <span class="token function">GetAcceptorID</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iValueID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">int</span> m_iEntryState<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> m_iMaxPreparedNum<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> m_iMostAcceptedNum<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iMostAcceptedNumCnt<span class="token punctuation">;</span>
+
+  std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>EntryRecord_t<span class="token operator">></span> m_atRecord<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> <span class="token function">CountAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> <span class="token function">CountPromisedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iPromisedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> <span class="token function">CalcEntryState</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> <span class="token function">MakeRealRecord</span><span class="token punctuation">(</span>EntryRecord_t <span class="token operator">&amp;</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">UpdateMostAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> <span class="token function">GetValueByAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">,</span> PaxosValue_t <span class="token operator">&amp;</span>tValue<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">static</span> <span class="token keyword">int</span> <span class="token function">Init</span><span class="token punctuation">(</span>clsConfigure <span class="token operator">*</span>poConf<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">clsEntryStateMachine</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iEntryState <span class="token operator">=</span> kEntryStateNormal<span class="token punctuation">;</span>
+
+    m_iMaxPreparedNum <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+    m_iMostAcceptedNum <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    m_iMostAcceptedNumCnt <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+    m_atRecord<span class="token punctuation">.</span><span class="token function">resize</span><span class="token punctuation">(</span>s_iAcceptorNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">InitEntryRecord</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token operator">~</span><span class="token function">clsEntryStateMachine</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token keyword">int</span> <span class="token function">GetEntryState</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> m_iEntryState<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">uint32_t</span> <span class="token function">GetNextPreparedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span><span class="token function">GetRecord</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> <span class="token function">Update</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iEntityID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntry<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">,</span>
+             <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tRecordMayWithValueIDOnly<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> <span class="token function">AcceptOnMajorityPromise</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span> <span class="token keyword">const</span> PaxosValue_t <span class="token operator">&amp;</span>tValue<span class="token punctuation">,</span>
+                              <span class="token keyword">bool</span> <span class="token operator">&amp;</span>bAcceptPreparedValue<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">SetStoredValueID</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// For readonly cmd.</span>
+  <span class="token keyword">void</span> <span class="token function">ResetAllCheckedEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">SetCheckedEmpty</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> <span class="token function">IsLocalEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> <span class="token function">IsReadOK</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">IsRemoteCompeting</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  string <span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> <span class="token function">CalcSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><code>m_atRecord</code> 中存储了自身的状态和其他节点的视图状态，可以通过 <code>iAcceptorID</code> 访问。整个 <code>clsEntryStateMachine</code> 构成一个状态机，接收到消息时通过执行 <code>Update</code> （对应算法描述中的 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="bold">U</mi><mi mathvariant="bold">p</mi><mi mathvariant="bold">d</mi><mi mathvariant="bold">a</mi><mi mathvariant="bold">t</mi><mi mathvariant="bold">e</mi><mi mathvariant="bold">S</mi><mi mathvariant="bold">t</mi><mi mathvariant="bold">a</mi><mi mathvariant="bold">t</mi><mi mathvariant="bold">e</mi><mi mathvariant="bold">s</mi></mrow><annotation encoding="application/x-tex">\mathbf {UpdateStates}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8888799999999999em;vertical-align:-0.19444em;"></span><span class="mord"><span class="mord mathbf">U</span><span class="mord mathbf">p</span><span class="mord mathbf">d</span><span class="mord mathbf">a</span><span class="mord mathbf">t</span><span class="mord mathbf">e</span><span class="mord mathbf">S</span><span class="mord mathbf">t</span><span class="mord mathbf">a</span><span class="mord mathbf">t</span><span class="mord mathbf">e</span><span class="mord mathbf">s</span></span></span></span></span></eq>）更新自身的实际状态和其他节点的视图状态，进而推进 Paxos 的流程。当前 Paxos 执行的阶段使用 <code>m_iEntryState</code> 表示，初始化阶段是 <code>kEntryStateNormal</code>，最终 Chosen 的阶段是 <code>kEntryStateChosen</code>。下面是状态机代码的实现：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"EntryState.h"</span></span>
+
+<span class="token keyword">namespace</span> Certain <span class="token punctuation">{</span>
+
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span>s_iAcceptorNum <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span>s_iMajorityNum <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+<span class="token comment">// 从 ValueID 中解析 AcceptorID</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">GetAcceptorID</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iValueID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint32_t</span> iProposalNum <span class="token operator">=</span> iValueID <span class="token operator">&amp;</span> <span class="token number">0xffffffff</span><span class="token punctuation">;</span>
+  <span class="token function">AssertLess</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> iProposalNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token punctuation">(</span>iProposalNum <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">%</span> s_iAcceptorNum<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 初始化，设定 Acceptor 和 Majority 的数量</span>
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">Init</span><span class="token punctuation">(</span>clsConfigure <span class="token operator">*</span>poConf<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  s_iAcceptorNum <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetAcceptorNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  s_iMajorityNum <span class="token operator">=</span> <span class="token punctuation">(</span>s_iAcceptorNum <span class="token operator">>></span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 获取 Acceptor[i].EntryRecord</span>
+<span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>clsEntryStateMachine<span class="token operator">::</span><span class="token function">GetRecord</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> m_atRecord<span class="token punctuation">[</span>iAcceptorID<span class="token punctuation">]</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 获取下一个 PreparedNum</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">GetNextPreparedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iMaxPreparedNum <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iMaxPreparedNum <span class="token operator">=</span> iLocalAcceptorID <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    m_iMaxPreparedNum <span class="token operator">+=</span> s_iAcceptorNum<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> m_iMaxPreparedNum<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 清空所有 CheckedEmpty 状态</span>
+<span class="token keyword">void</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">ResetAllCheckedEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>bCheckedEmpty <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 设定 CheckedEmpty 状态</span>
+<span class="token keyword">void</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">SetCheckedEmpty</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  m_atRecord<span class="token punctuation">[</span>iAcceptorID<span class="token punctuation">]</span><span class="token punctuation">.</span>bCheckedEmpty <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 检查本地是否是 Normal 状态</span>
+<span class="token keyword">bool</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">IsLocalEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// (TODO)rock: use tla to check</span>
+  <span class="token keyword">return</span> m_iEntryState <span class="token operator">==</span> kEntryStateNormal<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 设定本地 Record 的 ValueID</span>
+<span class="token keyword">void</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">SetStoredValueID</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  EntryRecord_t <span class="token operator">&amp;</span>tLocalRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>iLocalAcceptorID<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    tLocalRecord<span class="token punctuation">.</span>iStoredValueID <span class="token operator">=</span> tLocalRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">bool</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">IsReadOK</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint32_t</span> iCount <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>bCheckedEmpty <span class="token operator">&amp;&amp;</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>iPromisedNum <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      iCount<span class="token operator">++</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">CertainLogDebug</span><span class="token punctuation">(</span><span class="token string">"iCount %u"</span><span class="token punctuation">,</span> iCount<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> iCount <span class="token operator">>=</span> s_iMajorityNum<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 统计 Accepted 数量</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">CountAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint32_t</span> iCount <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>iAcceptedNum <span class="token operator">==</span> iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      iCount<span class="token operator">++</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> iCount<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 统计 PromisedNum 数量</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">CountPromisedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint32_t</span> iCount <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>iPromisedNum <span class="token operator">==</span> iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      iCount<span class="token operator">++</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> iCount<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 根据 AcceptedNum 获取 Value</span>
+<span class="token keyword">bool</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">GetValueByAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">,</span> PaxosValue_t <span class="token operator">&amp;</span>tValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>iAcceptedNum <span class="token operator">==</span> iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      tValue <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
+      <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 更新最多 Accepted 的 Num</span>
+<span class="token keyword">void</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">UpdateMostAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tRecord<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iMostAcceptedNum <span class="token operator">==</span> tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iMostAcceptedNumCnt<span class="token operator">++</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">uint32_t</span> iCount <span class="token operator">=</span> <span class="token function">CountAcceptedNum</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iMostAcceptedNumCnt <span class="token operator">&lt;</span> iCount<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iMostAcceptedNum <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">;</span>
+    m_iMostAcceptedNumCnt <span class="token operator">=</span> iCount<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 计算当前的状态</span>
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">CalcEntryState</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  EntryRecord_t <span class="token operator">&amp;</span>tLocalRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>iLocalAcceptorID<span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+  m_iEntryState <span class="token operator">=</span> kEntryStateNormal<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>bChosen<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iEntryState <span class="token operator">=</span> kEntryStateChosen<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iMostAcceptedNumCnt <span class="token operator">>=</span> s_iMajorityNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iEntryState <span class="token operator">=</span> kEntryStateChosen<span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">!=</span> m_iMostAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">GetValueByAcceptedNum</span><span class="token punctuation">(</span>m_iMostAcceptedNum<span class="token punctuation">,</span> tLocalRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> m_iMostAcceptedNum<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    tLocalRecord<span class="token punctuation">.</span>bChosen <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">></span> tLocalRecord<span class="token punctuation">.</span>iPreparedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iEntryState <span class="token operator">=</span> kEntryStatePromiseRemote<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">>=</span> tLocalRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      m_iEntryState <span class="token operator">=</span> kEntryStateAcceptRemote<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">!=</span> tLocalRecord<span class="token punctuation">.</span>iPreparedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// iPromisedNum == 0 means null.</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iEntryState <span class="token operator">=</span> kEntryStatePromiseLocal<span class="token punctuation">;</span>
+
+    <span class="token keyword">uint32_t</span> iLocalPromisedNum <span class="token operator">=</span> tLocalRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">;</span>
+    <span class="token keyword">uint32_t</span> iPromisedNumCnt <span class="token operator">=</span> <span class="token function">CountPromisedNum</span><span class="token punctuation">(</span>iLocalPromisedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iPromisedNumCnt <span class="token operator">>=</span> s_iMajorityNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      m_iEntryState <span class="token operator">=</span> kEntryStateMajorityPromise<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">==</span> tLocalRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      m_iEntryState <span class="token operator">=</span> kEntryStateAcceptLocal<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">></span> tLocalRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iEntryState <span class="token operator">=</span> kEntryStateAcceptRemote<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 通过 ValueID 获取 tRecord.tValue</span>
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">MakeRealRecord</span><span class="token punctuation">(</span>EntryRecord_t <span class="token operator">&amp;</span>tRecord<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    EntryRecord_t <span class="token operator">&amp;</span>tRealRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">!=</span> tRealRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+<span class="token macro property">#<span class="token directive keyword">if</span> CERTAIN_DEBUG</span>
+    <span class="token comment">// For check only.</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue <span class="token operator">!=</span> tRealRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue <span class="token operator">||</span>
+          <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>vecValueUUID<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span> tRealRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>vecValueUUID<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span>
+           tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>vecValueUUID <span class="token operator">!=</span> tRealRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>vecValueUUID<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"CRC32(%u, %u) BUG record: %s lrecord[%u]: %s"</span><span class="token punctuation">,</span>
+                        <span class="token function">CRC32</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">CRC32</span><span class="token punctuation">(</span>tRealRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">)</span><span class="token punctuation">,</span>
+                        <span class="token function">EntryRecordToString</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> i<span class="token punctuation">,</span>
+                        <span class="token function">EntryRecordToString</span><span class="token punctuation">(</span>tRealRecord<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token function">Assert</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token macro property">#<span class="token directive keyword">endif</span></span>
+    tRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> tRealRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
+    <span class="token keyword">break</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token number">1</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 转为字符串</span>
+string clsEntryStateMachine<span class="token operator">::</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  string strState<span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>i <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      strState <span class="token operator">+=</span> <span class="token string">" "</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    EntryRecord_t <span class="token operator">&amp;</span>tRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span>
+    strState <span class="token operator">+=</span> <span class="token function">EntryRecordToString</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> strState<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">Update</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iEntityID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntry<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span>
+                                 <span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">,</span>
+                                 <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tRecordMayWithValueIDOnly<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token macro property">#<span class="token directive keyword">if</span> CERTAIN_DEBUG</span>
+  <span class="token function">RETURN_RANDOM_ERROR_WHEN_IN_DEBUG_MODE</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token macro property">#<span class="token directive keyword">endif</span></span>
+
+  <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iEntryState <span class="token operator">==</span> kEntryStateChosen<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iLocalAcceptorID <span class="token operator">>=</span> s_iAcceptorNum <span class="token operator">||</span> iAcceptorID <span class="token operator">>=</span> s_iAcceptorNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  m_iEntryState <span class="token operator">=</span> kEntryStateNormal<span class="token punctuation">;</span>
+  EntryRecord_t <span class="token operator">&amp;</span>tLocalRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>iLocalAcceptorID<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  EntryRecord_t <span class="token operator">&amp;</span>tRemoteRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>iAcceptorID<span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Make record into real when it comes in machine state.</span>
+  EntryRecord_t tRecord <span class="token operator">=</span> tRecordMayWithValueIDOnly<span class="token punctuation">;</span>
+  iRet <span class="token operator">=</span> <span class="token function">CheckEntryRecordMayWithVIDOnly</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"CheckEntryRecordMayWithVIDOnly ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">3</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  iRet <span class="token operator">=</span> <span class="token function">MakeRealRecord</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"MakeRealRecord ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">4</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>bHasValue <span class="token operator">&amp;&amp;</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">></span> tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// The remote acceptor supposed that this acceptor know the V.</span>
+      <span class="token comment">// But the V stored in tLocalRecord has been overriden,</span>
+
+      <span class="token comment">// Ignore the accepted message.</span>
+      tRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+      tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">5</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  iRet <span class="token operator">=</span> <span class="token function">CheckEntryRecord</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"CheckEntryRecord ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">6</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>bChosen<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// For check only.</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tRemoteRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">>=</span> tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>tRemoteRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">!=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">7</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">;</span>
+    tLocalRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
+    tLocalRecord<span class="token punctuation">.</span>bChosen <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+
+    tRemoteRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">;</span>
+    tRemoteRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
+    tRemoteRecord<span class="token punctuation">.</span>bChosen <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+
+    m_iEntryState <span class="token operator">=</span> kEntryStateChosen<span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> m_iEntryState<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 1. update m_iMaxPreparedNum</span>
+  <span class="token keyword">uint32_t</span> iGlobalMaxPreparedNum <span class="token operator">=</span> <span class="token function">max</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>iPreparedNum<span class="token punctuation">,</span> tRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iMaxPreparedNum <span class="token operator">&lt;</span> iGlobalMaxPreparedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">uint32_t</span> iNextPreparedNum <span class="token operator">=</span> m_iMaxPreparedNum<span class="token punctuation">;</span>
+
+    <span class="token keyword">while</span> <span class="token punctuation">(</span>iNextPreparedNum <span class="token operator">&lt;=</span> iGlobalMaxPreparedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      m_iMaxPreparedNum <span class="token operator">=</span> iNextPreparedNum<span class="token punctuation">;</span>
+
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>iNextPreparedNum <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        iNextPreparedNum <span class="token operator">=</span> iLocalAcceptorID <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        iNextPreparedNum <span class="token operator">+=</span> s_iAcceptorNum<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 2. update iPreparedNum</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tRemoteRecord<span class="token punctuation">.</span>iPreparedNum <span class="token operator">&lt;</span> tRecord<span class="token punctuation">.</span>iPreparedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    tRemoteRecord<span class="token punctuation">.</span>iPreparedNum <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>iPreparedNum<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 3. update old remote record</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iAcceptorID <span class="token operator">!=</span> iLocalAcceptorID <span class="token operator">&amp;&amp;</span> tRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">></span> tRemoteRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    tRemoteRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tRemoteRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">!=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      tRemoteRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token function">UpdateMostAcceptedNum</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 4. update value for remote accept first when use PreAuth</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token number">0</span> <span class="token operator">==</span> tRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">8</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>iLocalAcceptorID <span class="token operator">==</span> iAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">!=</span> <span class="token number">0</span> <span class="token operator">||</span> tLocalRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">9</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+        tLocalRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">&lt;=</span> s_iAcceptorNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">==</span> <span class="token number">0</span> <span class="token operator">||</span> tRecord<span class="token punctuation">.</span>iPreparedNum <span class="token operator">!=</span> tRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">10</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+        tRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// store the newest status of remote record</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iLocalAcceptorID <span class="token operator">!=</span> iAcceptorID <span class="token operator">&amp;&amp;</span> tRemoteRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>tRemoteRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">></span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">></span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span>
+          <span class="token punctuation">(</span>tRemoteRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">!=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">||</span>
+           tRemoteRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue <span class="token operator">!=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">11</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      tRemoteRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 5. update old local record</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">></span> tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">&amp;&amp;</span>
+      tRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">>=</span> tLocalRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">!=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      tLocalRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token function">UpdateMostAcceptedNum</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 6. update iPromisedNum</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tRemoteRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">&lt;</span> tRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    tRemoteRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">&lt;</span> tRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">=</span> tRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  iRet <span class="token operator">=</span> <span class="token function">CalcEntryState</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"CalcEntryState ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">12</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// For check only.</span>
+  iRet <span class="token operator">=</span> <span class="token function">CheckEntryRecord</span><span class="token punctuation">(</span>tRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"CheckEntryRecord ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">13</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPreparedNum <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPreparedNum <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">%</span> s_iAcceptorNum <span class="token operator">!=</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">14</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">></span> tLocalRecord<span class="token punctuation">.</span>iPreparedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">%</span> s_iAcceptorNum <span class="token operator">==</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">15</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">==</span> iLocalAcceptorID <span class="token operator">+</span> <span class="token number">1</span> <span class="token operator">&amp;&amp;</span> tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">==</span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span>
+      tLocalRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">16</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> m_iEntryState<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">AcceptOnMajorityPromise</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span>
+                                                  <span class="token keyword">const</span> PaxosValue_t <span class="token operator">&amp;</span>tValue<span class="token punctuation">,</span>
+                                                  <span class="token keyword">bool</span> <span class="token operator">&amp;</span>bAcceptPreparedValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token macro property">#<span class="token directive keyword">if</span> CERTAIN_DEBUG</span>
+  <span class="token function">RETURN_RANDOM_ERROR_WHEN_IN_DEBUG_MODE</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token macro property">#<span class="token directive keyword">endif</span></span>
+  <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
+
+  bAcceptPreparedValue <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iEntryState <span class="token operator">!=</span> kEntryStateMajorityPromise<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  EntryRecord_t <span class="token operator">&amp;</span>tLocalRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>iLocalAcceptorID<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPreparedNum <span class="token operator">!=</span> tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">||</span>
+      tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">>=</span> tLocalRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 取得最大的 AcceptedNum 及其对应的 Value</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">&lt;</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">;</span>
+      tLocalRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    tLocalRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> tValue<span class="token punctuation">;</span>
+    bAcceptPreparedValue <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">></span> tLocalRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">3</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  tLocalRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> tLocalRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">;</span>
+
+  iRet <span class="token operator">=</span> <span class="token function">CheckEntryRecord</span><span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"CheckEntryRecord ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">4</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  iRet <span class="token operator">=</span> <span class="token function">CalcEntryState</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"CalcEntryState ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">5</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iEntryState <span class="token operator">!=</span> kEntryStateAcceptLocal<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">6</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">%</span> s_iAcceptorNum <span class="token operator">!=</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">7</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">bool</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">IsRemoteCompeting</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iEntryState <span class="token operator">==</span> kEntryStatePromiseRemote <span class="token operator">||</span> m_iEntryState <span class="token operator">==</span> kEntryStateAcceptRemote<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 统计自身数据大小</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">CalcSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint32_t</span> iSize <span class="token operator">=</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>clsEntryStateMachine<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">bool</span> bToAdd <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> j <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> j <span class="token operator">&lt;</span> i<span class="token punctuation">;</span> <span class="token operator">++</span>j<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">==</span> m_atRecord<span class="token punctuation">[</span>j<span class="token punctuation">]</span><span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        bToAdd <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+        <span class="token keyword">break</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>bToAdd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      iSize <span class="token operator">+=</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> iSize<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token punctuation">}</span>  <span class="token comment">// namespace Certain</span>
+</code></pre>
+<p>算法描述中其他部分则主要实现于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/EntityWorker.cpp"><code>src/EntityWorker.cpp</code></a>。该文件还实现了 CatchUp / Recovery 等功能，代码非常长，这里摘录出 Paxos 流程的核心代码：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// A 节点发起 Paxos 流程</span>
+<span class="token keyword">int</span> clsEntityWorker<span class="token operator">::</span><span class="token function">DoWithClientCmd</span><span class="token punctuation">(</span>clsClientCmd <span class="token operator">*</span>poCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint64_t</span> iEntityID <span class="token operator">=</span> poCmd<span class="token operator">-></span><span class="token function">GetEntityID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  EntryInfo_t <span class="token operator">*</span>ptInfo <span class="token operator">=</span> m_poEntryMng<span class="token operator">-></span><span class="token function">FindEntryInfo</span><span class="token punctuation">(</span>iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iLocalAcceptorID <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>iLocalAcceptorID<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>ptInfo <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 创建 Entry，包含了 clsEntryStateMachine</span>
+    ptInfo <span class="token operator">=</span> m_poEntryMng<span class="token operator">-></span><span class="token function">CreateEntryInfo</span><span class="token punctuation">(</span>ptEntityInfo<span class="token punctuation">,</span> iEntry<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  clsEntryStateMachine <span class="token operator">*</span>poMachine <span class="token operator">=</span> ptInfo<span class="token operator">-></span>poMachine<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> iEntryState <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetEntryState</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 生成可用的 ProposalNum</span>
+  <span class="token keyword">uint32_t</span> iProposalNum <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetNextPreparedNum</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 创建一个新的状态</span>
+  EntryRecord_t tTempRecord<span class="token punctuation">;</span>
+  <span class="token function">InitEntryRecord</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>tTempRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 自己当然直接 Promise</span>
+  tTempRecord<span class="token punctuation">.</span>iPreparedNum <span class="token operator">=</span> iProposalNum<span class="token punctuation">;</span>
+  tTempRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">=</span> iProposalNum<span class="token punctuation">;</span>
+
+  <span class="token comment">// 更新状态机</span>
+  iEntryState <span class="token operator">=</span>
+      poMachine<span class="token operator">-></span><span class="token function">Update</span><span class="token punctuation">(</span>iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> iLocalAcceptorID<span class="token punctuation">,</span> iLocalAcceptorID<span class="token punctuation">,</span> tTempRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 获取自身状态</span>
+  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tUpdatedRecord <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetRecord</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 构造消息</span>
+  clsPaxosCmd <span class="token operator">*</span>poPaxosCmd <span class="token operator">=</span>
+      <span class="token keyword">new</span> <span class="token function">clsPaxosCmd</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">,</span> iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> <span class="token operator">&amp;</span>tUpdatedRecord<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 加入 PLog Req 队列进行持久化，可以暂时忽略</span>
+  iRet <span class="token operator">=</span> clsPLogWorker<span class="token operator">::</span><span class="token function">EnterPLogReqQueue</span><span class="token punctuation">(</span>poPaxosCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> eRetCodePtrReuse<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// A 节点经过 PLogWorker 持久化后，会广播 Message</span>
+<span class="token keyword">void</span> clsEntityWorker<span class="token operator">::</span><span class="token function">BroadcastToRemote</span><span class="token punctuation">(</span>EntryInfo_t <span class="token operator">*</span>ptInfo<span class="token punctuation">,</span> clsEntryStateMachine <span class="token operator">*</span>poMachine<span class="token punctuation">,</span>
+                                        clsClientCmd <span class="token operator">*</span>poCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  EntityInfo_t <span class="token operator">*</span>ptEntityInfo <span class="token operator">=</span> ptInfo<span class="token operator">-></span>ptEntityInfo<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint64_t</span> iEntityID <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>iEntityID<span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> iEntry <span class="token operator">=</span> ptInfo<span class="token operator">-></span>iEntry<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> iLocalAcceptorID <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>iLocalAcceptorID<span class="token punctuation">;</span>
+
+  <span class="token comment">// 遍历所有节点</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> m_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 忽略自己</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>i <span class="token operator">==</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">// 获取自身状态和目标节点的视图状态</span>
+    <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tSrc <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetRecord</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tDest <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetRecord</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// 构造消息</span>
+    clsPaxosCmd <span class="token operator">*</span>po <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">clsPaxosCmd</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">,</span> iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> <span class="token operator">&amp;</span>tSrc<span class="token punctuation">,</span> <span class="token operator">&amp;</span>tDest<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// 设定发送目标</span>
+    po<span class="token operator">-></span><span class="token function">SetDestAcceptorID</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// 使用 IO Worker 发送消息</span>
+    m_poIOWorkerRouter<span class="token operator">-></span><span class="token function">GoAndDeleteIfFailed</span><span class="token punctuation">(</span>po<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// X 节点通过网络接收到消息后</span>
+<span class="token keyword">int</span> clsEntityWorker<span class="token operator">::</span><span class="token function">UpdateRecord</span><span class="token punctuation">(</span>clsPaxosCmd <span class="token operator">*</span>poPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint32_t</span> iAcceptorID <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetSrcAcceptorID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> iEntityID <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetEntityID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> iEntry <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetEntry</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  EntityInfo_t <span class="token operator">*</span>ptEntityInfo <span class="token operator">=</span> m_poEntityMng<span class="token operator">-></span><span class="token function">FindEntityInfo</span><span class="token punctuation">(</span>iEntityID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> iLocalAcceptorID <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>iLocalAcceptorID<span class="token punctuation">;</span>
+
+  EntryInfo_t <span class="token operator">*</span>ptInfo <span class="token operator">=</span> m_poEntryMng<span class="token operator">-></span><span class="token function">FindEntryInfo</span><span class="token punctuation">(</span>iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 获取状态机</span>
+  clsEntryStateMachine <span class="token operator">*</span>poMachine <span class="token operator">=</span> ptInfo<span class="token operator">-></span>poMachine<span class="token punctuation">;</span>
+  <span class="token comment">// 读取当前自己的状态</span>
+  <span class="token keyword">const</span> EntryRecord_t tOldRecord <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetRecord</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 获取消息中节点 A 发送的实际状态 S_A^A 和视图状态 S_X^A</span>
+  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tSrcRecord <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetSrcRecord</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tDestRecord <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetDestRecord</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 更新 X 自身的状态机</span>
+  <span class="token keyword">int</span> iRet <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">Update</span><span class="token punctuation">(</span>iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> iLocalAcceptorID<span class="token punctuation">,</span> iAcceptorID<span class="token punctuation">,</span> tSrcRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 获取实际状态 S_X</span>
+  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tNewRecord <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetRecord</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">// 获取视图状态 S_A^X</span>
+  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tRemoteRecord <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetRecord</span><span class="token punctuation">(</span>iAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 判断视图状态 S_X^A 与 S_X 是否一致</span>
+  <span class="token keyword">bool</span> bRemoteUpdated <span class="token operator">=</span> <span class="token function">IsEntryRecordUpdated</span><span class="token punctuation">(</span>tDestRecord<span class="token punctuation">,</span> tNewRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 判断实际状态 S_X 是否存在更新</span>
+  <span class="token keyword">bool</span> bLocalUpdated <span class="token operator">=</span> <span class="token function">IsEntryRecordUpdated</span><span class="token punctuation">(</span>tOldRecord<span class="token punctuation">,</span> tNewRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 构造消息</span>
+  clsPaxosCmd <span class="token operator">*</span>po <span class="token operator">=</span>
+      <span class="token keyword">new</span> <span class="token function">clsPaxosCmd</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">,</span> iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> <span class="token operator">&amp;</span>tNewRecord<span class="token punctuation">,</span> <span class="token operator">&amp;</span>tRemoteRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  po<span class="token operator">-></span><span class="token function">SetDestAcceptorID</span><span class="token punctuation">(</span>iAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">// 如果视图状态 S_X^A 与 S_X 不一致，那么说明 A 节点需要更新对 X 节点的视图状态，也就需要发送消息回去</span>
+  ptInfo<span class="token operator">-></span>bRemoteUpdated <span class="token operator">=</span> bRemoteUpdated<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>bLocalUpdated<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 如果自身的实际状态存在更新，则需要使用 PLog 将其持久化</span>
+    iRet <span class="token operator">=</span> clsPLogWorker<span class="token operator">::</span><span class="token function">EnterPLogReqQueue</span><span class="token punctuation">(</span>po<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 自身状态不存在更新，直接进入回复阶段</span>
+    <span class="token function">SyncEntryRecord</span><span class="token punctuation">(</span>ptInfo<span class="token punctuation">,</span> po<span class="token operator">-></span><span class="token function">GetDestAcceptorID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> po<span class="token operator">-></span><span class="token function">GetUUID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// X 节点持久化完成后，发送回复消息</span>
+<span class="token keyword">void</span> clsEntityWorker<span class="token operator">::</span><span class="token function">SyncEntryRecord</span><span class="token punctuation">(</span>EntryInfo_t <span class="token operator">*</span>ptInfo<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iDestAcceptorID<span class="token punctuation">,</span>
+                                      <span class="token keyword">uint64_t</span> iUUID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  EntityInfo_t <span class="token operator">*</span>ptEntityInfo <span class="token operator">=</span> ptInfo<span class="token operator">-></span>ptEntityInfo<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint64_t</span> iEntityID <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>iEntityID<span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> iEntry <span class="token operator">=</span> ptInfo<span class="token operator">-></span>iEntry<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> iLocalAcceptorID <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>iLocalAcceptorID<span class="token punctuation">;</span>
+
+  clsEntryStateMachine <span class="token operator">*</span>poMachine <span class="token operator">=</span> ptInfo<span class="token operator">-></span>poMachine<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tSrcRecord <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetRecord</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 如果需要发送回复</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>ptInfo<span class="token operator">-></span>bRemoteUpdated<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tDestRecord <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">GetRecord</span><span class="token punctuation">(</span>iDestAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>tDestRecord<span class="token punctuation">.</span>bChosen<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 构造发送回去的消息</span>
+      clsPaxosCmd <span class="token operator">*</span>po <span class="token operator">=</span>
+          <span class="token keyword">new</span> <span class="token function">clsPaxosCmd</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">,</span> iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> <span class="token operator">&amp;</span>tSrcRecord<span class="token punctuation">,</span> <span class="token operator">&amp;</span>tDestRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token comment">// 设定发送目标</span>
+      po<span class="token operator">-></span><span class="token function">SetDestAcceptorID</span><span class="token punctuation">(</span>iDestAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      po<span class="token operator">-></span><span class="token function">SetMaxChosenEntry</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">(</span>ptEntityInfo<span class="token operator">-></span>iMaxChosenEntry<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token comment">// 通过 IO Worker 发送回 A 节点</span>
+      m_poIOWorkerRouter<span class="token operator">-></span><span class="token function">GoAndDeleteIfFailed</span><span class="token punctuation">(</span>po<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 节点 A 收到回复消息后，同样会执行 UpdateRecord</span>
+<span class="token keyword">int</span> clsEntityWorker<span class="token operator">::</span><span class="token function">UpdateRecord</span><span class="token punctuation">(</span>clsPaxosCmd <span class="token operator">*</span>poPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+
+  <span class="token comment">// 更新 A 自身的状态机</span>
+  <span class="token keyword">int</span> iRet <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">Update</span><span class="token punctuation">(</span>iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> iLocalAcceptorID<span class="token punctuation">,</span> iAcceptorID<span class="token punctuation">,</span> tSrcRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 判断 A 是否已经获得多数派的 Promised</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>poMachine<span class="token operator">-></span><span class="token function">GetEntryState</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> kEntryStateMajorityPromise<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 构造 Value</span>
+    PaxosValue_t tValue<span class="token punctuation">;</span>
+    tValue<span class="token punctuation">.</span>bHasValue <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    tValue<span class="token punctuation">.</span>iValueID <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>poClientCmd<span class="token operator">-></span><span class="token function">GetWriteBatchID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    tValue<span class="token punctuation">.</span>strValue <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>poClientCmd<span class="token operator">-></span><span class="token function">GetWriteBatch</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    tValue<span class="token punctuation">.</span>vecValueUUID <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>poClientCmd<span class="token operator">-></span><span class="token function">GetWBUUID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">bool</span> bAcceptPreparedValue <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token comment">// 尝试在 Accept 请求中使用请求 Value</span>
+    iRet <span class="token operator">=</span> poMachine<span class="token operator">-></span><span class="token function">AcceptOnMajorityPromise</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">,</span> tValue<span class="token punctuation">,</span> bAcceptPreparedValue<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// bAcceptPreparedValue 会返回是否使用该 Value</span>
+    <span class="token comment">// 如果 X 节点的 Promised 回复中已有 Value，则该操作会返回失败</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 继续进行 PLog 持久化 / 发送回复消息</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>注意这里为了让流程清晰，删减了大量代码。上述代码大概是 Paxos 完整流程的一半，后面还有另一半发起 <code>Accept</code> 请求、确定值的过程，过程和上方基本一致，就不重复了。</p>
+<h3 id="4.-总结"><a href="#4.-%E6%80%BB%E7%BB%93">4. 总结</a></h3>
+<p>PaxosStore 使用自己提出的半对称消息来实现 Paxos 过程，从实现来看确实简化了代码的复杂度，每个节点收到消息时走的都是同一套流程。当然目前只分析了最简单的 Paxos 流程，代码中还有错误处理、数据持久化、预授权优化等内容，这些将会在后续的博文中逐步分析。</p>
+<h3 id="references"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://lamport.azurewebsites.net/pubs/paxos-simple.pdf">&quot;Paxos Made Simple&quot;, <em>Leslie Lamport</em></a></li>
+<li><a href="http://drmingdrmer.github.io/post-res/paxos-slide/pdf/paxos.html">&quot;可靠分布式系统基础：paxos的直观解释&quot;, <em>drdrxp</em></a></li>
+<li><a href="http://nil.csail.mit.edu/6.824/2015/index.html">&quot;6.824: Distributed Systems&quot;, <em>MIT</em></a></li>
+<li><a href="http://www.vldb.org/pvldb/vol10/p1730-lin.pdf">&quot;PaxosStore: High-availability Storage Made Practical in WeChat&quot;, <em>Jianjun Zheng</em></a></li>
+<li><a href="https://zhuanlan.zhihu.com/p/85864733">&quot;腾讯PaxosStore中共识算法的验证&quot;, <em>黄宇</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://travis-ci.com/SF-Zhou/sf-zhou.github.io">Travis CI</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>汇编魔法实现 C++ 协程 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> 汇编魔法实现 C++ 协程 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2019.09.28 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>协程，简而言之就是用户态线程。C++ 官方协程已经被提上日程，乐观估计 2020 年能发布，然后 2025 年能用上。但当下的性能问题亟待解决，没有官方实现也可以自己造轮子。除了切换到 Go、使用语言级支持的协程外，也可以在 C++ 内使用基于汇编实现的协程，比如微信开源的 <a href="https://github.com/Tencent/libco">libco</a>。本文将从简单的汇编开始，逐步分析 x86-64 环境下协程的实现原理。</p>
+<h3 id="1.-栈帧-stack-frames"><a href="#1.-%E6%A0%88%E5%B8%A7-stack-frames">1. 栈帧 Stack Frames</a></h3>
+<p>在 C++ 的执行环境下，通常会在调用函数时为其分配栈帧使其有独立的内存空间放置临时变量。一般使用 <code>RBP</code> 寄存器（x86 则是 <code>EBP</code> 寄存器）存储栈帧的底部位置，然后使用 <code>RBP</code> 寄存器和偏移量定位临时变量。举个例子：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token function">func</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> a<span class="token punctuation">,</span> b<span class="token punctuation">,</span> c<span class="token punctuation">;</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token keyword">return</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">func</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>对应的汇编可能是这样的：</p>
+<pre class="language-nasm"><code class="language-nasm"><span class="token label function">_Z4funcv:</span>
+  push <span class="token register variable">rbp</span>     <span class="token comment">; 存储 RBP 的值</span>
+  mov <span class="token register variable">rbp</span>, <span class="token register variable">rsp</span> <span class="token comment">; 将 RPB 指向当前栈顶 RSP</span>
+  sub <span class="token register variable">rsp</span>, <span class="token number">12</span>  <span class="token comment">; 将栈顶上移 12 个字节，为临时变量 a/b/c 腾出空间</span>
+               <span class="token comment">; a = [rbp - 4], b = [rbp - 8], c = [rbp - 12]</span>
+  mov <span class="token register variable">rsp</span>, <span class="token register variable">rbp</span> <span class="token comment">; 恢复栈顶指针 RSP</span>
+  pop <span class="token register variable">rbp</span>      <span class="token comment">; 恢复 RBP 的值，即为函数调用者的栈帧地址</span>
+  ret          <span class="token comment">; 读取栈顶存储的返回地址，弹出，返回</span>
+
+<span class="token label function">main:</span>
+  push <span class="token register variable">rbp</span>
+  mov <span class="token register variable">rbp</span>, <span class="token register variable">rsp</span>
+  call _Z4funcv
+  mov <span class="token register variable">eax</span>, <span class="token number">0</span>
+  pop <span class="token register variable">rbp</span>
+  ret
+</code></pre>
+<p>其中 <code>call</code> 会将函数的返回地址压栈，并 <code>jump</code> 到函数的起始位置，相当于：</p>
+<pre class="language-nasm"><code class="language-nasm">push rip <span class="token operator">+</span> <span class="token number">2</span> <span class="token comment">; 返回地址为当前地址加两条指令的偏移量</span>
+jmp _Z4funcv
+</code></pre>
+<p>对于有参数的函数，编译器会根据参数的数量和大小，使用寄存器或栈进行传递，例如：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> <span class="token function">add</span><span class="token punctuation">(</span><span class="token keyword">int</span> x<span class="token punctuation">,</span> <span class="token keyword">int</span> y<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> x <span class="token operator">+</span> y<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">Array</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> values<span class="token punctuation">[</span><span class="token number">8</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">int</span> <span class="token function">sum</span><span class="token punctuation">(</span>Array arr<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> arr<span class="token punctuation">.</span>values<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span> <span class="token operator">+</span> arr<span class="token punctuation">.</span>values<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>对应的汇编：</p>
+<pre class="language-nasm"><code class="language-nasm"><span class="token label function">_Z3addii:</span>
+  push <span class="token register variable">rbp</span>
+  mov <span class="token register variable">rbp</span>, <span class="token register variable">rsp</span>
+  mov DWORD PTR <span class="token operator">[</span><span class="token register variable">rbp</span><span class="token operator">-</span><span class="token number">4</span><span class="token operator">]</span>, <span class="token register variable">edi</span> <span class="token comment">; 参数较少时使用 rdi 和 rsi 等寄存器传递，这里取其低 32 位</span>
+  mov DWORD PTR <span class="token operator">[</span><span class="token register variable">rbp</span><span class="token operator">-</span><span class="token number">8</span><span class="token operator">]</span>, <span class="token register variable">esi</span> <span class="token comment">; 如果使用 -O2 优化，会消除这几句冗余的传值</span>
+  mov <span class="token register variable">edx</span>, DWORD PTR <span class="token operator">[</span><span class="token register variable">rbp</span><span class="token operator">-</span><span class="token number">4</span><span class="token operator">]</span>
+  mov <span class="token register variable">eax</span>, DWORD PTR <span class="token operator">[</span><span class="token register variable">rbp</span><span class="token operator">-</span><span class="token number">8</span><span class="token operator">]</span>
+  add <span class="token register variable">eax</span>, <span class="token register variable">edx</span>
+  pop <span class="token register variable">rbp</span>
+  ret
+
+<span class="token label function">_Z3sum5Array:</span>
+  push <span class="token register variable">rbp</span>
+  mov <span class="token register variable">rbp</span>, <span class="token register variable">rsp</span>
+  mov <span class="token register variable">edx</span>, DWORD PTR <span class="token operator">[</span><span class="token register variable">rbp</span><span class="token operator">+</span><span class="token number">16</span><span class="token operator">]</span> <span class="token comment">; 参数较大/多时使用栈传递，此时 [rbp] 存储调用者 rbp 寄存器值</span>
+  mov <span class="token register variable">eax</span>, DWORD PTR <span class="token operator">[</span><span class="token register variable">rbp</span><span class="token operator">+</span><span class="token number">20</span><span class="token operator">]</span> <span class="token comment">; [rbp+8] 存储返回地址</span>
+  add <span class="token register variable">eax</span>, <span class="token register variable">edx</span>
+  pop <span class="token register variable">rbp</span>
+  ret
+</code></pre>
+<p>由于依靠 <code>RBP</code> 定位临时变量的位置，一般称其为 Frame Pointer，称 <code>RSP</code> 为 Stack Pointer。一般会要求 <code>RSP</code> 始终指向栈顶的位置，以保证可以在中断的情况下根据 <code>RSP</code> 申请新的栈帧处理中断任务。注意栈一般是朝着内存地址减小的方向增长的。栈帧示意图：</p>
+<pre class="language-markup"><code class="language-markup">|low  addr|
+|---------|
+|   ...   | &lt;- [rsp] 栈顶
+|   ...   |
+|   ...   | &lt;- [rbp - x] 函数临时变量
+|---------|
+|   RBP'  | &lt;- [rbp + 0] 调用者原 RBP 值
+|---------|
+| RetAddr | &lt;- [rbp + 8] 返回地址
+|---------|
+|   ...   | &lt;- [rbp + x] 函数参数
+|---------|
+|high addr|
+</code></pre>
+<p>了解了栈帧之后，就可以尝试使用汇编实现一些魔法了，比如：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+
+<span class="token keyword">extern</span> <span class="token string">"C"</span> <span class="token keyword">void</span> <span class="token function">run</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span> <span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token string">"run"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token raw-string string">R"(
+run:
+  jmp *%rdi
+)"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">void</span> <span class="token function">func</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Hello ASM"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">run</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span>func<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>上述代码需要 C++11 支持，<a href="https://godbolt.org/z/ZHvSM8">可以点击此处在线编译执行</a>。这里手写了一个汇编函数 <code>run</code>，其功能为跳转到第一个参数指向的地址处，即 <code>func</code> 函数。由于返回地址仍然是 <code>main</code> 函数的位置，故不需要其他额外的修改操作。</p>
+<p>而这就是实现协程切换的核心魔法了。</p>
+<h3 id="2.-协程切换-swap-coroutines"><a href="#2.-%E5%8D%8F%E7%A8%8B%E5%88%87%E6%8D%A2-swap-coroutines">2. 协程切换 Swap Coroutines</a></h3>
+<p>在协程的执行过程中，一般会在遇到 IO 等待事件时主动出让执行权；而当 IO 事件完成、获得执行权时，再恢复出让前的状态，继续执行。举个例子：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token function">func</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Wait!"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  <span class="token function">yield</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 出让执行权</span>
+  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Finish!"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>在出让执行权时需要保存当前执行的状态，包括堆栈和寄存器等；而当再次获得执行权时，恢复先前保存的状态即可。实际上堆栈信息也保存在寄存器中（<code>RBP</code> 和 <code>RSP</code>），所以关注寄存器就够了，这一点可以参考 <a href="https://github.com/hnes/libaco#mathematical-induction">libaco 中关于寄存器状态的说明</a>。使用汇编实现寄存器的保存和恢复后，就可以实现上述函数了：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+
+<span class="token keyword">extern</span> <span class="token string">"C"</span> <span class="token keyword">void</span> <span class="token function">swap_context</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">,</span> <span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span> <span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token string">"swap_context"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token raw-string string">R"(
+swap_context:
+  mov 0x00(%rsp), %rdx
+  lea 0x08(%rsp), %rcx
+  mov %r12, 0x00(%rdi)
+  mov %r13, 0x08(%rdi)
+  mov %r14, 0x10(%rdi)
+  mov %r15, 0x18(%rdi)
+  mov %rdx, 0x20(%rdi)
+  mov %rcx, 0x28(%rdi)
+  mov %rbx, 0x30(%rdi)
+  mov %rbp, 0x38(%rdi)
+  mov 0x00(%rsi), %r12
+  mov 0x08(%rsi), %r13
+  mov 0x10(%rsi), %r14
+  mov 0x18(%rsi), %r15
+  mov 0x20(%rsi), %rax
+  mov 0x28(%rsi), %rcx
+  mov 0x30(%rsi), %rbx
+  mov 0x38(%rsi), %rbp
+  mov %rcx, %rsp
+  jmpq *%rax
+)"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">Registers</span> <span class="token punctuation">{</span>
+  <span class="token keyword">void</span> <span class="token operator">*</span>reg<span class="token punctuation">[</span><span class="token number">8</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span> ma<span class="token punctuation">,</span> co<span class="token punctuation">;</span>
+
+<span class="token keyword">void</span> <span class="token function">func</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Wait!"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  <span class="token function">swap_context</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>co<span class="token punctuation">,</span> <span class="token operator">&amp;</span>ma<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// yield</span>
+  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Finish!"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  <span class="token function">swap_context</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>co<span class="token punctuation">,</span> <span class="token operator">&amp;</span>ma<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// exit</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  std<span class="token operator">::</span>vector<span class="token operator">&lt;</span><span class="token keyword">char</span><span class="token operator">></span> <span class="token function">mem</span><span class="token punctuation">(</span><span class="token number">4096</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token operator">*</span>stack <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token punctuation">(</span>uintptr_t<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mem<span class="token punctuation">.</span><span class="token function">back</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">&amp;</span> <span class="token operator">~</span><span class="token number">15ull</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  co<span class="token punctuation">.</span>reg<span class="token punctuation">[</span><span class="token number">4</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span>func<span class="token punctuation">;</span>
+  co<span class="token punctuation">.</span>reg<span class="token punctuation">[</span><span class="token number">5</span><span class="token punctuation">]</span> <span class="token operator">=</span> stack<span class="token punctuation">;</span>
+
+  <span class="token function">swap_context</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>ma<span class="token punctuation">,</span> <span class="token operator">&amp;</span>co<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// start coroutine</span>
+  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Resume"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  <span class="token function">swap_context</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>ma<span class="token punctuation">,</span> <span class="token operator">&amp;</span>co<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// resume coroutine</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><a href="https://godbolt.org/z/EcbdaZ">可以点击此处在线编译执行</a>。定义的 <code>Registers</code> 结构体内会存储 8 个寄存器，定义两个 <code>ma</code> 和 <code>co</code> 状态用来保存主协程和子协程的寄存器值。<code>main</code> 函数中申请了一段空间作为子协程的栈，设定子协程存储的寄存器中的 <code>RAX</code> 为 <code>func</code> 函数地址，<code>RCX</code> 为栈顶，而后执行 <code>swap_context</code> 保存当前主协程状态并切换到子协程。</p>
+<pre class="language-nasm"><code class="language-nasm"><span class="token label function">swap_context:</span>
+  mov <span class="token number">0x00</span>(<span class="token operator">%</span><span class="token register variable">rsp</span>), <span class="token operator">%</span><span class="token register variable">rdx</span>  <span class="token comment">; 将返回地址保存到 RDX 寄存器</span>
+  lea <span class="token number">0x08</span>(<span class="token operator">%</span><span class="token register variable">rsp</span>), <span class="token operator">%</span><span class="token register variable">rcx</span>  <span class="token comment">; 将原 RSP 地址存储到 RCX 寄存器</span>
+  mov <span class="token operator">%</span><span class="token register variable">r12</span>, <span class="token number">0x00</span>(<span class="token operator">%</span><span class="token register variable">rdi</span>)  <span class="token comment">; 将当前协程的 R12 寄存器保存到 RDI 指向的 Registers 结构体中，下同</span>
+  mov <span class="token operator">%</span><span class="token register variable">r13</span>, <span class="token number">0x08</span>(<span class="token operator">%</span><span class="token register variable">rdi</span>)
+  mov <span class="token operator">%</span><span class="token register variable">r14</span>, <span class="token number">0x10</span>(<span class="token operator">%</span><span class="token register variable">rdi</span>)
+  mov <span class="token operator">%</span><span class="token register variable">r15</span>, <span class="token number">0x18</span>(<span class="token operator">%</span><span class="token register variable">rdi</span>)
+  mov <span class="token operator">%</span><span class="token register variable">rdx</span>, <span class="token number">0x20</span>(<span class="token operator">%</span><span class="token register variable">rdi</span>)  <span class="token comment">; 这里保存了当前协程的返回地址</span>
+  mov <span class="token operator">%</span><span class="token register variable">rcx</span>, <span class="token number">0x28</span>(<span class="token operator">%</span><span class="token register variable">rdi</span>)  <span class="token comment">; 这里保存了当前协程的栈顶地址</span>
+  mov <span class="token operator">%</span><span class="token register variable">rbx</span>, <span class="token number">0x30</span>(<span class="token operator">%</span><span class="token register variable">rdi</span>)
+  mov <span class="token operator">%</span><span class="token register variable">rbp</span>, <span class="token number">0x38</span>(<span class="token operator">%</span><span class="token register variable">rdi</span>)  <span class="token comment">; 这里保存了当前协程的栈帧地址</span>
+  mov <span class="token number">0x00</span>(<span class="token operator">%</span><span class="token register variable">rsi</span>), <span class="token operator">%</span><span class="token register variable">r12</span>  <span class="token comment">; 从 RSI 指向的 Registers 结构体中恢复 R12 寄存器的值，下同</span>
+  mov <span class="token number">0x08</span>(<span class="token operator">%</span><span class="token register variable">rsi</span>), <span class="token operator">%</span><span class="token register variable">r13</span>
+  mov <span class="token number">0x10</span>(<span class="token operator">%</span><span class="token register variable">rsi</span>), <span class="token operator">%</span><span class="token register variable">r14</span>
+  mov <span class="token number">0x18</span>(<span class="token operator">%</span><span class="token register variable">rsi</span>), <span class="token operator">%</span><span class="token register variable">r15</span>
+  mov <span class="token number">0x20</span>(<span class="token operator">%</span><span class="token register variable">rsi</span>), <span class="token operator">%</span><span class="token register variable">rax</span>  <span class="token comment">; 恢复返回地址，暂存到 RAX 寄存器</span>
+  mov <span class="token number">0x28</span>(<span class="token operator">%</span><span class="token register variable">rsi</span>), <span class="token operator">%</span><span class="token register variable">rcx</span>  <span class="token comment">; 恢复栈顶地址，暂存到 RCX 寄存器</span>
+  mov <span class="token number">0x30</span>(<span class="token operator">%</span><span class="token register variable">rsi</span>), <span class="token operator">%</span><span class="token register variable">rbx</span>
+  mov <span class="token number">0x38</span>(<span class="token operator">%</span><span class="token register variable">rsi</span>), <span class="token operator">%</span><span class="token register variable">rbp</span>  <span class="token comment">; 恢复栈帧地址</span>
+  mov <span class="token operator">%</span><span class="token register variable">rcx</span>, <span class="token operator">%</span><span class="token register variable">rsp</span>        <span class="token comment">; 恢复栈顶地址</span>
+  jmpq <span class="token operator">*</span><span class="token operator">%</span><span class="token register variable">rax</span>            <span class="token comment">; 跳回 RAX 保存的返回地址，完成切换</span>
+</code></pre>
+<p><code>swap_context</code> 函数有两个参数，无返回值，两个参数使用 <code>RDI</code> 和 <code>RSI</code> 传递。先执行保存，再执行恢复，最后利用返回地址跳到应该前往的位置，完成协程的启动和切换，奇技淫巧矣。有兴趣可以自己用 GDB/LLDB 调试运行看看。</p>
+<h3 id="3.-事件循环-event-loop"><a href="#3.-%E4%BA%8B%E4%BB%B6%E5%BE%AA%E7%8E%AF-event-loop">3. 事件循环 Event Loop</a></h3>
+<p>正常工作的协程是不会无缘无故出让自己的执行权的，只有在等待 IO、无法继续执行下去时才会出让，例如 <code>usleep(1000)</code>。这时候闲着也是闲着，把执行权让出去、等 IO 完成再继续执行，系统才能获得最大的执行效率。由于协程无法做到主动抢占式执行，就需要有一个事件循环在协程等待的事件完成时唤醒协程，恰好主协程就特别适合做这件事情。</p>
+<p>以 <code>usleep</code> 为例，当子协程执行 <code>usleep</code> 时，可以将其加入定时器中，并执行 <code>yield</code> 出让执行权；事件循环则不断地重复，检查定时器中有没有等待结束的协程，如有则出让自己的执行权将其唤醒、继续子协程的任务，如此循环往复。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;time.h></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;unistd.h></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;queue></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+
+<span class="token keyword">extern</span> <span class="token string">"C"</span> <span class="token keyword">void</span> <span class="token function">swap_context</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">,</span> <span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span> <span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token string">"swap_context"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token raw-string string">R"(
+swap_context:
+  mov 0x00(%rsp), %rdx
+  lea 0x08(%rsp), %rcx
+  mov %r12, 0x00(%rdi)
+  mov %r13, 0x08(%rdi)
+  mov %r14, 0x10(%rdi)
+  mov %r15, 0x18(%rdi)
+  mov %rdx, 0x20(%rdi)
+  mov %rcx, 0x28(%rdi)
+  mov %rbx, 0x30(%rdi)
+  mov %rbp, 0x38(%rdi)
+  mov 0x00(%rsi), %r12
+  mov 0x08(%rsi), %r13
+  mov 0x10(%rsi), %r14
+  mov 0x18(%rsi), %r15
+  mov 0x20(%rsi), %rax
+  mov 0x28(%rsi), %rcx
+  mov 0x30(%rsi), %rbx
+  mov 0x38(%rsi), %rbp
+  mov %rcx, %rsp
+  jmpq *%rax
+)"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">Context</span> <span class="token punctuation">{</span>
+  <span class="token keyword">void</span> <span class="token operator">*</span>reg<span class="token punctuation">[</span><span class="token number">8</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+  std<span class="token operator">::</span>vector<span class="token operator">&lt;</span><span class="token keyword">char</span><span class="token operator">></span> mem<span class="token punctuation">;</span>
+  <span class="token function">Context</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>func<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">mem</span><span class="token punctuation">(</span><span class="token number">4096</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    reg<span class="token punctuation">[</span><span class="token number">4</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span>func<span class="token punctuation">;</span>
+    reg<span class="token punctuation">[</span><span class="token number">5</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token punctuation">(</span>uintptr_t<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mem<span class="token punctuation">.</span><span class="token function">back</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">&amp;</span> <span class="token operator">~</span><span class="token number">15ull</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span> ma<span class="token punctuation">;</span>
+Context <span class="token operator">*</span>current <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+
+<span class="token keyword">void</span> <span class="token function">resume_coroutine</span><span class="token punctuation">(</span>Context <span class="token operator">*</span>coroutine<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  current <span class="token operator">=</span> coroutine<span class="token punctuation">;</span>
+  <span class="token function">swap_context</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>ma<span class="token punctuation">,</span> current<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">uint64_t</span> <span class="token function">GetMs</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  timespec ts<span class="token punctuation">;</span>
+  <span class="token function">clock_gettime</span><span class="token punctuation">(</span>CLOCK_MONOTONIC<span class="token punctuation">,</span> <span class="token operator">&amp;</span>ts<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> ts<span class="token punctuation">.</span>tv_nsec <span class="token operator">/</span> <span class="token number">1000000</span> <span class="token operator">+</span> ts<span class="token punctuation">.</span>tv_sec <span class="token operator">*</span> <span class="token number">1000ull</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">Task</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint64_t</span> expire<span class="token punctuation">;</span>
+  Context <span class="token operator">*</span>coroutine<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token keyword">const</span> Task <span class="token operator">&amp;</span>other<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> expire <span class="token operator">></span> other<span class="token punctuation">.</span>expire<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+std<span class="token operator">::</span>priority_queue<span class="token operator">&lt;</span>Task<span class="token operator">></span> tasks<span class="token punctuation">;</span>
+
+<span class="token keyword">void</span> <span class="token function">coroutine_sleep</span><span class="token punctuation">(</span><span class="token keyword">int</span> ms<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint64_t</span> expire <span class="token operator">=</span> <span class="token function">GetMs</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> ms<span class="token punctuation">;</span>
+  tasks<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>Task<span class="token punctuation">{</span><span class="token punctuation">.</span>expire <span class="token operator">=</span> expire<span class="token punctuation">,</span> <span class="token punctuation">.</span>coroutine <span class="token operator">=</span> current<span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">swap_context</span><span class="token punctuation">(</span>current<span class="token punctuation">,</span> <span class="token operator">&amp;</span>ma<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token function">event_loop</span><span class="token punctuation">(</span><span class="token keyword">int</span> timeout_in_seconds<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint64_t</span> start <span class="token operator">=</span> <span class="token function">GetMs</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">usleep</span><span class="token punctuation">(</span><span class="token number">1000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token operator">!</span>tasks<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">GetMs</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> tasks<span class="token punctuation">.</span><span class="token function">top</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>expire<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        Task task <span class="token operator">=</span> tasks<span class="token punctuation">.</span><span class="token function">top</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        tasks<span class="token punctuation">.</span><span class="token function">pop</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">resume_coroutine</span><span class="token punctuation">(</span>task<span class="token punctuation">.</span>coroutine<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token keyword">break</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token function">GetMs</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> start<span class="token punctuation">)</span> <span class="token operator">></span> timeout_in_seconds <span class="token operator">*</span> <span class="token number">1000</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token function">func1</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Coroutine 1 print per 500ms"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    <span class="token function">coroutine_sleep</span><span class="token punctuation">(</span><span class="token number">500</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token function">func2</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Coroutine 2 print per 1000ms"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    <span class="token function">coroutine_sleep</span><span class="token punctuation">(</span><span class="token number">1000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  Context <span class="token function">co1</span><span class="token punctuation">(</span>func1<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">resume_coroutine</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>co1<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  Context <span class="token function">co2</span><span class="token punctuation">(</span>func2<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">resume_coroutine</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>co2<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">event_loop</span><span class="token punctuation">(</span><span class="token number">5</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><a href="https://onlinegdb.com/B12Go3nvS">可以点击此处在线编译执行</a>。这里使用优先队列记录定时的任务，在事件循环中每 1ms 检查一次有没有超时的任务，有则将其唤醒执行。一共创建了两个协程，通过不断地切换执行权，在单线程的环境中实现“并行”。</p>
+<p>工业级协程库的原理与上文所述的类似，不过其一般会 hook 大量系统 IO 函数，如 <code>read</code> / <code>write</code> / <code>send</code> / <code>recv</code>，使其在 IO 等待过程中主动出让执行权，在事件循环中使用类似 <code>Epoll</code> 或 <code>Kqueue</code> 管理等待的事件。工业级协程库也会提供更丰富的基础组件，这方面可以参考 <a href="https://github.com/Tencent/libco">libco</a> 和 <a href="https://github.com/yyzybb537/libgo">libgo</a> 的实现。</p>
+<h3 id="references"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://en.cppreference.com/w/cpp/language/coroutines">&quot;Coroutines (C++20)&quot;, <em>C++ References</em></a></li>
+<li><a href="https://github.com/Tencent/libco">&quot;libco&quot;, <em>GitHub/Tencent</em></a></li>
+<li><a href="https://github.com/hnes/libaco">&quot;libaco&quot;, <em>GitHub/hnes</em></a></li>
+<li><a href="https://github.com/yyzybb537/libgo">&quot;libgo&quot;, <em>GitHub/yyzybb537</em></a></li>
+<li><a href="http://kaiyuan.me/2017/07/10/libco/">&quot;libco 分析(上)：协程的实现&quot;, <em>Kaiyuan Blog</em></a></li>
+<li><a href="https://en.m.wikibooks.org/wiki/X86_Disassembly/Functions_and_Stack_Frames">&quot;Functions and Stack Frames&quot;, <em>x86 Disassembly</em></a></li>
+<li><a href="https://blogs.msdn.microsoft.com/larryosterman/2007/03/12/fpo/">&quot;FPO&quot;, <em>Larry Osterman's WebLog</em></a></li>
+<li><a href="https://godbolt.org/"><em>Compiler Explorer</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://travis-ci.com/SF-Zhou/sf-zhou.github.io">Travis CI</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

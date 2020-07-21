@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Learning Rust from LeetCode | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Learning Rust from LeetCode </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2019.10.13 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-two-sum"><a href="#1.-two-sum"><a href="https://leetcode.com/problems/two-sum/">1. Two Sum</a></a></h3>
+<p><em><strong>Method 1: Brute-Force</strong></em></p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> std<span class="token punctuation">::</span>vec<span class="token punctuation">::</span>Vec<span class="token punctuation">;</span>
+
+<span class="token keyword">impl</span> Solution <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function">two_sum</span><span class="token punctuation">(</span>nums<span class="token punctuation">:</span> Vec<span class="token operator">&lt;</span>i32<span class="token operator">></span><span class="token punctuation">,</span> target<span class="token punctuation">:</span> i32<span class="token punctuation">)</span> <span class="token punctuation">-></span> Vec<span class="token operator">&lt;</span>i32<span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> x <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>  <span class="token comment">// declare mutable variable</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> y <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+        <span class="token keyword">for</span> i <span class="token keyword">in</span> <span class="token number">0</span><span class="token punctuation">..</span>nums<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// use `a..b` for range [a, b)</span>
+            <span class="token keyword">for</span> j <span class="token keyword">in</span> i<span class="token operator">+</span><span class="token number">1</span><span class="token punctuation">..</span>nums<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                <span class="token keyword">if</span> nums<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">+</span> nums<span class="token punctuation">[</span>j<span class="token punctuation">]</span> <span class="token operator">==</span> target <span class="token punctuation">{</span>
+                    x <span class="token operator">=</span> i <span class="token keyword">as</span> i32<span class="token punctuation">;</span>  <span class="token comment">//  use `as` to cast type</span>
+                    y <span class="token operator">=</span> j <span class="token keyword">as</span> i32<span class="token punctuation">;</span>
+                <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+        <span class="token function">vec!</span><span class="token punctuation">[</span>x<span class="token punctuation">,</span> y<span class="token punctuation">]</span>  <span class="token comment">// use macro `vec!` to create new vector and return</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>References:</p>
+<ul>
+<li><a href="https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html#variables-and-mutability">3.1 Variables and Mutability</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch03-02-data-types.html#data-types">3.2 Data Types</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch03-05-control-flow.html#control-flow">3.5 Control Flow</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch08-01-vectors.html#storing-lists-of-values-with-vectors">8.1 Storing Lists of Values with Vectors</a></li>
+</ul>
+<p><em><strong>Method 2: Hash</strong></em></p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> std<span class="token punctuation">::</span>collections<span class="token punctuation">::</span>HashMap<span class="token punctuation">;</span>
+<span class="token keyword">use</span> std<span class="token punctuation">::</span>vec<span class="token punctuation">::</span>Vec<span class="token punctuation">;</span>
+
+<span class="token keyword">impl</span> Solution <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function">two_sum</span><span class="token punctuation">(</span>nums<span class="token punctuation">:</span> Vec<span class="token operator">&lt;</span>i32<span class="token operator">></span><span class="token punctuation">,</span> target<span class="token punctuation">:</span> i32<span class="token punctuation">)</span> <span class="token punctuation">-></span> Vec<span class="token operator">&lt;</span>i32<span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> hash <span class="token operator">=</span> HashMap<span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">for</span> <span class="token punctuation">(</span>i<span class="token punctuation">,</span> v<span class="token punctuation">)</span> <span class="token keyword">in</span> nums<span class="token punctuation">.</span><span class="token function">iter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">enumerate</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// `v` is &amp;i32</span>
+            <span class="token keyword">if</span> <span class="token keyword">let</span> <span class="token function">Some</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>j<span class="token punctuation">)</span> <span class="token operator">=</span> hash<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span>v<span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// unwrap value form Option in `if`</span>
+                <span class="token keyword">return</span> <span class="token function">vec!</span><span class="token punctuation">[</span>j <span class="token keyword">as</span> i32<span class="token punctuation">,</span> i <span class="token keyword">as</span> i32<span class="token punctuation">]</span><span class="token punctuation">;</span>
+            <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+                hash<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span>target <span class="token operator">-</span> v<span class="token punctuation">,</span> i<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// insert pair [i32, usize]</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+        <span class="token function">vec!</span><span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">]</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>References:</p>
+<ul>
+<li><a href="https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html#what-is-ownership">4.1 What Is Ownership?</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch04-02-references-and-borrowing.html#references-and-borrowing">4.2 References and Borrowing</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch08-03-hash-maps.html#storing-keys-with-associated-values-in-hash-maps">8.3 Storing Keys with Associated Values in Hash Maps</a></li>
+</ul>
+<h3 id="144.-binary-tree-preorder-traversal"><a href="#144.-binary-tree-preorder-traversal"><a href="https://leetcode.com/problems/binary-tree-preorder-traversal/">144. Binary Tree Preorder Traversal</a></a></h3>
+<p><em><strong>Methods 1: Stack</strong></em></p>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">// Definition for a binary tree node.</span>
+<span class="token comment">// #[derive(Debug, PartialEq, Eq)]</span>
+<span class="token comment">// pub struct TreeNode {</span>
+<span class="token comment">//   pub val: i32,</span>
+<span class="token comment">//   pub left: Option&lt;Rc&lt;RefCell&lt;TreeNode>>>,</span>
+<span class="token comment">//   pub right: Option&lt;Rc&lt;RefCell&lt;TreeNode>>>,</span>
+<span class="token comment">// }</span>
+<span class="token comment">// </span>
+<span class="token comment">// impl TreeNode {</span>
+<span class="token comment">//   #[inline]</span>
+<span class="token comment">//   pub fn new(val: i32) -> Self {</span>
+<span class="token comment">//     TreeNode {</span>
+<span class="token comment">//       val,</span>
+<span class="token comment">//       left: None,</span>
+<span class="token comment">//       right: None</span>
+<span class="token comment">//     }</span>
+<span class="token comment">//   }</span>
+<span class="token comment">// }</span>
+<span class="token keyword">use</span> std<span class="token punctuation">::</span>cell<span class="token punctuation">::</span>RefCell<span class="token punctuation">;</span>
+<span class="token keyword">use</span> std<span class="token punctuation">::</span>rc<span class="token punctuation">::</span>Rc<span class="token punctuation">;</span>
+<span class="token keyword">use</span> std<span class="token punctuation">::</span>vec<span class="token punctuation">::</span>Vec<span class="token punctuation">;</span>
+
+<span class="token keyword">impl</span> Solution <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function">preorder_traversal</span><span class="token punctuation">(</span>root<span class="token punctuation">:</span> Option<span class="token operator">&lt;</span>Rc<span class="token operator">&lt;</span>RefCell<span class="token operator">&lt;</span>TreeNode<span class="token operator">>></span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> Vec<span class="token operator">&lt;</span>i32<span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> stack <span class="token operator">=</span> <span class="token function">vec!</span><span class="token punctuation">[</span>root<span class="token punctuation">]</span><span class="token punctuation">;</span>  <span class="token comment">// use macro `vec!` to initial stack</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> result <span class="token operator">=</span> <span class="token function">vec!</span><span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+        <span class="token keyword">while</span> stack<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span> <span class="token punctuation">{</span>
+            <span class="token keyword">if</span> <span class="token keyword">let</span> <span class="token function">Some</span><span class="token punctuation">(</span>node<span class="token punctuation">)</span> <span class="token operator">=</span> stack<span class="token punctuation">.</span><span class="token function">pop</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                result<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>node<span class="token punctuation">.</span><span class="token function">borrow</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>val<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// borrow from reference counted smart pointer</span>
+                stack<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>node<span class="token punctuation">.</span><span class="token function">borrow</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>right<span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// clone node from borrow item</span>
+                stack<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>node<span class="token punctuation">.</span><span class="token function">borrow</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>left<span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+        result
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>References:</p>
+<ul>
+<li><a href="https://doc.rust-lang.org/book/ch05-01-defining-structs.html#defining-and-instantiating-structs">5.1 Defining and Instantiating Structs</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch15-04-rc.html#rct-the-reference-counted-smart-pointer">15.4 <code>Rc</code>, the Reference Counted Smart Pointer</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch15-05-interior-mutability.html#refcellt-and-the-interior-mutability-pattern">15.5 <code>RefCell</code> and the Interior Mutability Pattern</a></li>
+</ul>
+<p><em><strong>Method 2: DFS</strong></em></p>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">// Definition for a binary tree node.</span>
+<span class="token comment">// #[derive(Debug, PartialEq, Eq)]</span>
+<span class="token comment">// pub struct TreeNode {</span>
+<span class="token comment">//   pub val: i32,</span>
+<span class="token comment">//   pub left: Option&lt;Rc&lt;RefCell&lt;TreeNode>>>,</span>
+<span class="token comment">//   pub right: Option&lt;Rc&lt;RefCell&lt;TreeNode>>>,</span>
+<span class="token comment">// }</span>
+<span class="token comment">// </span>
+<span class="token comment">// impl TreeNode {</span>
+<span class="token comment">//   #[inline]</span>
+<span class="token comment">//   pub fn new(val: i32) -> Self {</span>
+<span class="token comment">//     TreeNode {</span>
+<span class="token comment">//       val,</span>
+<span class="token comment">//       left: None,</span>
+<span class="token comment">//       right: None</span>
+<span class="token comment">//     }</span>
+<span class="token comment">//   }</span>
+<span class="token comment">// }</span>
+<span class="token keyword">use</span> std<span class="token punctuation">::</span>cell<span class="token punctuation">::</span>RefCell<span class="token punctuation">;</span>
+<span class="token keyword">use</span> std<span class="token punctuation">::</span>rc<span class="token punctuation">::</span>Rc<span class="token punctuation">;</span>
+<span class="token keyword">use</span> std<span class="token punctuation">::</span>vec<span class="token punctuation">::</span>Vec<span class="token punctuation">;</span>
+
+<span class="token keyword">impl</span> Solution <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function">dfs</span><span class="token punctuation">(</span>root<span class="token punctuation">:</span> <span class="token operator">&amp;</span>Option<span class="token operator">&lt;</span>Rc<span class="token operator">&lt;</span>RefCell<span class="token operator">&lt;</span>TreeNode<span class="token operator">>></span><span class="token operator">></span><span class="token punctuation">,</span> <span class="token keyword">mut</span> result<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> Vec<span class="token operator">&lt;</span>i32<span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token keyword">let</span> <span class="token function">Some</span><span class="token punctuation">(</span>root<span class="token punctuation">)</span> <span class="token operator">=</span> root <span class="token punctuation">{</span>  <span class="token comment">// unwrap option with same name</span>
+            result<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>root<span class="token punctuation">.</span><span class="token function">borrow</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>val<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">Self</span><span class="token punctuation">::</span><span class="token function">dfs</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>root<span class="token punctuation">.</span><span class="token function">borrow</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>left<span class="token punctuation">,</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> result<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">Self</span><span class="token punctuation">::</span><span class="token function">dfs</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>root<span class="token punctuation">.</span><span class="token function">borrow</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>right<span class="token punctuation">,</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> result<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function">preorder_traversal</span><span class="token punctuation">(</span>root<span class="token punctuation">:</span> Option<span class="token operator">&lt;</span>Rc<span class="token operator">&lt;</span>RefCell<span class="token operator">&lt;</span>TreeNode<span class="token operator">>></span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> Vec<span class="token operator">&lt;</span>i32<span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> result <span class="token operator">=</span> <span class="token function">vec!</span><span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+        <span class="token keyword">Self</span><span class="token punctuation">::</span><span class="token function">dfs</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>root<span class="token punctuation">,</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> result<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        result
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>References:</p>
+<ul>
+<li><a href="https://doc.rust-lang.org/book/ch03-03-how-functions-work.html#functions">3.3 Functions</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch05-03-method-syntax.html#method-syntax">5.3 Method Syntax</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch19-06-macros.html#macros">19.6 Macros</a></li>
+</ul>
+<h3 id="557.-reverse-words-in-a-string-iii"><a href="#557.-reverse-words-in-a-string-iii"><a href="https://leetcode.com/problems/reverse-words-in-a-string-iii">557. Reverse Words in a String III</a></a></h3>
+<p><em><strong>Method 1: Map-Reduce</strong></em></p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">impl</span> Solution <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function">reverse_words</span><span class="token punctuation">(</span>s<span class="token punctuation">:</span> String<span class="token punctuation">)</span> <span class="token punctuation">-></span> String <span class="token punctuation">{</span>
+        s<span class="token punctuation">.</span><span class="token function">split</span><span class="token punctuation">(</span><span class="token char string">' '</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">map</span><span class="token punctuation">(</span><span class="token operator">|</span>s<span class="token operator">|</span> s<span class="token punctuation">.</span><span class="token function">chars</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">rev</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>collect<span class="token punctuation">::</span><span class="token operator">&lt;</span>String<span class="token operator">></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span>collect<span class="token punctuation">::</span><span class="token operator">&lt;</span>Vec<span class="token operator">&lt;</span>_<span class="token operator">>></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token string">" "</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>References:</p>
+<ul>
+<li><a href="https://doc.rust-lang.org/book/ch04-03-slices.html#the-slice-type">4.3 The Slice Type</a></li>
+<li><a href="https://doc.rust-lang.org/book/ch13-02-iterators.html#processing-a-series-of-items-with-iterators">13.2 Processing a Series of Items with Iterators</a></li>
+</ul>
+<p><em><strong>Method 2: Rev-Rev</strong></em></p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">impl</span> Solution <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function">reverse_words</span><span class="token punctuation">(</span>s<span class="token punctuation">:</span> String<span class="token punctuation">)</span> <span class="token punctuation">-></span> String <span class="token punctuation">{</span>
+        s<span class="token punctuation">.</span><span class="token function">chars</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">rev</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>collect<span class="token punctuation">::</span><span class="token operator">&lt;</span>String<span class="token operator">></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">split</span><span class="token punctuation">(</span><span class="token char string">' '</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">rev</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>collect<span class="token punctuation">::</span><span class="token operator">&lt;</span>Vec<span class="token operator">&lt;</span>_<span class="token operator">>></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token string">" "</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>References:</p>
+<ul>
+<li>Trait <a href="https://doc.rust-lang.org/std/index.html">std</a>::<a href="https://doc.rust-lang.org/std/iter/index.html">iter</a>::<a href="https://doc.rust-lang.org/std/iter/trait.Iterator.html">Iterator</a></li>
+<li>Struct <a href="https://doc.rust-lang.org/std/index.html">std</a>::<a href="https://doc.rust-lang.org/std/string/index.html">string</a>::<a href="https://doc.rust-lang.org/std/string/struct.String.html">String</a></li>
+<li>Struct <a href="https://doc.rust-lang.org/std/index.html">std</a>::<a href="https://doc.rust-lang.org/std/vec/index.html">vec</a>::<a href="https://doc.rust-lang.org/std/vec/struct.Vec.html">Vec</a></li>
+</ul>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://travis-ci.com/SF-Zhou/sf-zhou.github.io">Travis CI</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

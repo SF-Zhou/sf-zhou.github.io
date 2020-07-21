@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>解决 MacBook 键盘双击问题 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> 解决 MacBook 键盘双击问题 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2017.09.15 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>手上的 MacBook Pro 是 2016 年年底买的，至今一年都没到。前一段时间就出现了 b 键有时候按一下出来两个字符的问题。最近几天 n 键也出现了相同的问题。这个事件还是有概率会发生，打字的时候让人非常不爽。</p>
+<p>我在网上查了一下，出现类似问题的不止我一个人。看起来是新出的蝴蝶键盘品控的问题。有人说拿去送修了，修完了还是有这个问题。所以我就一直忍着，忍着忍着忍着忍不了了😂哪有打字，打到一半，发现多了个 n，再回来删除的道理！</p>
+<p>所以，今天要解决这个问题！</p>
+<h3 id="1.-思路"><a href="#1.-%E6%80%9D%E8%B7%AF">1. 思路</a></h3>
+<ol>
+<li>硬件方案
+<ol>
+<li>送修：大概率修不好，而且麻烦</li>
+<li>外接键盘：不方便，出门带键盘麻烦</li>
+</ol>
+</li>
+<li>软件方案</li>
+</ol>
+<p>思索一下软件方案。首先分析双击的事件的原因，猜测是按下 n 键后，触发 <code>KeyDown</code>，释放 n 键后，触发 <code>KeyUp</code>；而后手抬起的过程中，意外地再一次触发了 <code>KeyDown</code> 和 <code>KeyUp</code>。这中间的时间很短。</p>
+<p>如果要解决这个问题，需要实现的功能就是：分析当前的 <code>KeyDown</code> 事件，与上一次该键的 <code>KeyUp</code> 时间间隔。如果异常的短，说明是键盘导致的双击事件，则忽略该 <code>KeyDown</code> 信号。</p>
+<p>有了思路之后，再考虑如何实现该功能。macOS 上有一大批键盘相关的软件，包括收费的 <a href="https://www.keyboardmaestro.com/">Keyboard Maestro</a>，开源的 <a href="https://github.com/tekezo/Karabiner-Elements">Karabiner-Elements</a>，还有针对自定义快捷键的 <a href="http://www.hammerspoon.org/">Hammerspoon</a>。笔者都尝试了一遍之后，发现并不容易在这些软件上实现需求。</p>
+<p>只能靠自己写了。幸运的是，我是个软件工程师 :D</p>
+<h3 id="2.-实现"><a href="#2.-%E5%AE%9E%E7%8E%B0">2. 实现</a></h3>
+<p>首先，搜索相关的方案。需求为拦截全局的键盘信号，搜索词为 &quot;macOS global keyboard event&quot;。</p>
+<p>看了一些搜索结果之后，发现了一段不错的代码：<a href="https://gist.github.com/quietcricket/8313195">Global keyboard hook for OSX</a>，作者为 <a href="https://gist.github.com/quietcricket">quietcricket</a>，四年前上传的。代码实现的功能为调换 a 键和 z 键。按照代码中提示的编译命令编译，成功。</p>
+<p>执行，提示 Accessibility 问题，一般涉及到全局键盘的软件都会需要 Accessibility 授权。在设置中找到 <code>Security &amp; Privacy</code> → <code>Accessibility</code>。笔者是在 iTerm2 中执行编译后的 binary 的，所以打开 iTerm2 的授权。再次执行，OK。测试，全局的 a 键和 z 键确实被调换了，包括快捷键。</p>
+<p>阅读代码。代码中：</p>
+<pre class="language-c"><code class="language-c"><span class="token comment">// Swap 'a' (keycode=0) and 'z' (keycode=6).</span>
+<span class="token keyword">if</span> <span class="token punctuation">(</span>keycode <span class="token operator">==</span> <span class="token punctuation">(</span>CGKeyCode<span class="token punctuation">)</span><span class="token number">0</span><span class="token punctuation">)</span>
+  keycode <span class="token operator">=</span> <span class="token punctuation">(</span>CGKeyCode<span class="token punctuation">)</span><span class="token number">6</span><span class="token punctuation">;</span>
+<span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>keycode <span class="token operator">==</span> <span class="token punctuation">(</span>CGKeyCode<span class="token punctuation">)</span><span class="token number">6</span><span class="token punctuation">)</span>
+  keycode <span class="token operator">=</span> <span class="token punctuation">(</span>CGKeyCode<span class="token punctuation">)</span><span class="token number">0</span><span class="token punctuation">;</span>
+</code></pre>
+<p>实现了调换的功能。程序使用了 C 编写，可以直接将代码后缀名改成 C++，使用 G++ 编译。加上打印 keycode 的功能，就可以看到所有按键的 keycode 值了。经过测试，n 键和 b 键的 keycode 值为 45 和 11。</p>
+<p>使用 chrono 获取按键 <code>KeyUp</code> 时的时间点，并记录；在 <code>KeyDown</code> 时判断，如果与上次 <code>KeyUp</code> 的时间间隔过短，则忽略该事件。最终代码如下：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// alterkeys.c</span>
+<span class="token comment">// http://osxbook.com</span>
+<span class="token comment">//</span>
+<span class="token comment">// You need superuser privileges to create the event tap, unless accessibility</span>
+<span class="token comment">// is enabled. To do so, select the "Enable access for assistive devices"</span>
+<span class="token comment">// checkbox in the Universal Access system preference pane.</span>
+
+<span class="token comment">// modified by SF-Zhou</span>
+<span class="token comment">// To: Kill Double Typing on MacBook</span>
+<span class="token comment">// Complile: g++ -O2 -Wall -o kill_double_typing kill_double_typing.cpp -framework ApplicationServices</span>
+<span class="token comment">// Run: ./kill_double_typing</span>
+
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;ApplicationServices/ApplicationServices.h></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;chrono></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;unordered_map></span></span>
+<span class="token keyword">using</span> <span class="token keyword">namespace</span> std<span class="token punctuation">;</span>
+
+<span class="token keyword">typedef</span> chrono<span class="token operator">::</span>time_point<span class="token operator">&lt;</span>std<span class="token operator">::</span>chrono<span class="token operator">::</span>high_resolution_clock<span class="token operator">></span> Time<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> <span class="token keyword">long</span> <span class="token keyword">long</span> ll<span class="token punctuation">;</span>
+
+unordered_map<span class="token operator">&lt;</span>CGKeyCode<span class="token punctuation">,</span> Time<span class="token operator">></span> last_time<span class="token punctuation">;</span>
+
+Time <span class="token function">time_now</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> chrono<span class="token operator">::</span>high_resolution_clock<span class="token operator">::</span><span class="token function">now</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// This callback will be invoked every time there is a keystroke.</span>
+CGEventRef <span class="token function">myCGEventCallback</span><span class="token punctuation">(</span>CGEventTapProxy proxy<span class="token punctuation">,</span> CGEventType type<span class="token punctuation">,</span> CGEventRef event<span class="token punctuation">,</span> <span class="token keyword">void</span> <span class="token operator">*</span>refcon<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Paranoid sanity check.</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>type <span class="token operator">!=</span> kCGEventKeyDown<span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> <span class="token punctuation">(</span>type <span class="token operator">!=</span> kCGEventKeyUp<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> event<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// The incoming keycode.</span>
+  CGKeyCode keycode <span class="token operator">=</span> <span class="token punctuation">(</span>CGKeyCode<span class="token punctuation">)</span><span class="token function">CGEventGetIntegerValueField</span><span class="token punctuation">(</span>event<span class="token punctuation">,</span> kCGKeyboardEventKeycode<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// printf("%d\n", keycode);  // print keycode</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>keycode <span class="token operator">==</span> <span class="token number">11</span> <span class="token comment">/* b */</span> <span class="token operator">||</span> keycode <span class="token operator">==</span> <span class="token number">45</span> <span class="token comment">/* n */</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>type <span class="token operator">==</span> kCGEventKeyUp<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      last_time<span class="token punctuation">[</span>keycode<span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token function">time_now</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>last_time<span class="token punctuation">.</span><span class="token function">count</span><span class="token punctuation">(</span>keycode<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        ll microseconds <span class="token operator">=</span> chrono<span class="token operator">::</span>duration_cast<span class="token operator">&lt;</span>chrono<span class="token operator">::</span>microseconds<span class="token operator">></span><span class="token punctuation">(</span>
+          <span class="token function">time_now</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> last_time<span class="token punctuation">[</span>keycode<span class="token punctuation">]</span>
+        <span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">count</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token comment">// ignore if time less than 30ms</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>microseconds <span class="token operator">&lt;</span> <span class="token number">30000</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">return</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Set the modified keycode field in the event.</span>
+  <span class="token function">CGEventSetIntegerValueField</span><span class="token punctuation">(</span>event<span class="token punctuation">,</span> kCGKeyboardEventKeycode<span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token keyword">int64_t</span><span class="token punctuation">)</span>keycode<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// We must return the event for it to be useful.</span>
+  <span class="token keyword">return</span> event<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token keyword">void</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  CFMachPortRef      eventTap<span class="token punctuation">;</span>
+  CGEventMask        eventMask<span class="token punctuation">;</span>
+  CFRunLoopSourceRef runLoopSource<span class="token punctuation">;</span>
+
+  <span class="token comment">// Create an event tap. We are interested in key presses.</span>
+  eventMask <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token number">1</span> <span class="token operator">&lt;&lt;</span> kCGEventKeyDown<span class="token punctuation">)</span> <span class="token operator">|</span> <span class="token punctuation">(</span><span class="token number">1</span> <span class="token operator">&lt;&lt;</span> kCGEventKeyUp<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  eventTap <span class="token operator">=</span> <span class="token function">CGEventTapCreate</span><span class="token punctuation">(</span>kCGSessionEventTap<span class="token punctuation">,</span> kCGHeadInsertEventTap<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> eventMask<span class="token punctuation">,</span> myCGEventCallback<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>eventTap<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">fprintf</span><span class="token punctuation">(</span><span class="token constant">stderr</span><span class="token punctuation">,</span> <span class="token string">"failed to create event tap\n"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">exit</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Create a run loop source.</span>
+  runLoopSource <span class="token operator">=</span> <span class="token function">CFMachPortCreateRunLoopSource</span><span class="token punctuation">(</span>kCFAllocatorDefault<span class="token punctuation">,</span> eventTap<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Add to the current run loop.</span>
+  <span class="token function">CFRunLoopAddSource</span><span class="token punctuation">(</span><span class="token function">CFRunLoopGetCurrent</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> runLoopSource<span class="token punctuation">,</span> kCFRunLoopCommonModes<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Enable the event tap.</span>
+  <span class="token function">CGEventTapEnable</span><span class="token punctuation">(</span>eventTap<span class="token punctuation">,</span> <span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Set it all running.</span>
+  <span class="token function">CFRunLoopRun</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// In a real program, one would have arranged for cleaning up.</span>
+
+  <span class="token function">exit</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>将上述代码命名为 <code>kill_double_typing.cpp</code>，编译：</p>
+<pre class="language-bash"><code class="language-bash">g++ -O2 -Wall -o kill_double_typing kill_double_typing.cpp -framework ApplicationServices
+</code></pre>
+<p>编译后得到可执行文件，可以使用 nohup 命令，将其设为后台执行。做得更复杂一点的，可以设置为自动启动，就自己搜索啦。</p>
+<h3 id="3.-总结"><a href="#3.-%E6%80%BB%E7%BB%93">3. 总结</a></h3>
+<p>目前只是一个非常初级的版本，还有很多可以调优的地方，笔者会慢慢改进这个小程序的。</p>
+<p>软件的方式是很有局限性的，最好的方案，当然是提高苹果的品控啦，不过我说是没用的😂。</p>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://travis-ci.com/SF-Zhou/sf-zhou.github.io">Travis CI</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

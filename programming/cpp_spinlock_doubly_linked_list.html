@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Spinlock and Doubly Linked List | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Spinlock and Doubly Linked List </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2019.10.14 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>Spinlock 自旋锁，在获取锁时使用轮询的方式检查锁是否可用。其优点是避免了线程切换，缺点是轮询持续占用 CPU，故一般只在临界区非常短的时候使用。更详细的介绍见<a href="https://en.wikipedia.org/wiki/Spinlock">维基百科</a>。</p>
+<p>一般使用 compare-and-swap (CAS) 来实现自旋锁。CAS 可以理解为以下函数的原子实现：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">bool</span> <span class="token function">compare_and_swap</span><span class="token punctuation">(</span><span class="token keyword">int</span> <span class="token operator">*</span>p<span class="token punctuation">,</span> <span class="token keyword">int</span> origin<span class="token punctuation">,</span> <span class="token keyword">int</span> target<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> old <span class="token operator">=</span> <span class="token operator">*</span>p<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>old <span class="token operator">==</span> origin<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token operator">*</span>p <span class="token operator">=</span> target<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>C++ 中一般使用 <a href="https://en.cppreference.com/w/cpp/atomic/atomic_flag"><code>std::atomic_flag</code></a> 来完成 <code>bool</code> 型的 CAS 操作。下面实现一个自旋锁：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+
+<span class="token keyword">class</span> <span class="token class-name">SpinMutex</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">void</span> <span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">while</span> <span class="token punctuation">(</span>flag_<span class="token punctuation">.</span><span class="token function">test_and_set</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    flag_<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_release<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  std<span class="token operator">::</span>atomic_flag flag_ <span class="token operator">=</span> ATOMIC_FLAG_INIT<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p>注意 <code>ATOMIC_FLAG_INIT</code>，按照<a href="http://en.cppreference.com/w/cpp/atomic/ATOMIC_FLAG_INIT">文档要求</a>只能使用 <code>operator=</code> 来完成 <code>std::atomic_flag</code> 的初始化。由于提供了 <code>lock</code> 和 <code>unlock</code>，可以配合 <code>std::lock_guard</code> 使用。下面使用自旋锁实现双向链表：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;mutex></span></span>
+<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+
+<span class="token keyword">class</span> <span class="token class-name">SpinMutex</span> <span class="token punctuation">{</span> <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">DoublyLinkedList</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">struct</span> <span class="token class-name">Node</span> <span class="token punctuation">{</span>
+    T value<span class="token punctuation">;</span>
+    Node <span class="token operator">*</span>prev<span class="token punctuation">;</span>
+    Node <span class="token operator">*</span>next<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">DoublyLinkedList</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">head_</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token punctuation">.</span>prev <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">,</span> <span class="token punctuation">.</span>next <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">PushFront</span><span class="token punctuation">(</span>Node <span class="token operator">*</span>node<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token operator">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    node<span class="token operator">-></span>next <span class="token operator">=</span> head_<span class="token punctuation">.</span>next<span class="token punctuation">;</span>
+    node<span class="token operator">-></span>prev <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">;</span>
+    head_<span class="token punctuation">.</span>next<span class="token operator">-></span>prev <span class="token operator">=</span> node<span class="token punctuation">;</span>
+    head_<span class="token punctuation">.</span>next <span class="token operator">=</span> node<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">PushBack</span><span class="token punctuation">(</span>Node <span class="token operator">*</span>node<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token operator">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    node<span class="token operator">-></span>next <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">;</span>
+    node<span class="token operator">-></span>prev <span class="token operator">=</span> head_<span class="token punctuation">.</span>prev<span class="token punctuation">;</span>
+    head_<span class="token punctuation">.</span>prev<span class="token operator">-></span>next <span class="token operator">=</span> node<span class="token punctuation">;</span>
+    head_<span class="token punctuation">.</span>prev <span class="token operator">=</span> node<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  Node <span class="token operator">*</span><span class="token function">PopFront</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token operator">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    Node <span class="token operator">*</span>node <span class="token operator">=</span> head_<span class="token punctuation">.</span>next<span class="token punctuation">;</span>
+    node<span class="token operator">-></span>next<span class="token operator">-></span>prev <span class="token operator">=</span> node<span class="token operator">-></span>prev<span class="token punctuation">;</span>
+    node<span class="token operator">-></span>prev<span class="token operator">-></span>next <span class="token operator">=</span> node<span class="token operator">-></span>next<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> node <span class="token operator">==</span> <span class="token operator">&amp;</span>head_ <span class="token operator">?</span> <span class="token keyword">nullptr</span> <span class="token operator">:</span> node<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  Node <span class="token operator">*</span><span class="token function">PopBack</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token operator">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    Node <span class="token operator">*</span>node <span class="token operator">=</span> head_<span class="token punctuation">.</span>prev<span class="token punctuation">;</span>
+    node<span class="token operator">-></span>next<span class="token operator">-></span>prev <span class="token operator">=</span> node<span class="token operator">-></span>prev<span class="token punctuation">;</span>
+    node<span class="token operator">-></span>prev<span class="token operator">-></span>next <span class="token operator">=</span> node<span class="token operator">-></span>next<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> node <span class="token operator">==</span> <span class="token operator">&amp;</span>head_ <span class="token operator">?</span> <span class="token keyword">nullptr</span> <span class="token operator">:</span> node<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  Node head_<span class="token punctuation">;</span>
+  SpinMutex mutex_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>DoublyLinkedList<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span><span class="token operator">::</span>Node<span class="token operator">></span> <span class="token function">nodes</span><span class="token punctuation">(</span><span class="token number">4</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> nodes<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    nodes<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>value <span class="token operator">=</span> i<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  DoublyLinkedList<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> list<span class="token punctuation">;</span>
+  list<span class="token punctuation">.</span><span class="token function">PushFront</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>nodes<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>            <span class="token comment">// head -> 0 -> head</span>
+  list<span class="token punctuation">.</span><span class="token function">PushFront</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>nodes<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>            <span class="token comment">// head -> 1 -> 0 -> head</span>
+  list<span class="token punctuation">.</span><span class="token function">PushBack</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>nodes<span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>             <span class="token comment">// head -> 1 -> 0 -> 2 -> head</span>
+  list<span class="token punctuation">.</span><span class="token function">PushBack</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>nodes<span class="token punctuation">[</span><span class="token number">3</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>             <span class="token comment">// head -> 1 -> 0 -> 2 -> 3 -> head</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>list<span class="token punctuation">.</span><span class="token function">PopFront</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>value <span class="token operator">==</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// head -> 0 -> 2 -> 3 -> head</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>list<span class="token punctuation">.</span><span class="token function">PopFront</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>value <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// head -> 2 -> 3 -> head</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>list<span class="token punctuation">.</span><span class="token function">PopBack</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>value <span class="token operator">==</span> <span class="token number">3</span><span class="token punctuation">)</span><span class="token punctuation">;</span>   <span class="token comment">// head -> 2 -> head</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>list<span class="token punctuation">.</span><span class="token function">PopFront</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>value <span class="token operator">==</span> <span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// head -> head</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>list<span class="token punctuation">.</span><span class="token function">PopFront</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>   <span class="token comment">// head -> head, null</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>双向链表的各项操作的临界区均较短，适合使用自旋锁。在使用上和普通的互斥锁一致。在实际应用场景中，有时会混合使用自旋锁和互斥锁，在自旋等待一定时间仍没有拿到锁时，将线程挂起，等待的时间可以自适应学习。</p>
+<h3 id="references"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://en.wikipedia.org/wiki/Spinlock">&quot;Spinlock&quot;, <em>Wikipedia</em></a></li>
+<li><a href="https://en.wikipedia.org/wiki/Compare-and-swap">&quot;Compare-and-swap&quot;, <em>Wikipedia</em></a></li>
+<li><a href="https://en.cppreference.com/w/cpp/atomic/atomic_flag">&quot;std::atomic_flag&quot;, <em>C++ Reference</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://travis-ci.com/SF-Zhou/sf-zhou.github.io">Travis CI</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

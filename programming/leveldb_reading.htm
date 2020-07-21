@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>LevelDB 源码阅读 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> LevelDB 源码阅读 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2019.01.01 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-文件结构"><a href="#1.-%E6%96%87%E4%BB%B6%E7%BB%93%E6%9E%84">1. 文件结构</a></h3>
+<table>
+<thead>
+<tr>
+<th>Files</th>
+<th>Descriptions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>./benchmarks/db_bench.cc</td>
+<td>Benchmark</td>
+</tr>
+<tr>
+<td>./benchmarks/db_bench_sqlite3.cc</td>
+<td>Benchmark</td>
+</tr>
+<tr>
+<td>./benchmarks/db_bench_tree_db.cc</td>
+<td>Benchmark</td>
+</tr>
+<tr>
+<td>./build/include/port/port_config.h</td>
+<td>Generated</td>
+</tr>
+<tr>
+<td>./db/autocompact_test.cc</td>
+<td>测试（还没细读）</td>
+</tr>
+<tr>
+<td>./db/builder.cc</td>
+<td>根据 Iter 构建 Table 并写文件</td>
+</tr>
+<tr>
+<td>./db/builder.h</td>
+<td>BuildTable 接口</td>
+</tr>
+<tr>
+<td>./db/c.cc</td>
+<td>C 封装</td>
+</tr>
+<tr>
+<td>./db/corruption_test.cc</td>
+<td>测试（还没细读）</td>
+</tr>
+<tr>
+<td>./db/db_impl.cc</td>
+<td></td>
+</tr>
+<tr>
+<td>./db/db_impl.h</td>
+<td></td>
+</tr>
+<tr>
+<td>./db/db_iter.cc</td>
+<td></td>
+</tr>
+<tr>
+<td>./db/db_iter.h</td>
+<td></td>
+</tr>
+<tr>
+<td>./db/db_test.cc</td>
+<td>2000 多行的测试（还没细读）</td>
+</tr>
+<tr>
+<td>./db/dbformat.cc</td>
+<td>InternalKey、LookupKey 封装函数</td>
+</tr>
+<tr>
+<td>./db/dbformat.h</td>
+<td>定一了 DB 内部的核心 Config，以及 InternalKey 和 LookupKey 包装，在 db 目录下均使用封装后的 key 值</td>
+</tr>
+<tr>
+<td>./db/dbformat_test.cc</td>
+<td>DBFormat 测试</td>
+</tr>
+<tr>
+<td>./db/dumpfile.cc</td>
+<td>DumpFile 实现（还没细读）</td>
+</tr>
+<tr>
+<td>./db/fault_injection_test.cc</td>
+<td>测试（还没细读）</td>
+</tr>
+<tr>
+<td>./db/filename.cc</td>
+<td>DBName FileName 互转</td>
+</tr>
+<tr>
+<td>./db/filename.h</td>
+<td>DBName FileName 互转</td>
+</tr>
+<tr>
+<td>./db/filename_test.cc</td>
+<td>DBName FileName 互转</td>
+</tr>
+<tr>
+<td>./db/leveldbutil.cc</td>
+<td>Dump File CLI</td>
+</tr>
+<tr>
+<td>./db/log_format.h</td>
+<td>Log 中的 RecordType 各项参数</td>
+</tr>
+<tr>
+<td>./db/log_reader.cc</td>
+<td>与之对应的 Reader（还没细读）</td>
+</tr>
+<tr>
+<td>./db/log_reader.h</td>
+<td>与之对应的 Reader（还没细读）</td>
+</tr>
+<tr>
+<td>./db/log_test.cc</td>
+<td>Log 测试（还没细读）</td>
+</tr>
+<tr>
+<td>./db/log_writer.cc</td>
+<td>神来之笔：dest_-&gt;Append(Slice(&quot;\x00\x00\x00\x00\x00\x00&quot;, leftover));</td>
+</tr>
+<tr>
+<td>./db/log_writer.h</td>
+<td>使用文件构造 Writer，使用 AddRecord 写入记录。按照 kBlockSize 大小安排 Record</td>
+</tr>
+<tr>
+<td>./db/memtable.cc</td>
+<td>MemTableIterator 的实现，SkipList Wrapper</td>
+</tr>
+<tr>
+<td>./db/memtable.h</td>
+<td>MemTable 封装，使用 SkipList 和 Arena，实现 key-value 对的 Get 和 Add 方法，以及迭代器。其中 Key 使用 Internal Key，包含了 SequenceNumber 和 ValueType，存储到 MemTable 时会在头部加入长度编码，Value 也是如此。查找时由于排序的关系，会找到最近更新的值。</td>
+</tr>
+<tr>
+<td>./db/recovery_test.cc</td>
+<td>恢复测试（还没细读）</td>
+</tr>
+<tr>
+<td>./db/repair.cc</td>
+<td>RepairDB 的实现（没细读）</td>
+</tr>
+<tr>
+<td>./db/skiplist.h</td>
+<td>SkipList，支持遍历、快速查找，无删除。同步机制还需要再研究下</td>
+</tr>
+<tr>
+<td>./db/skiplist_test.cc</td>
+<td>SkipList 测试</td>
+</tr>
+<tr>
+<td>./db/snapshot.h</td>
+<td>Snapshot 双向链表</td>
+</tr>
+<tr>
+<td>./db/table_cache.cc</td>
+<td>Table LRU Cache 实现</td>
+</tr>
+<tr>
+<td>./db/table_cache.h</td>
+<td>Table LRU Cache 接口</td>
+</tr>
+<tr>
+<td>./db/version_edit.cc</td>
+<td>Version Meta 编解码</td>
+</tr>
+<tr>
+<td>./db/version_edit.h</td>
+<td>可 Edit 的 Version Meta</td>
+</tr>
+<tr>
+<td>./db/version_edit_test.cc</td>
+<td>Version Meta 编解码测试</td>
+</tr>
+<tr>
+<td>./db/version_set.cc</td>
+<td></td>
+</tr>
+<tr>
+<td>./db/version_set.h</td>
+<td>Version、VersionSet 和 Compaction 的定义</td>
+</tr>
+<tr>
+<td>./db/version_set_test.cc</td>
+<td>一半是 FindFile 和 SomeFileOverlapsRange 的测试</td>
+</tr>
+<tr>
+<td>./db/write_batch.cc</td>
+<td>WriteBatch 构造、合并及写入 MemTable</td>
+</tr>
+<tr>
+<td>./db/write_batch_internal.h</td>
+<td>WriteBatch 内部接口</td>
+</tr>
+<tr>
+<td>./db/write_batch_test.cc</td>
+<td>WriteBatch 测试（还没细读）</td>
+</tr>
+<tr>
+<td>./helpers/memenv/memenv.cc</td>
+<td>Env in Memory</td>
+</tr>
+<tr>
+<td>./helpers/memenv/memenv.h</td>
+<td>Env in Memory</td>
+</tr>
+<tr>
+<td>./helpers/memenv/memenv_test.cc</td>
+<td>Env in Memory</td>
+</tr>
+<tr>
+<td>./include/leveldb/c.h</td>
+<td>暴露的 C 接口，解决 API 问题</td>
+</tr>
+<tr>
+<td>./include/leveldb/cache.h</td>
+<td>缓存接口，附带 <code>LRUCache</code> 工厂函数</td>
+</tr>
+<tr>
+<td>./include/leveldb/comparator.h</td>
+<td>比较器接口，仅 <code>dbformat.h</code> 中 <code>InternalKeyComparator</code> 继承该类</td>
+</tr>
+<tr>
+<td>./include/leveldb/db.h</td>
+<td>LevelDB 核心 DB 接口，及 <code>Snapshot</code> 和 <code>Range</code> 接口</td>
+</tr>
+<tr>
+<td>./include/leveldb/dumpfile.h</td>
+<td>一个 <code>DumpFile</code> 接口，功能暂不明确</td>
+</tr>
+<tr>
+<td>./include/leveldb/env.h</td>
+<td><code>Env</code> 环境，封装了文件系统、<code>Log</code> 和 <code>Thread</code> 操作</td>
+</tr>
+<tr>
+<td>./include/leveldb/export.h</td>
+<td>跨平台 <code>EXPORT</code> 实现</td>
+</tr>
+<tr>
+<td>./include/leveldb/filter_policy.h</td>
+<td><code>Filter</code> 策略对象，附带 <code>BloomFilterPolicy</code> 工厂函数</td>
+</tr>
+<tr>
+<td>./include/leveldb/iterator.h</td>
+<td><code>Iterator</code> 接口</td>
+</tr>
+<tr>
+<td>./include/leveldb/options.h</td>
+<td><code>Option</code> 接口</td>
+</tr>
+<tr>
+<td>./include/leveldb/slice.h</td>
+<td><code>Slice</code> 字节流封装</td>
+</tr>
+<tr>
+<td>./include/leveldb/status.h</td>
+<td>状态码接口</td>
+</tr>
+<tr>
+<td>./include/leveldb/table.h</td>
+<td><code>Table</code> 接口</td>
+</tr>
+<tr>
+<td>./include/leveldb/table_builder.h</td>
+<td><code>TableBuilder</code> 接口</td>
+</tr>
+<tr>
+<td>./include/leveldb/write_batch.h</td>
+<td><code>WriteBatch</code> 接口，存储一组待更新的键值对</td>
+</tr>
+<tr>
+<td>./issues/issue178_test.cc</td>
+<td>Issue</td>
+</tr>
+<tr>
+<td>./issues/issue200_test.cc</td>
+<td>Issue</td>
+</tr>
+<tr>
+<td>./issues/issue320_test.cc</td>
+<td>Issue</td>
+</tr>
+<tr>
+<td>./port/port.h</td>
+<td>平台适配</td>
+</tr>
+<tr>
+<td>./port/port_example.h</td>
+<td>平台适配</td>
+</tr>
+<tr>
+<td>./port/port_stdcxx.h</td>
+<td>平台适配</td>
+</tr>
+<tr>
+<td>./port/thread_annotations.h</td>
+<td>平台适配</td>
+</tr>
+<tr>
+<td>./table/block.cc</td>
+<td>Block Iterator 的实现，包括共享 key 下的二分查找</td>
+</tr>
+<tr>
+<td>./table/block.h</td>
+<td>Block 的定义，最后 4 位存储 NumRestarts</td>
+</tr>
+<tr>
+<td>./table/block_builder.cc</td>
+<td>BlockBuilder 实现，注释中描述了 Block 的 Form</td>
+</tr>
+<tr>
+<td>./table/block_builder.h</td>
+<td>BlockBuilder 接口</td>
+</tr>
+<tr>
+<td>./table/filter_block.cc</td>
+<td>FilterBlockBuilder 和 FilterBlockReader 的实现</td>
+</tr>
+<tr>
+<td>./table/filter_block.h</td>
+<td>FilterBlockBuilder 和 FilterBlockReader 的接口</td>
+</tr>
+<tr>
+<td>./table/filter_block_test.cc</td>
+<td>FilterBlock 的测试</td>
+</tr>
+<tr>
+<td>./table/format.cc</td>
+<td>BlockHandle 和 Footer 的 Encode 和 Decode，以及 ReadBlock 实现</td>
+</tr>
+<tr>
+<td>./table/format.h</td>
+<td>BlockHandle、Footer 的定义。BlockHandle 包含 offset 和 size，Footer 包含 MetaIndex 和 Index 的 BlockHandle。Block 的尾部包含 Block Type 和 CRC 校验值。</td>
+</tr>
+<tr>
+<td>./table/iterator.cc</td>
+<td>Iterator 的函数实现，包括 EmptyIterator</td>
+</tr>
+<tr>
+<td>./table/iterator_wrapper.h</td>
+<td>Iterator Wrapper，缓存 Key 值和 Valid，avoid virtual function calls</td>
+</tr>
+<tr>
+<td>./table/merger.cc</td>
+<td>Iterator Merge，Sharded 实现</td>
+</tr>
+<tr>
+<td>./table/merger.h</td>
+<td>Iterator Merge 接口</td>
+</tr>
+<tr>
+<td>./table/table.cc</td>
+<td>Table Reader</td>
+</tr>
+<tr>
+<td>./table/table_builder.cc</td>
+<td>Table Writer</td>
+</tr>
+<tr>
+<td>./table/table_test.cc</td>
+<td>Table 测试（还没细读）</td>
+</tr>
+<tr>
+<td>./table/two_level_iterator.cc</td>
+<td>TwoLevelIterator 实现（还需要细读）</td>
+</tr>
+<tr>
+<td>./table/two_level_iterator.h</td>
+<td>TwoLevelIterator 接口</td>
+</tr>
+<tr>
+<td>./util/arena.cc</td>
+<td><code>MemoryPool</code> 的实现。提供 <code>Allocate</code> 和 <code>AllocateAligned</code> 两种接口，后者保证申请的内存起始地址对齐。默认申请 4k 的 Block，每次消费 Block 中的剩余空间。析构时依次删除每个 Block。</td>
+</tr>
+<tr>
+<td>./util/arena.h</td>
+<td><code>MemoryPool</code> 接口</td>
+</tr>
+<tr>
+<td>./util/arena_test.cc</td>
+<td><code>Arena</code> 测试</td>
+</tr>
+<tr>
+<td>./util/bloom.cc</td>
+<td><code>BloomFilterPolicy</code>，提供 filter 的生成和 key in filter 的检查</td>
+</tr>
+<tr>
+<td>./util/bloom_test.cc</td>
+<td><code>Bloom</code> 过滤器测试</td>
+</tr>
+<tr>
+<td>./util/cache.cc</td>
+<td><code>LRUCache</code> 实现。每个节点定义为 <code>LRUHandle</code>，存储键值和前后节点地址信息；<code>HandleTable</code> 实现了闭式哈希表（哈希表中使用 <code>next_hash</code> 构建链表），支持 <code>Resize</code>；<code>LRUCache</code> 使用双向链表实现了 <code>LRU</code> 的功能，<code>Lookup</code> 时将节点先删除，再添加到链表末端，保持更新，<code>Insert</code> 时删除旧的节点；<code>ShardedLRUCache</code> 实现了根据 <code>Hash</code> 值高位分片的 <code>LRU</code></td>
+</tr>
+<tr>
+<td>./util/cache_test.cc</td>
+<td><code>Cache</code> 测试</td>
+</tr>
+<tr>
+<td>./util/coding.cc</td>
+<td>定长/变长整型编解码实现</td>
+</tr>
+<tr>
+<td>./util/coding.h</td>
+<td>定长/变长整型编解码接口</td>
+</tr>
+<tr>
+<td>./util/coding_test.cc</td>
+<td>测试</td>
+</tr>
+<tr>
+<td>./util/comparator.cc</td>
+<td><code>BytewiseComparator</code> 工厂实现</td>
+</tr>
+<tr>
+<td>./util/crc32c.cc</td>
+<td><code>CRC32</code> 实现</td>
+</tr>
+<tr>
+<td>./util/crc32c.h</td>
+<td><code>CRC32</code> 接口</td>
+</tr>
+<tr>
+<td>./util/crc32c_test.cc</td>
+<td><code>CRC32</code> 测试</td>
+</tr>
+<tr>
+<td>./util/env.cc</td>
+<td>环境</td>
+</tr>
+<tr>
+<td>./util/env_posix.cc</td>
+<td>环境</td>
+</tr>
+<tr>
+<td>./util/env_posix_test.cc</td>
+<td>环境</td>
+</tr>
+<tr>
+<td>./util/env_posix_test_helper.h</td>
+<td>环境</td>
+</tr>
+<tr>
+<td>./util/env_test.cc</td>
+<td>环境</td>
+</tr>
+<tr>
+<td>./util/env_windows.cc</td>
+<td>环境</td>
+</tr>
+<tr>
+<td>./util/env_windows_test.cc</td>
+<td>环境</td>
+</tr>
+<tr>
+<td>./util/env_windows_test_helper.h</td>
+<td>环境</td>
+</tr>
+<tr>
+<td>./util/filter_policy.cc</td>
+<td><code>FilterPolicy</code> 空析构函数</td>
+</tr>
+<tr>
+<td>./util/hash.cc</td>
+<td>字节流哈希</td>
+</tr>
+<tr>
+<td>./util/hash.h</td>
+<td>字节流哈希</td>
+</tr>
+<tr>
+<td>./util/hash_test.cc</td>
+<td>字节流哈希</td>
+</tr>
+<tr>
+<td>./util/histogram.cc</td>
+<td>朴素的直方图统计</td>
+</tr>
+<tr>
+<td>./util/histogram.h</td>
+<td>朴素的直方图统计</td>
+</tr>
+<tr>
+<td>./util/logging.cc</td>
+<td>数值字符串转换辅助函数</td>
+</tr>
+<tr>
+<td>./util/logging.h</td>
+<td>数值字符串转换辅助函数</td>
+</tr>
+<tr>
+<td>./util/logging_test.cc</td>
+<td>数值字符串转换辅助函数</td>
+</tr>
+<tr>
+<td>./util/mutexlock.h</td>
+<td>锁的 RAII 封装</td>
+</tr>
+<tr>
+<td>./util/no_destructor.h</td>
+<td>NoDestructor</td>
+</tr>
+<tr>
+<td>./util/no_destructor_test.cc</td>
+<td>NoDestructor</td>
+</tr>
+<tr>
+<td>./util/options.cc</td>
+<td>Options 默认构造函数</td>
+</tr>
+<tr>
+<td>./util/posix_logger.h</td>
+<td>Log 函数实现</td>
+</tr>
+<tr>
+<td>./util/random.h</td>
+<td>线性同余随机数生成器</td>
+</tr>
+<tr>
+<td>./util/status.cc</td>
+<td>状态码实现</td>
+</tr>
+<tr>
+<td>./util/status_test.cc</td>
+<td>状态码测试</td>
+</tr>
+<tr>
+<td>./util/testharness.cc</td>
+<td>单元测试辅助</td>
+</tr>
+<tr>
+<td>./util/testharness.h</td>
+<td>单元测试辅助，宏</td>
+</tr>
+<tr>
+<td>./util/testutil.cc</td>
+<td>测试辅助函数</td>
+</tr>
+<tr>
+<td>./util/testutil.h</td>
+<td>测试辅助函数</td>
+</tr>
+<tr>
+<td>./util/windows_logger.h</td>
+<td>Log 函数实现</td>
+</tr>
+</tbody>
+</table>
+<h3 id="2.-实现细节"><a href="#2.-%E5%AE%9E%E7%8E%B0%E7%BB%86%E8%8A%82">2. 实现细节</a></h3>
+<ol>
+<li>装饰器模式。代码用多次出现 B 类继承 A 类、同时包含一个 A 类私有对象，比如 <code>EnvWrapper</code>、<code>InternalKeyComparator</code>、<code>InternalFilterPolicy</code>。继承的同时，可以选择性的修改部分功能，可以理解为装饰器模式</li>
+<li>LRUCache（待整理）</li>
+<li>SkipList（待整理）</li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://travis-ci.com/SF-Zhou/sf-zhou.github.io">Travis CI</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

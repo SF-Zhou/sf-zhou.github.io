@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Config, Argument and JSON Schema | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Config, Argument and JSON Schema </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2019.04.14 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>最近在重构现有的 <code>PyTorch</code> 训练框架，目标是组件化、低耦合、高复用，提高大家的研究效率。开发过程中思考了一些关于 Config 和 Command Line Argument 的问题，并且顺手开发了几个辅助小工具。本文可以看成是这几个工具的说明文档了。</p>
+<h3 id="1.-config-file"><a href="#1.-config-file">1. Config File</a></h3>
+<p>训练框架里，Config File 的使用非常广泛。配置文件一般使用 YAML 和 JSON 格式，其中存储了关于实验的一些细节，比如用哪一种模型、多少的学习率以及使用哪种数据集。一般训练开始时直接将配置文件加载进来，读取为 <code>dict</code>，然后根据需要的 <code>key</code> 获得 <code>value</code> 即可，比如 <code>config[&quot;model_type&quot;]</code>。</p>
+<p>然而这种做法存在一些潜在风险：</p>
+<ol>
+<li>用户并不知道如何配置。如果没有详细的配置文档，用户是不知道可以设置哪些 <code>key</code> 以及对应的 <code>value</code> 的。即使在配置文件中设置了 <code>model_type</code>，你也无法确定 <code>model_type</code> 是否被读取和使用了；</li>
+<li>获取默认值时的潜在风险，例如 <code>config.get(&quot;model_type&quot;, &quot;ResNet&quot;)</code>。这种写法令人“害怕”，即使你的 <code>key</code> 写错了，代码依然正常执行；</li>
+<li>编写代码过程中心智负担过重。即使开发者知道 <code>config</code> 有哪些 <code>key</code>，也会担心自己的 <code>key</code> 是不是写错了。</li>
+</ol>
+<p>针对上述问题，笔者开发了一个小工具 <a href="https://github.com/FebruaryBreeze/json-schema-to-class"><code>json-schema-to-class</code></a>。可以使用 <code>pip3</code> 安装（Python 3.6+）：</p>
+<pre class="language-bash"><code class="language-bash">pip3 <span class="token function">install</span> json-schema-to-class
+</code></pre>
+<p>该工具的目的就是通过 <code>JSON Schema</code> 来指导和约束开发者和用户：</p>
+<ol>
+<li>用户可以参考 Schema 文件来编写配置文件；</li>
+<li>Schema 文件附带参数默认值及参数描述；</li>
+<li>通过运行时读取 schema 文件并编译为 Python Class 代码，使得开发者在开发过程中获得足够的代码提示，规避了直接写 <code>key</code> 的烦恼。</li>
+</ol>
+<p>直接参考一个现有的 demo 吧：<a href="https://github.com/FebruaryBreeze/torch-basic-models">torch-basic-models</a>。该项目提供了两个基础的 PyTorch 模型代码：ResNet 和 MobileNetV2。两个模型具有不同配置项，其 Schema 放置于 <a href="https://github.com/FebruaryBreeze/torch-basic-models/tree/master/torch_basic_models/schema">torch_basic_models/schema</a>。以 <code>ResNet</code> 为例，其Schema 定义如下：</p>
+<pre class="language-json"><code class="language-json"><span class="token punctuation">{</span>
+  <span class="token property">"$schema"</span><span class="token operator">:</span> <span class="token string">"http://json-schema.org/draft-04/schema#"</span><span class="token punctuation">,</span>
+  <span class="token property">"title"</span><span class="token operator">:</span> <span class="token string">"res_net_config"</span><span class="token punctuation">,</span>
+  <span class="token property">"description"</span><span class="token operator">:</span> <span class="token string">"ResNet Model Config"</span><span class="token punctuation">,</span>
+  <span class="token property">"type"</span><span class="token operator">:</span> <span class="token string">"object"</span><span class="token punctuation">,</span>
+  <span class="token property">"properties"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+    <span class="token property">"layers_list"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+      <span class="token property">"type"</span><span class="token operator">:</span> <span class="token string">"array"</span><span class="token punctuation">,</span>
+      <span class="token property">"items"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+        <span class="token property">"type"</span><span class="token operator">:</span> <span class="token string">"integer"</span>
+      <span class="token punctuation">}</span><span class="token punctuation">,</span>
+      <span class="token property">"default"</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">]</span>
+    <span class="token punctuation">}</span><span class="token punctuation">,</span>
+    <span class="token property">"feature_dim"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+      <span class="token property">"type"</span><span class="token operator">:</span> <span class="token string">"integer"</span><span class="token punctuation">,</span>
+      <span class="token property">"default"</span><span class="token operator">:</span> <span class="token number">1000</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token property">"additionalProperties"</span><span class="token operator">:</span> <span class="token boolean">false</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>用户可以轻松的知道配置项目包括 <code>layers_list</code> 和 <code>feature_dim</code>，即使没有写明 <code>description</code> 也能猜到对应的含义。而开发者可以通过 <a href="https://github.com/FebruaryBreeze/torch-basic-models/blob/master/torch_basic_models/configs/__init__.py">torch_basic_models/configs/__init__.py</a> 调用 <code>json-schema-to-class</code> 动态生成 <code>torch_basic_models/configs/build/resnet_config.py</code>：</p>
+<pre class="language-python"><code class="language-python"><span class="token keyword">from</span> typing <span class="token keyword">import</span> List
+
+
+<span class="token keyword">class</span> <span class="token class-name">ResNetConfig</span><span class="token punctuation">:</span>
+    <span class="token keyword">def</span> <span class="token function">__init__</span><span class="token punctuation">(</span>self<span class="token punctuation">,</span> values<span class="token punctuation">:</span> <span class="token builtin">dict</span> <span class="token operator">=</span> <span class="token boolean">None</span><span class="token punctuation">)</span><span class="token punctuation">:</span>
+        values <span class="token operator">=</span> values <span class="token keyword">if</span> values <span class="token keyword">is</span> <span class="token keyword">not</span> <span class="token boolean">None</span> <span class="token keyword">else</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+        self<span class="token punctuation">.</span>layers_list<span class="token punctuation">:</span> List<span class="token punctuation">[</span><span class="token builtin">int</span><span class="token punctuation">]</span> <span class="token operator">=</span> values<span class="token punctuation">.</span>get<span class="token punctuation">(</span><span class="token string">"layers_list"</span><span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+        self<span class="token punctuation">.</span>feature_dim<span class="token punctuation">:</span> <span class="token builtin">int</span> <span class="token operator">=</span> values<span class="token punctuation">.</span>get<span class="token punctuation">(</span><span class="token string">"feature_dim"</span><span class="token punctuation">,</span> <span class="token number">1000</span><span class="token punctuation">)</span>
+</code></pre>
+<p>进而在编写代码过程直接访问 Python 对象来获取配置项，并且附带代码提示不至于犯小错误。有兴趣的同学可以详细研究下这个小项目。</p>
+<h3 id="command-line-argument"><a href="#command-line-argument">Command Line Argument</a></h3>
+<p>Python 自带的 <code>argparse</code> 可以读取命令行参数，然而配置参数项和读取参数值时依然不够方便。以 PyTorch 官方的 ImageNet 训练项目为例：</p>
+<pre class="language-python"><code class="language-python">parser <span class="token operator">=</span> argparse<span class="token punctuation">.</span>ArgumentParser<span class="token punctuation">(</span>description<span class="token operator">=</span><span class="token string">'PyTorch ImageNet Training'</span><span class="token punctuation">)</span>
+parser<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">'data'</span><span class="token punctuation">,</span> metavar<span class="token operator">=</span><span class="token string">'DIR'</span><span class="token punctuation">,</span>
+                    <span class="token builtin">help</span><span class="token operator">=</span><span class="token string">'path to dataset'</span><span class="token punctuation">)</span>
+parser<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">'-a'</span><span class="token punctuation">,</span> <span class="token string">'--arch'</span><span class="token punctuation">,</span> metavar<span class="token operator">=</span><span class="token string">'ARCH'</span><span class="token punctuation">,</span> default<span class="token operator">=</span><span class="token string">'resnet18'</span><span class="token punctuation">,</span>
+                    choices<span class="token operator">=</span>model_names<span class="token punctuation">,</span>
+                    <span class="token builtin">help</span><span class="token operator">=</span><span class="token string">'model architecture: '</span> <span class="token operator">+</span>
+                        <span class="token string">' | '</span><span class="token punctuation">.</span>join<span class="token punctuation">(</span>model_names<span class="token punctuation">)</span> <span class="token operator">+</span>
+                        <span class="token string">' (default: resnet18)'</span><span class="token punctuation">)</span>
+parser<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">'-j'</span><span class="token punctuation">,</span> <span class="token string">'--workers'</span><span class="token punctuation">,</span> default<span class="token operator">=</span><span class="token number">4</span><span class="token punctuation">,</span> <span class="token builtin">type</span><span class="token operator">=</span><span class="token builtin">int</span><span class="token punctuation">,</span> metavar<span class="token operator">=</span><span class="token string">'N'</span><span class="token punctuation">,</span>
+                    <span class="token builtin">help</span><span class="token operator">=</span><span class="token string">'number of data loading workers (default: 4)'</span><span class="token punctuation">)</span>
+parser<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">'--epochs'</span><span class="token punctuation">,</span> default<span class="token operator">=</span><span class="token number">90</span><span class="token punctuation">,</span> <span class="token builtin">type</span><span class="token operator">=</span><span class="token builtin">int</span><span class="token punctuation">,</span> metavar<span class="token operator">=</span><span class="token string">'N'</span><span class="token punctuation">,</span>
+                    <span class="token builtin">help</span><span class="token operator">=</span><span class="token string">'number of total epochs to run'</span><span class="token punctuation">)</span>
+parser<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">'--start-epoch'</span><span class="token punctuation">,</span> default<span class="token operator">=</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token builtin">type</span><span class="token operator">=</span><span class="token builtin">int</span><span class="token punctuation">,</span> metavar<span class="token operator">=</span><span class="token string">'N'</span><span class="token punctuation">,</span>
+                    <span class="token builtin">help</span><span class="token operator">=</span><span class="token string">'manual epoch number (useful on restarts)'</span><span class="token punctuation">)</span>
+
+<span class="token comment"># ...</span>
+
+<span class="token keyword">def</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">:</span>
+    args <span class="token operator">=</span> parser<span class="token punctuation">.</span>parse_args<span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">if</span> args<span class="token punctuation">.</span>seed <span class="token keyword">is</span> <span class="token keyword">not</span> <span class="token boolean">None</span><span class="token punctuation">:</span>
+        random<span class="token punctuation">.</span>seed<span class="token punctuation">(</span>args<span class="token punctuation">.</span>seed<span class="token punctuation">)</span>
+        torch<span class="token punctuation">.</span>manual_seed<span class="token punctuation">(</span>args<span class="token punctuation">.</span>seed<span class="token punctuation">)</span>
+        cudnn<span class="token punctuation">.</span>deterministic <span class="token operator">=</span> <span class="token boolean">True</span>
+        warnings<span class="token punctuation">.</span>warn<span class="token punctuation">(</span><span class="token string">'You have chosen to seed training. '</span>
+                      <span class="token string">'This will turn on the CUDNN deterministic setting, '</span>
+                      <span class="token string">'which can slow down your training considerably! '</span>
+                      <span class="token string">'You may see unexpected behavior when restarting '</span>
+                      <span class="token string">'from checkpoints.'</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">if</span> args<span class="token punctuation">.</span>gpu <span class="token keyword">is</span> <span class="token keyword">not</span> <span class="token boolean">None</span><span class="token punctuation">:</span>
+        warnings<span class="token punctuation">.</span>warn<span class="token punctuation">(</span><span class="token string">'You have chosen a specific GPU. This will completely '</span>
+                      <span class="token string">'disable data parallelism.'</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">if</span> args<span class="token punctuation">.</span>dist_url <span class="token operator">==</span> <span class="token string">"env://"</span> <span class="token keyword">and</span> args<span class="token punctuation">.</span>world_size <span class="token operator">==</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">:</span>
+        args<span class="token punctuation">.</span>world_size <span class="token operator">=</span> <span class="token builtin">int</span><span class="token punctuation">(</span>os<span class="token punctuation">.</span>environ<span class="token punctuation">[</span><span class="token string">"WORLD_SIZE"</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+</code></pre>
+<p>同样令人“害怕😨”。笔者同样利用 <code>JSON Schema</code> 开发了 <a href="https://github.com/FebruaryBreeze/argparse-schema"><code>argparse-schema</code></a> 来解决这个问题。该工具同样可以使用 <code>pip3</code> 直接安装，通过读取 Schema 文件来构建 <code>argparse.ArgumentParser</code> 对象。Schema 举例 <a href="https://github.com/FebruaryBreeze/argparse-schema/blob/master/tests/argument_config.json"><code>tests/argument_config.json</code></a>：</p>
+<pre class="language-json"><code class="language-json"><span class="token punctuation">{</span>
+  <span class="token property">"$schema"</span><span class="token operator">:</span> <span class="token string">"http://json-schema.org/draft-04/schema#"</span><span class="token punctuation">,</span>
+  <span class="token property">"title"</span><span class="token operator">:</span> <span class="token string">"argument_config"</span><span class="token punctuation">,</span>
+  <span class="token property">"description"</span><span class="token operator">:</span> <span class="token string">"Arg-parse Schema UnitTest"</span><span class="token punctuation">,</span>
+  <span class="token property">"type"</span><span class="token operator">:</span> <span class="token string">"object"</span><span class="token punctuation">,</span>
+  <span class="token property">"properties"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+    <span class="token property">"config"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+      <span class="token property">"type"</span><span class="token operator">:</span> <span class="token string">"string"</span><span class="token punctuation">,</span>
+      <span class="token property">"description"</span><span class="token operator">:</span> <span class="token string">"path of config file"</span>
+    <span class="token punctuation">}</span><span class="token punctuation">,</span>
+    <span class="token property">"resume"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+      <span class="token property">"type"</span><span class="token operator">:</span> <span class="token string">"boolean"</span><span class="token punctuation">,</span>
+      <span class="token property">"description"</span><span class="token operator">:</span> <span class="token string">"resume from checkpoint or not"</span>
+    <span class="token punctuation">}</span><span class="token punctuation">,</span>
+    <span class="token property">"scale"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+      <span class="token property">"type"</span><span class="token operator">:</span> <span class="token string">"number"</span><span class="token punctuation">,</span>
+      <span class="token property">"default"</span><span class="token operator">:</span> <span class="token number">1.0</span><span class="token punctuation">,</span>
+      <span class="token property">"description"</span><span class="token operator">:</span> <span class="token string">"scale of image"</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token property">"required"</span><span class="token operator">:</span> <span class="token punctuation">[</span>
+    <span class="token string">"config"</span>
+  <span class="token punctuation">]</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>可以通过如下的 Python 代码调用：</p>
+<pre class="language-python"><code class="language-python"><span class="token comment"># demo.py</span>
+<span class="token keyword">import</span> argparse_schema
+
+<span class="token keyword">print</span><span class="token punctuation">(</span>argparse_schema<span class="token punctuation">.</span>parse<span class="token punctuation">(</span>schema<span class="token operator">=</span><span class="token string">'./tests/argument_config.json'</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p>执行：</p>
+<pre class="language-bash"><code class="language-bash">python3 demo.py --config /path/to/config.py
+<span class="token comment">#> {'config': '/path/to/config.py', 'resume': False, 'scale': 1.0}</span>
+</code></pre>
+<p>也可以通过提供的 CLI 工具查看 Argument Schema 对应的命令行帮助：</p>
+<pre class="language-bash"><code class="language-bash">argparse-schema --schema_path tests/argument_config.json
+<span class="token comment">#> Show help for [tests/argument_config.json]:</span>
+<span class="token comment">#> usage: argparse-schema [-h] --config CONFIG [--resume] [--scale SCALE]</span>
+<span class="token comment">#></span>
+<span class="token comment">#> Arg-parse Schema UnitTest</span>
+<span class="token comment">#></span>
+<span class="token comment">#> optional arguments:</span>
+<span class="token comment">#>   -h, --help       show this help message and exit</span>
+<span class="token comment">#>   --config CONFIG  path of config file</span>
+<span class="token comment">#>   --resume         resume from checkpoint or not</span>
+<span class="token comment">#>   --scale SCALE    scale of image</span>
+</code></pre>
+<p>与 <code>json-schema-to-class</code> 结合后，可以得到更为 Fancy 的结果，可以打开脑洞想一下。</p>
+<h3 id="references"><a href="#references">References</a></h3>
+<ol>
+<li>JSON Schema, <a href="https://json-schema.org">https://json-schema.org</a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://travis-ci.com/SF-Zhou/sf-zhou.github.io">Travis CI</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
