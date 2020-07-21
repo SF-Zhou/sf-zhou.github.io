@@ -1,3 +1,5 @@
+os: linux
+dist: xenial
 language: node_js
 node_js: 13
 cache: npm
@@ -10,10 +12,11 @@ script:
 
 deploy:
   provider: pages
-  local-dir: public
-  skip-cleanup: true
-  github-token: $GITHUB_TOKEN
-  keep-history: false
-  target-branch: master
+  strategy: git
+  local_dir: public
+  skip_cleanup: true
+  token: $GITHUB_TOKEN
+  keep_history: false
+  target_branch: master
   on:
     branch: blog
