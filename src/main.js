@@ -12,16 +12,15 @@ const analyze_article = require('./analyze_article');
 
 const config = require('../config.json');
 
-const write_when_change =
-  async function (file_path, new_content) {
-    if (exists(file_path)) {
-      const old_content = (await fs.readFile(file_path)).toString();
-      if (old_content === new_content) {
-        return;
-      }
+async function write_when_change(file_path, new_content) {
+  if (exists(file_path)) {
+    const old_content = (await fs.readFile(file_path)).toString();
+    if (old_content === new_content) {
+      return;
     }
-    await fs.writeFile(file_path, new_content);
   }
+  await fs.writeFile(file_path, new_content);
+}
 
 async function main() {
   const { dirs, articles_path } =
