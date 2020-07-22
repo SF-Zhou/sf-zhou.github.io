@@ -134,6 +134,13 @@ async function main() {
 
   const json_path = path.join(config.output_path, 'index.json');
   await write_when_change(json_path, JSON.stringify(articles_info, null, 2));
+
+  const profile_template_name = './src/profile.md';
+  const profile_template = (await fs.readFile(profile_template_name)).toString();
+  const profile = mustache.render(profile_template, { articles: articles_info.slice(0, 5) });
+  const profile_path = path.join(config.profile_path, 'README.md');
+  await fs.mkdir(config.profile_path, { recursive: true });
+  await write_when_change(profile_path, profile);
 }
 
 main();

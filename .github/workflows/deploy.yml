@@ -24,3 +24,11 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.TOKEN }}
         BRANCH: master
         FOLDER: public
+
+    - name: 🚀Deploy
+      uses: JamesIves/github-pages-deploy-action@3.5.8
+      with:
+        REPOSITORY_NAME: SF-Zhou/SF-Zhou
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        BRANCH: master
+        FOLDER: profile
