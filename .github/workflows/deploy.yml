@@ -1,0 +1,26 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ blog ]
+  pull_request:
+    branches: [ blog ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        persist-credentials: false
+
+    - name: 🏗Generate
+      run: npm i && npm run build
+
+    - name: 🚀Deploy
+      uses: JamesIves/github-pages-deploy-action@3.5.8
+      with:
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        BRANCH: master
+        FOLDER: public
