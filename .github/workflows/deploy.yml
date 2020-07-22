@@ -3,8 +3,6 @@ name: Deploy
 on:
   push:
     branches: [ blog ]
-  pull_request:
-    branches: [ blog ]
 
 jobs:
   build:
