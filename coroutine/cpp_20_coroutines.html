@@ -97,7 +97,7 @@ final suspend, return never
 main() exit
 */</span>
 </code></pre>
-<p>当函数中使用 <code>co_await</code> / <code>co_yield</code> / <code>co_return</code> 关键字时，编译器会将该函数识别为协程。每个协程函数都需要使用协程状态 <code>coroutine state</code> 来存储内部数据，包括协程承诺 <code>promise</code>、传入协程的参数、当前挂起点的某种表示形式以及当前挂起点范围内的局部变量和临时变量。该状态分配在堆上，由编译器负责管理。协程承诺 <code>promise</code> 由协程内部控制，用于协程提交结果或异常；协程句柄 <code>coroutine handle</code> 由协程外部控制，用于恢复协程执行或销毁协程。</p>
+<p>当函数中使用 <code>co_await</code> / <code>co_yield</code> / <code>co_return</code> 关键字时，编译器会将该函数识别为协程。每个协程函数都需要使用协程状态 <code>coroutine state</code> 来存储内部数据，包括协程承诺 <code>promise</code>、传入协程的参数、当前挂起点的某种表示形式以及当前挂起点范围内的局部变量和临时变量。该状态分配在堆上，由编译器负责管理。协程承诺 <code>promise</code> 由协程内部控制，用于协程提交结果或异常；协程句柄 <code>coroutine handle</code> 由协程外部控制，用于恢复协程执行或销毁协程；二者可以通过接口获取到对方。</p>
 <p>当调用协程函数时，其步骤如下：</p>
 <ol>
 <li>使用 <code>operator new</code> 申请空间并初始化协程状态；</li>
@@ -107,9 +107,22 @@ main() exit
 <li>调用 <code>co_await promise.initial_suspend()</code>，预定义了 <code>std::suspend_always</code> 表示始终挂起，<code>std::suspend_never</code> 表示始终不挂起；</li>
 <li>而后正式开始执行协程函数内过程。</li>
 </ol>
-<p>当协程函数执行到 <code>co_await</code> 表示的挂起点时：</p>
+<p>当协程函数执行到 <code>co_return [expr]</code> 语句时：</p>
 <ol>
-<li><code>co_await</code> 的返回值会返回给协程调用者/恢复者。</li>
+<li>若 <code>expr</code> 为 <code>void</code> 则执行 <code>promise.return_void()</code>，否则执行 <code>promise.return_value(expr)</code>；</li>
+<li>按照创建顺序的倒序销毁局部变量和临时变量；</li>
+<li>执行 <code>co_await promise.final_suspend()</code>。</li>
+</ol>
+<p>当协程执行到 <code>co_yield expr</code> 语句时：</p>
+<ol>
+<li>执行 <code>co_await promise.yield_value(expr)</code>。</li>
+</ol>
+<p>当协程执行到 <code>co_await expr</code> 语句时：</p>
+<ol>
+<li>通过 <code>expr</code> 获得 <code>awaiter</code> 对象；</li>
+<li>执行 <code>awaiter.await_ready()</code>，若为 <code>true</code> 则直接返回 <code>awaiter.await_resume()</code>；</li>
+<li>否则将协程挂起并保存状态，执行 <code>awaiter.await_suspend()</code>，若其返回值为 <code>void</code> 或者 <code>true</code> 则成功挂起，将控制权返还给调用者 / 恢复者；</li>
+<li>直到 <code>handle.resume()</code> 执行后该协程才会恢复执行，将 <code>awaiter.await_resume()</code> 作为表达式的返回值。</li>
 </ol>
 <p>当协程因为某个未捕获的异常导致终止时：</p>
 <ol>
@@ -122,8 +135,64 @@ main() exit
 <li>析构传入的参数；</li>
 <li>回收协程状态内存。</li>
 </ol>
-<p>接着来看新的关键字 <code>co_await</code>。<code>co_await</code> 会将协程挂起并将控制权返回给调用者。<code>co_await expr</code>  执行时 <code>expr</code> 可能会有一些转换，这里将其简化为一个 <code>awaiter</code> 对象。首先会执行 <code>awaiter.await_ready()</code> 判断是否需要挂起协程，返回 <code>true</code> 则表示无须挂起，会紧接着执行 <code>awaiter.await_resume()</code> 并恢复协程函数执行。上面的例子中就是这种情况，协程会继续同步执行直到结束。</p>
-<p>反之，如果返回 <code>false</code>，则会触发 <code>awaiter.await_suspend(handle)</code>，并直到 <code>handle.resume()</code> 执行后该协程才会恢复执行。看另一个例子🌰（<a href="https://godbolt.org/z/soG5P1">在线执行</a>）：</p>
+<p>简明来看，一个协程函数会被编译器执行类似下方的展开：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 协程函数</span>
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> R<span class="token punctuation">,</span> <span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
+R <span class="token function">Func</span><span class="token punctuation">(</span>Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> args<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">auto</span> ret <span class="token operator">=</span> <span class="token keyword">co_await</span> <span class="token function">Awaiter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">co_yield</span> ret<span class="token punctuation">;</span>
+  <span class="token keyword">co_return</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 编译器展开</span>
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> R<span class="token punctuation">,</span> <span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
+R <span class="token function">Func</span><span class="token punctuation">(</span>Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> args<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">using</span> promise_t <span class="token operator">=</span> <span class="token keyword">typename</span> coroutine_traits<span class="token operator">&lt;</span>R<span class="token punctuation">,</span> Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token operator">></span><span class="token operator">::</span>promise_type<span class="token punctuation">;</span>
+
+  promise_t promise<span class="token punctuation">;</span>  <span class="token comment">// 实际上分配在堆上而非栈上，这里为了方便说明简化了</span>
+  <span class="token keyword">auto</span> __return__ <span class="token operator">=</span> promise<span class="token punctuation">.</span><span class="token function">get_return_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">co_await</span> promise<span class="token punctuation">.</span><span class="token function">initial_suspend</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">try</span> <span class="token punctuation">{</span>
+    <span class="token comment">// auto ret = co_await Awaiter();</span>
+    <span class="token keyword">auto</span> <span class="token operator">&amp;&amp;</span>value <span class="token operator">=</span> <span class="token function">Awaiter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> <span class="token operator">&amp;&amp;</span>awaitable <span class="token operator">=</span> <span class="token function">get_awaitable</span><span class="token punctuation">(</span>promise<span class="token punctuation">,</span> <span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">decltype</span><span class="token punctuation">(</span>value<span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">(</span>value<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> <span class="token operator">&amp;&amp;</span>awaiter <span class="token operator">=</span> <span class="token function">get_awaiter</span><span class="token punctuation">(</span><span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">decltype</span><span class="token punctuation">(</span>awaitable<span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">(</span>awaitable<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>awaiter<span class="token punctuation">.</span><span class="token function">await_ready</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">using</span> handle_t <span class="token operator">=</span> std<span class="token operator">::</span>coroutine_handle<span class="token operator">&lt;</span>Promise<span class="token operator">></span><span class="token punctuation">;</span>
+      <span class="token keyword">using</span> await_suspend_result_t <span class="token operator">=</span>
+          <span class="token keyword">decltype</span><span class="token punctuation">(</span>awaiter<span class="token punctuation">.</span><span class="token function">await_suspend</span><span class="token punctuation">(</span>handle_t<span class="token operator">::</span><span class="token function">from_promise</span><span class="token punctuation">(</span>promise<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token comment">// 协程挂起</span>
+      <span class="token keyword">if</span> <span class="token keyword">constexpr</span> <span class="token punctuation">(</span>std<span class="token operator">::</span>is_void_v<span class="token operator">&lt;</span>await_suspend_result_t<span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        awaiter<span class="token punctuation">.</span><span class="token function">await_suspend</span><span class="token punctuation">(</span>handle_t<span class="token operator">::</span><span class="token function">from_promise</span><span class="token punctuation">(</span>promise<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">return</span> __return__<span class="token punctuation">;</span>  <span class="token comment">// 返还控制权给调用者/恢复者</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token keyword">static_assert</span><span class="token punctuation">(</span>std<span class="token operator">::</span>is_same_v<span class="token operator">&lt;</span>await_suspend_result_t<span class="token punctuation">,</span> <span class="token keyword">bool</span><span class="token operator">></span><span class="token punctuation">,</span>
+                      <span class="token string">"await_suspend() must return 'void' or 'bool'."</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>awaiter<span class="token punctuation">.</span><span class="token function">await_suspend</span><span class="token punctuation">(</span>handle_t<span class="token operator">::</span><span class="token function">from_promise</span><span class="token punctuation">(</span>promise<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">return</span> __return__<span class="token punctuation">;</span>  <span class="token comment">// 返还控制权给调用者/恢复者</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span>
+      <span class="token comment">// 协程恢复点，handle.resume() 后在此处恢复</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">auto</span> ret <span class="token operator">=</span> awaiter<span class="token punctuation">.</span><span class="token function">await_resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 返回 resume 的值</span>
+
+    <span class="token comment">// co_yield ret;</span>
+    <span class="token keyword">co_await</span> promise<span class="token punctuation">.</span><span class="token function">yield_value</span><span class="token punctuation">(</span>ret<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// co_return;</span>
+    promise<span class="token punctuation">.</span><span class="token function">return_void</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">goto</span> final_suspend<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    promise<span class="token punctuation">.</span><span class="token function">set_exception</span><span class="token punctuation">(</span>std<span class="token operator">::</span><span class="token function">current_exception</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+final_suspend<span class="token operator">:</span>
+  <span class="token keyword">co_await</span> promise<span class="token punctuation">.</span><span class="token function">final_suspend</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>第一个样例中 <code>await_ready()</code> 始终返回 <code>true</code>，协程并不会挂起而是继续同步执行直到结束。看另一个例子🌰（<a href="https://godbolt.org/z/soG5P1">在线执行</a>）：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;coroutine></span></span>
 <span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 <span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
@@ -191,6 +260,21 @@ Promise <span class="token function">CoroutineFunc</span><span class="token punc
 
   std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() exit"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
+
+<span class="token comment">/*
+main() start
+get return object
+initial suspend, return never
+before co_await
+await ready or not
+await suspended
+resume coroutine after one second
+await resumed
+after co_await
+return void
+final suspend, return never
+main() exit
+*/</span>
 </code></pre>
 <p>这里 <code>awaiter.await_ready()</code> 返回 <code>false</code>，协程会被挂起。之后 <code>awaiter.await_suspend(handle)</code> 被执行，<code>handle</code> 也就是上文提到的协程句柄。该函数需要完成对句柄的调度，以便之后由执行器去恢复该协程或将其销毁。若 <code>awaiter.await_suspend(handle)</code> 的返回类型为 <code>void</code>，<code>co_await</code> 会立即将执行权归还给调用者。直到 <code>handle.resume()</code> 执行时，协程才会恢复执行，并且会调用 <code>awaiter.await_resume()</code> 并将其返回值作为 <code>co_await awaiter</code> 的返回值。上面的例子中将协程句柄赋值给了全局变量 <code>handle</code>，而后协程挂起，回到 <code>main</code> 函数，睡眠 1s 后调用 <code>handle.resume()</code> 恢复。</p>
 <p><code>awaiter.await_suspend(handle)</code> 执行前协程已完成挂起，此时协程状态中已经保存了恢复所需要的各种状态，所以也可以将协程句柄丢到另一个线程中恢复执行，再看一个例子🌰（<a href="https://godbolt.org/z/MMnT6E">在线执行</a>）：</p>
@@ -293,6 +377,8 @@ final suspend, return never
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/language/coroutines">&quot;Coroutines (C++20)&quot;, <em>C++ Reference</em></a></li>
 <li><a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/n4775.pdf">&quot;Working Draft, C++ Extensions for Coroutines&quot;, <em>Open Standards</em></a></li>
+<li><a href="https://www.cnblogs.com/wpcockroach/p/7403460.html">&quot;C++ Coroutine 简明教程&quot;, <em>wpcockroach</em></a></li>
+<li><a href="https://lewissbaker.github.io/2017/11/17/understanding-operator-co-await">&quot;C++ Coroutines: Understanding operator <code>co_await</code>&quot;, <em>lewissbaker</em></a></li>
 </ol>
 
       </div>
