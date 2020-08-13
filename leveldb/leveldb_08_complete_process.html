@@ -25,8 +25,8 @@
       <div class="markdown">
         <p>本系列之前的数篇博文从面向对象的角度分析了 LevelDB 中的核心组件，理解了每个类的作用。本篇将从面向过程的角度，分析 LevelDB 创建、打开和读写的完整流程。</p>
 <h3 id="1.-新建数据库并写入"><a href="#1.-%E6%96%B0%E5%BB%BA%E6%95%B0%E6%8D%AE%E5%BA%93%E5%B9%B6%E5%86%99%E5%85%A5">1. 新建数据库并写入</a></h3>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   leveldb<span class="token operator">::</span>DB<span class="token operator">*</span> db<span class="token punctuation">;</span>
@@ -35,7 +35,7 @@
     leveldb<span class="token operator">::</span>Options options<span class="token punctuation">;</span>
     options<span class="token punctuation">.</span>create_if_missing <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
     options<span class="token punctuation">.</span>compression <span class="token operator">=</span> leveldb<span class="token operator">::</span>kNoCompression<span class="token punctuation">;</span>
-    leveldb<span class="token operator">::</span>Status status <span class="token operator">=</span> leveldb<span class="token operator">::</span>DB<span class="token operator">::</span><span class="token function">Open</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> <span class="token string">"testdb"</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>db<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    leveldb<span class="token operator">::</span>Status status <span class="token operator">=</span> leveldb<span class="token operator">::</span><span class="token class-name">DB</span><span class="token operator">::</span><span class="token function">Open</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> <span class="token string">"testdb"</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>db<span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token function">assert</span><span class="token punctuation">(</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
@@ -59,7 +59,7 @@ total <span class="token number">24</span>
 </code></pre>
 <p>待写入完成后，文件 <code>000003.log</code> 的大小变为 34，其余大小不变。</p>
 <p>接下来沿着代码一步一步分析，这里推荐使用 VS Code 查看函数实现。首先来看 <code>leveldb::DB::Open</code>：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DB<span class="token operator">::</span><span class="token function">Open</span><span class="token punctuation">(</span><span class="token keyword">const</span> Options<span class="token operator">&amp;</span> options<span class="token punctuation">,</span> <span class="token keyword">const</span> std<span class="token operator">::</span>string<span class="token operator">&amp;</span> dbname<span class="token punctuation">,</span> DB<span class="token operator">*</span><span class="token operator">*</span> dbptr<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DB</span><span class="token operator">::</span><span class="token function">Open</span><span class="token punctuation">(</span><span class="token keyword">const</span> Options<span class="token operator">&amp;</span> options<span class="token punctuation">,</span> <span class="token keyword">const</span> std<span class="token operator">::</span>string<span class="token operator">&amp;</span> dbname<span class="token punctuation">,</span> DB<span class="token operator">*</span><span class="token operator">*</span> dbptr<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token operator">*</span>dbptr <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
 
   DBImpl<span class="token operator">*</span> impl <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">DBImpl</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> dbname<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -103,7 +103,7 @@ total <span class="token number">24</span>
 <span class="token punctuation">}</span>
 </code></pre>
 <p>先给输出参数 <code>*dbptr</code> 赋空指针，然后 new 一个 <code>DBImpl</code> 对象。<code>DBImpl</code> 的构造函数：</p>
-<pre class="language-cpp"><code class="language-cpp">DBImpl<span class="token operator">::</span><span class="token function">DBImpl</span><span class="token punctuation">(</span><span class="token keyword">const</span> Options<span class="token operator">&amp;</span> raw_options<span class="token punctuation">,</span> <span class="token keyword">const</span> std<span class="token operator">::</span>string<span class="token operator">&amp;</span> dbname<span class="token punctuation">)</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">DBImpl</span><span class="token punctuation">(</span><span class="token keyword">const</span> Options<span class="token operator">&amp;</span> raw_options<span class="token punctuation">,</span> <span class="token keyword">const</span> std<span class="token operator">::</span>string<span class="token operator">&amp;</span> dbname<span class="token punctuation">)</span>
     <span class="token operator">:</span> <span class="token function">env_</span><span class="token punctuation">(</span>raw_options<span class="token punctuation">.</span>env<span class="token punctuation">)</span><span class="token punctuation">,</span>
       <span class="token function">internal_comparator_</span><span class="token punctuation">(</span>raw_options<span class="token punctuation">.</span>comparator<span class="token punctuation">)</span><span class="token punctuation">,</span>
       <span class="token function">internal_filter_policy_</span><span class="token punctuation">(</span>raw_options<span class="token punctuation">.</span>filter_policy<span class="token punctuation">)</span><span class="token punctuation">,</span>
@@ -164,7 +164,7 @@ Options <span class="token function">SanitizeOptions</span><span class="token pu
 </code></pre>
 <p><code>SanitizeOptions</code> 函数将原 <code>src</code> 中的属性进行了安全裁剪，并且创建了 <code>dbname</code> 目录、将原 Info Log 文件重命名并创建了新的 Info Log 文件，也就是 <code>testdb/LOG</code> 文件。最后按需创建了 block cache 并返回作为 <code>DBImpl</code> 的 <code>options_</code>。 <code>DBImpl</code> 的构造函数还为 <code>table_cache_</code>、<code>tmp_batch_</code> 和 <code>version_</code> 创建了新对象。</p>
 <p>回到 <code>leveldb::DB::Open</code>，创建 <code>DBImpl</code> 后上锁并执行 <code>impl-&gt;Recover</code>：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">Recover</span><span class="token punctuation">(</span>VersionEdit<span class="token operator">*</span> edit<span class="token punctuation">,</span> <span class="token keyword">bool</span><span class="token operator">*</span> save_manifest<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">Recover</span><span class="token punctuation">(</span>VersionEdit<span class="token operator">*</span> edit<span class="token punctuation">,</span> <span class="token keyword">bool</span><span class="token operator">*</span> save_manifest<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token comment">// Ignore error from CreateDir since the creation of the DB is</span>
@@ -184,12 +184,12 @@ Options <span class="token function">SanitizeOptions</span><span class="token pu
         <span class="token keyword">return</span> s<span class="token punctuation">;</span>
       <span class="token punctuation">}</span>
     <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
-      <span class="token keyword">return</span> Status<span class="token operator">::</span><span class="token function">InvalidArgument</span><span class="token punctuation">(</span>
+      <span class="token keyword">return</span> <span class="token class-name">Status</span><span class="token operator">::</span><span class="token function">InvalidArgument</span><span class="token punctuation">(</span>
           dbname_<span class="token punctuation">,</span> <span class="token string">"does not exist (create_if_missing is false)"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
   <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span>options_<span class="token punctuation">.</span>error_if_exists<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      <span class="token keyword">return</span> Status<span class="token operator">::</span><span class="token function">InvalidArgument</span><span class="token punctuation">(</span>dbname_<span class="token punctuation">,</span>
+      <span class="token keyword">return</span> <span class="token class-name">Status</span><span class="token operator">::</span><span class="token function">InvalidArgument</span><span class="token punctuation">(</span>dbname_<span class="token punctuation">,</span>
                                      <span class="token string">"exists (error_if_exists is true)"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
   <span class="token punctuation">}</span>
@@ -201,11 +201,11 @@ Options <span class="token function">SanitizeOptions</span><span class="token pu
 
   <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
 
-  <span class="token keyword">return</span> Status<span class="token operator">::</span><span class="token function">OK</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token class-name">Status</span><span class="token operator">::</span><span class="token function">OK</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
 <p>尝试创建 dbname 目录且忽略错误，启用文件锁 <code>testdb/LOCK</code> 以阻止其他进程操作当前数据库。由于当前没有 CURRENT 文件，并且我们开启了 <code>options.create_if_missing</code>，这里会继续调用 <code>NewDB</code> 函数：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">NewDB</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">NewDB</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   VersionEdit new_db<span class="token punctuation">;</span>
   new_db<span class="token punctuation">.</span><span class="token function">SetComparatorName</span><span class="token punctuation">(</span><span class="token function">user_comparator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">Name</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   new_db<span class="token punctuation">.</span><span class="token function">SetLogNumber</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -288,7 +288,7 @@ prev_log_number_ <span class="token operator">=</span> prev_log_number<span clas
 0000030 04 00
 </code></pre>
 <p><code>version_-&gt;LogAndApply</code> 创建 MANIFEST 文件后，会先执行 <code>VersionSet::WriteSnapshot</code>：</p>
-<pre class="language-cpp"><code class="language-cpp">Status VersionSet<span class="token operator">::</span><span class="token function">WriteSnapshot</span><span class="token punctuation">(</span>log<span class="token operator">::</span>Writer<span class="token operator">*</span> log<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">VersionSet</span><span class="token operator">::</span><span class="token function">WriteSnapshot</span><span class="token punctuation">(</span>log<span class="token operator">::</span>Writer<span class="token operator">*</span> log<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token comment">// TODO: Break up into multiple records to reduce memory usage on recovery?</span>
 
   <span class="token comment">// Save metadata</span>
@@ -333,7 +333,7 @@ prev_log_number_ <span class="token operator">=</span> prev_log_number<span clas
   kPrevLogNumber <span class="token operator">=</span> <span class="token number">9</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-<span class="token keyword">void</span> VersionEdit<span class="token operator">::</span><span class="token function">EncodeTo</span><span class="token punctuation">(</span>std<span class="token operator">::</span>string<span class="token operator">*</span> dst<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">VersionEdit</span><span class="token operator">::</span><span class="token function">EncodeTo</span><span class="token punctuation">(</span>std<span class="token operator">::</span>string<span class="token operator">*</span> dst<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>has_comparator_<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token function">PutVarint32</span><span class="token punctuation">(</span>dst<span class="token punctuation">,</span> kComparator<span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token function">PutLengthPrefixedSlice</span><span class="token punctuation">(</span>dst<span class="token punctuation">,</span> comparator_<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -397,7 +397,7 @@ prev_log_number_ <span class="token operator">=</span> prev_log_number<span clas
 <span class="token punctuation">}</span>
 </code></pre>
 <p>创建或恢复成功后，执行 <code>DBImpl::DeleteObsoleteFiles</code> 删除废弃文件：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">DeleteObsoleteFiles</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">DeleteObsoleteFiles</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>bg_error_<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -473,9 +473,9 @@ prev_log_number_ <span class="token operator">=</span> prev_log_number<span clas
 </code></pre>
 <p>一样的 7 字节 Header，Record 长度为 <code>0x1b=27</code>，内容为 <code>WriteBatch</code> 编码结果。参考<a href="/leveldb/leveldb_03_write_batch_and_log.html">本系列第三篇博文</a>，内容的前 8 字节为序列号，这里是 1；其后的 4 字节为键值对数量，这里也是 1；再后面就是附带长度编码的键值对，分别是 <code>[Key]</code> 和 <code>[Value]</code>。最后代码结束，删除了 <code>db</code> 对象，也就得到了前文叙述的文件状态。</p>
 <h3 id="2.-打开数据库并读取"><a href="#2.-%E6%89%93%E5%BC%80%E6%95%B0%E6%8D%AE%E5%BA%93%E5%B9%B6%E8%AF%BB%E5%8F%96">2. 打开数据库并读取</a></h3>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   leveldb<span class="token operator">::</span>DB<span class="token operator">*</span> db<span class="token punctuation">;</span>
@@ -483,7 +483,7 @@ prev_log_number_ <span class="token operator">=</span> prev_log_number<span clas
   <span class="token punctuation">{</span>
     leveldb<span class="token operator">::</span>Options options<span class="token punctuation">;</span>
     options<span class="token punctuation">.</span>compression <span class="token operator">=</span> leveldb<span class="token operator">::</span>kNoCompression<span class="token punctuation">;</span>
-    leveldb<span class="token operator">::</span>Status status <span class="token operator">=</span> leveldb<span class="token operator">::</span>DB<span class="token operator">::</span><span class="token function">Open</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> <span class="token string">"testdb"</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>db<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    leveldb<span class="token operator">::</span>Status status <span class="token operator">=</span> leveldb<span class="token operator">::</span><span class="token class-name">DB</span><span class="token operator">::</span><span class="token function">Open</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> <span class="token string">"testdb"</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>db<span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token function">assert</span><span class="token punctuation">(</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
@@ -511,7 +511,7 @@ total <span class="token number">40</span>
 -rw-r--r--  <span class="token number">1</span> sfzhou  staff    82B Sep  <span class="token number">7</span> 09:57 MANIFEST-000004
 </code></pre>
 <p>和之前一样，沿着代码分析打开数据库的流程。<code>DB::Open</code> 前期的步骤一致，直接跳到 <code>impl-&gt;Recover</code>。由于存在 CURRENT 文件，所以就跳过了 <code>NewDB</code> 的步骤。随后依然是 <code>versions_-&gt;Recover</code>，读取 CURRENT 文件、继而读取 MANIFEST。如上一节中所分析的，LogNumber 为 3，NextFileNumber 为 4，故最后新建的 MANIFEST 文件编号为 4。随后回到 <code>impl-&gt;Recover</code> 执行恢复日志文件数据：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">Recover</span><span class="token punctuation">(</span>VersionEdit<span class="token operator">*</span> edit<span class="token punctuation">,</span> <span class="token keyword">bool</span><span class="token operator">*</span> save_manifest<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">Recover</span><span class="token punctuation">(</span>VersionEdit<span class="token operator">*</span> edit<span class="token punctuation">,</span> <span class="token keyword">bool</span><span class="token operator">*</span> save_manifest<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
 
   SequenceNumber <span class="token function">max_sequence</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -546,7 +546,7 @@ total <span class="token number">40</span>
     <span class="token keyword">char</span> buf<span class="token punctuation">[</span><span class="token number">50</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
     <span class="token function">snprintf</span><span class="token punctuation">(</span>buf<span class="token punctuation">,</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>buf<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token string">"%d missing files; e.g."</span><span class="token punctuation">,</span>
              <span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span><span class="token punctuation">(</span>expected<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token keyword">return</span> Status<span class="token operator">::</span><span class="token function">Corruption</span><span class="token punctuation">(</span>buf<span class="token punctuation">,</span> <span class="token function">TableFileName</span><span class="token punctuation">(</span>dbname_<span class="token punctuation">,</span> <span class="token operator">*</span><span class="token punctuation">(</span>expected<span class="token punctuation">.</span><span class="token function">begin</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token class-name">Status</span><span class="token operator">::</span><span class="token function">Corruption</span><span class="token punctuation">(</span>buf<span class="token punctuation">,</span> <span class="token function">TableFileName</span><span class="token punctuation">(</span>dbname_<span class="token punctuation">,</span> <span class="token operator">*</span><span class="token punctuation">(</span>expected<span class="token punctuation">.</span><span class="token function">begin</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
   <span class="token comment">// Recover in the order in which the logs were generated</span>
@@ -568,14 +568,14 @@ total <span class="token number">40</span>
     versions_<span class="token operator">-></span><span class="token function">SetLastSequence</span><span class="token punctuation">(</span>max_sequence<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
-  <span class="token keyword">return</span> Status<span class="token operator">::</span><span class="token function">OK</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token class-name">Status</span><span class="token operator">::</span><span class="token function">OK</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
 <p>搜索数据库目录下的、符合条件的日志文件，然后执行 <code>DBImpl::RecoverLogFile</code> 进行恢复：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">RecoverLogFile</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> log_number<span class="token punctuation">,</span> <span class="token keyword">bool</span> last_log<span class="token punctuation">,</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">RecoverLogFile</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> log_number<span class="token punctuation">,</span> <span class="token keyword">bool</span> last_log<span class="token punctuation">,</span>
                               <span class="token keyword">bool</span><span class="token operator">*</span> save_manifest<span class="token punctuation">,</span> VersionEdit<span class="token operator">*</span> edit<span class="token punctuation">,</span>
                               SequenceNumber<span class="token operator">*</span> max_sequence<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  <span class="token keyword">struct</span> <span class="token class-name">LogReporter</span> <span class="token operator">:</span> <span class="token keyword">public</span> log<span class="token operator">::</span>Reader<span class="token operator">::</span>Reporter <span class="token punctuation">{</span>
+  <span class="token keyword">struct</span> <span class="token class-name">LogReporter</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> log<span class="token operator">::</span>Reader<span class="token operator">::</span><span class="token class-name">Reporter</span></span> <span class="token punctuation">{</span>
     Env<span class="token operator">*</span> env<span class="token punctuation">;</span>
     Logger<span class="token operator">*</span> info_log<span class="token punctuation">;</span>
     <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> fname<span class="token punctuation">;</span>
@@ -622,22 +622,22 @@ total <span class="token number">40</span>
   <span class="token keyword">while</span> <span class="token punctuation">(</span>reader<span class="token punctuation">.</span><span class="token function">ReadRecord</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>record<span class="token punctuation">,</span> <span class="token operator">&amp;</span>scratch<span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span>record<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&lt;</span> <span class="token number">12</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
       reporter<span class="token punctuation">.</span><span class="token function">Corruption</span><span class="token punctuation">(</span>record<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
-                          Status<span class="token operator">::</span><span class="token function">Corruption</span><span class="token punctuation">(</span><span class="token string">"log record too small"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+                          <span class="token class-name">Status</span><span class="token operator">::</span><span class="token function">Corruption</span><span class="token punctuation">(</span><span class="token string">"log record too small"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token keyword">continue</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
-    WriteBatchInternal<span class="token operator">::</span><span class="token function">SetContents</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>batch<span class="token punctuation">,</span> record<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token class-name">WriteBatchInternal</span><span class="token operator">::</span><span class="token function">SetContents</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>batch<span class="token punctuation">,</span> record<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
     <span class="token keyword">if</span> <span class="token punctuation">(</span>mem <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
       mem <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">MemTable</span><span class="token punctuation">(</span>internal_comparator_<span class="token punctuation">)</span><span class="token punctuation">;</span>
       mem<span class="token operator">-></span><span class="token function">Ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
-    status <span class="token operator">=</span> WriteBatchInternal<span class="token operator">::</span><span class="token function">InsertInto</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>batch<span class="token punctuation">,</span> mem<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    status <span class="token operator">=</span> <span class="token class-name">WriteBatchInternal</span><span class="token operator">::</span><span class="token function">InsertInto</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>batch<span class="token punctuation">,</span> mem<span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token function">MaybeIgnoreError</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>status<span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
       <span class="token keyword">break</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
-    <span class="token keyword">const</span> SequenceNumber last_seq <span class="token operator">=</span> WriteBatchInternal<span class="token operator">::</span><span class="token function">Sequence</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>batch<span class="token punctuation">)</span> <span class="token operator">+</span>
-                                    WriteBatchInternal<span class="token operator">::</span><span class="token function">Count</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>batch<span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token keyword">const</span> SequenceNumber last_seq <span class="token operator">=</span> <span class="token class-name">WriteBatchInternal</span><span class="token operator">::</span><span class="token function">Sequence</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>batch<span class="token punctuation">)</span> <span class="token operator">+</span>
+                                    <span class="token class-name">WriteBatchInternal</span><span class="token operator">::</span><span class="token function">Count</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>batch<span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">;</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span>last_seq <span class="token operator">></span> <span class="token operator">*</span>max_sequence<span class="token punctuation">)</span> <span class="token punctuation">{</span>
       <span class="token operator">*</span>max_sequence <span class="token operator">=</span> last_seq<span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
@@ -711,7 +711,7 @@ total <span class="token number">40</span>
 <li><code>kNewFile=07</code>，对应新增文件，其 Level 为 0，编号为 5，文件大小 <code>0x7c=124</code>，最小键和最大键都是长度为 <code>0x0d = 13</code> 的 <code>5b 4b 65 79 5d 01 01 00 00 00 00 00 00</code>，格式为 Internal Key。Internal Key 后面的 8 个字节为综合序列号，对应 <code>kTypeValue=1</code>，序列号为 1。</li>
 </ol>
 <p>至此数据库打开的流程分析完毕。接下来看 <code>leveldb::DB::Get</code>：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">Get</span><span class="token punctuation">(</span><span class="token keyword">const</span> ReadOptions<span class="token operator">&amp;</span> options<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">Get</span><span class="token punctuation">(</span><span class="token keyword">const</span> ReadOptions<span class="token operator">&amp;</span> options<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span>
                    std<span class="token operator">::</span>string<span class="token operator">*</span> value<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   Status s<span class="token punctuation">;</span>
   MutexLock <span class="token function">l</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>

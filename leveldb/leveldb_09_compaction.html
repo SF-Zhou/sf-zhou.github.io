@@ -27,7 +27,7 @@
 <p>LevelDB 源码分析系列也步入尾声，本篇将分析 LevelDB 中至关重要的 Compaction 过程，依然从代码的角度出发。建议大家同时阅读<a href="https://leveldb-handbook.readthedocs.io/zh/latest/compaction.html">参考文献 1</a> 了解 Compaction 的作用和过程的描述。</p>
 <h3 id="1.-触发-compaction"><a href="#1.-%E8%A7%A6%E5%8F%91-compaction">1. 触发 Compaction</a></h3>
 <p><a href="/leveldb/leveldb_05_sorted_table.html">本系列第三篇</a>中描述了内存数据库转为 Sorted Table 的过程，其中会执行 <code>DBImpl::BackgroundCompaction</code> 这一后台任务：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">BackgroundCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">BackgroundCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span>imm_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -48,7 +48,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>现在假设 <code>imm_</code> 为空，并且不考虑手动 Compaction，那么这里会执行 <code>versions_-&gt;PickCompaction</code> 去选择一个 Compaction，其实现位于 <a href="https://github.com/google/leveldb/blob/master/db/version_set.cc"><code>db/version_set.cc</code></a>：</p>
-<pre class="language-cpp"><code class="language-cpp">Compaction<span class="token operator">*</span> VersionSet<span class="token operator">::</span><span class="token function">PickCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Compaction<span class="token operator">*</span> <span class="token class-name">VersionSet</span><span class="token operator">::</span><span class="token function">PickCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   Compaction<span class="token operator">*</span> c<span class="token punctuation">;</span>
   <span class="token keyword">int</span> level<span class="token punctuation">;</span>
 
@@ -60,7 +60,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>这里会有两种需要 Compaction 的情况，一种是某一 Level 的分数超过了 1，一种是某一个文件的无效查询次数超过阈值。分数的计算位于版本更新之后的 <code>VersionSet::Finalize</code>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> VersionSet<span class="token operator">::</span><span class="token function">Finalize</span><span class="token punctuation">(</span>Version<span class="token operator">*</span> v<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">VersionSet</span><span class="token operator">::</span><span class="token function">Finalize</span><span class="token punctuation">(</span>Version<span class="token operator">*</span> v<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token comment">// Precomputed best level for next compaction</span>
   <span class="token keyword">int</span> best_level <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
   <span class="token keyword">double</span> best_score <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
@@ -128,7 +128,7 @@ f<span class="token operator">-></span>allowed_seeks <span class="token operator
 </li>
 </ol>
 <p>整体来看，1MB 的数据做 25 次查询和 Compaction 的时间差不多，1 次查询就相当于做 40KB 数据的 Compaction。LevelDB 将其设为更保守的 16KB，进而一个文件的查询次数阈值设定为 <code>FileSize / 16KB</code>。当一次查询中读取了多个文件，则将第一个文件的查询次数 +1，直到其超过阈值、触发 Compaction。继续看 <code>VersionSet::PickCompaction</code>：</p>
-<pre class="language-cpp"><code class="language-cpp">Compaction<span class="token operator">*</span> VersionSet<span class="token operator">::</span><span class="token function">PickCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Compaction<span class="token operator">*</span> <span class="token class-name">VersionSet</span><span class="token operator">::</span><span class="token function">PickCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span>size_compaction<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -259,7 +259,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> VersionSet<span class="token operator">::</span><span class="token function">SetupOtherInputs</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">VersionSet</span><span class="token operator">::</span><span class="token function">SetupOtherInputs</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">const</span> <span class="token keyword">int</span> level <span class="token operator">=</span> c<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   InternalKey smallest<span class="token punctuation">,</span> largest<span class="token punctuation">;</span>
 
@@ -268,7 +268,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
 <span class="token punctuation">}</span>
 </code></pre>
 <p>首先执行的是 <code>AddBoundaryInputs</code>。其英文注释中解释地非常详细：当 Compaction 的范围为 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mi>l</mi><mn>1</mn><mo separator="true">,</mo><mi>u</mi><mn>1</mn><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[l1, u1]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord mathnormal" style="margin-right:0.01968em;">l</span><span class="mord">1</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.16666666666666666em;"></span><span class="mord mathnormal">u</span><span class="mord">1</span><span class="mclose">]</span></span></span></span></eq> 时，该范围的数据将会被移动到 Level+1。如果当前 Level 存在文件 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mi>l</mi><mn>2</mn><mo separator="true">,</mo><mi>u</mi><mn>2</mn><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[l2, u2]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord mathnormal" style="margin-right:0.01968em;">l</span><span class="mord">2</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.16666666666666666em;"></span><span class="mord mathnormal">u</span><span class="mord">2</span><span class="mclose">]</span></span></span></span></eq>，并且 <code>user_key(u1) = user_key(l2)</code>，那么下一次查询 <code>user_key(u1)</code> 时会在 Level 层提前返回旧的数据！故需要将受影响的文件全部加到 Compaction 文件范围中。继续看 <code>VersionSet::SetupOtherInputs</code>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> VersionSet<span class="token operator">::</span><span class="token function">SetupOtherInputs</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">VersionSet</span><span class="token operator">::</span><span class="token function">SetupOtherInputs</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
   <span class="token function">GetRange</span><span class="token punctuation">(</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>smallest<span class="token punctuation">,</span> <span class="token operator">&amp;</span>largest<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
@@ -329,7 +329,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
 <p>首先在 Level+1 层将所有存在重叠的文件加入 Compaction 文件集合里，更新 Compaction 的区间 <code>[all_start, all_limit]</code>。再回过头来使用新区间获得 Level 层重叠的文件 <code>expanded0</code>，如果新的数据大小在阈值以内且不会改变 Level+1 层选择的文件，那么则将 Level 层的文件集合更新为 <code>expanded0</code>。最后将当前 Level 的 <code>compact_pointer_</code> 设为当前 Compaction 的最大键。至此扩大 Compaction 文件集合结束，<code>VersionSet::PickCompaction</code> 也返回了 Compaction 对象。</p>
 <h3 id="3.-执行-compaction"><a href="#3.-%E6%89%A7%E8%A1%8C-compaction">3. 执行 Compaction</a></h3>
 <p>回到 <code>DBImpl::BackgroundCompaction</code>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span>CompactionState <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">DBImpl</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">CompactionState</span></span> <span class="token punctuation">{</span>
   <span class="token comment">// Files produced by compaction</span>
   <span class="token keyword">struct</span> <span class="token class-name">Output</span> <span class="token punctuation">{</span>
     <span class="token keyword">uint64_t</span> number<span class="token punctuation">;</span>
@@ -363,7 +363,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
   <span class="token keyword">uint64_t</span> total_bytes<span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-<span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">BackgroundCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">BackgroundCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
 
   Status status<span class="token punctuation">;</span>
@@ -397,7 +397,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
 <span class="token punctuation">}</span>
 </code></pre>
 <p>不考虑手动模式和 TrivialMove，接下来会根据 <code>Compaction</code> 对象构建 <code>CompactionState</code>，并执行 <code>DBImpl::DoCompactionWork</code>：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> start_micros <span class="token operator">=</span> env_<span class="token operator">-></span><span class="token function">NowMicros</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">int64_t</span> imm_micros <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>  <span class="token comment">// Micros spent doing imm_ compactions</span>
 
@@ -420,7 +420,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>compact-&gt;smallest_snapshot</code> 是为了让当前的 Snapshot 的数据在 Compaction 过程中不丢失。<code>versions_-&gt;MakeInputIterator</code> 返回 Compaction 文件集合的合并迭代器：</p>
-<pre class="language-cpp"><code class="language-cpp">Iterator<span class="token operator">*</span> VersionSet<span class="token operator">::</span><span class="token function">MakeInputIterator</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Iterator<span class="token operator">*</span> <span class="token class-name">VersionSet</span><span class="token operator">::</span><span class="token function">MakeInputIterator</span><span class="token punctuation">(</span>Compaction<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   ReadOptions options<span class="token punctuation">;</span>
   options<span class="token punctuation">.</span>verify_checksums <span class="token operator">=</span> options_<span class="token operator">-></span>paranoid_checks<span class="token punctuation">;</span>
   options<span class="token punctuation">.</span>fill_cache <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
@@ -442,7 +442,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
       <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
         <span class="token comment">// Create concatenating iterator for the files from this level</span>
         list<span class="token punctuation">[</span>num<span class="token operator">++</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token function">NewTwoLevelIterator</span><span class="token punctuation">(</span>
-            <span class="token keyword">new</span> Version<span class="token operator">::</span><span class="token function">LevelFileNumIterator</span><span class="token punctuation">(</span>icmp_<span class="token punctuation">,</span> <span class="token operator">&amp;</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span>which<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token keyword">new</span> <span class="token class-name">Version</span><span class="token operator">::</span><span class="token function">LevelFileNumIterator</span><span class="token punctuation">(</span>icmp_<span class="token punctuation">,</span> <span class="token operator">&amp;</span>c<span class="token operator">-></span>inputs_<span class="token punctuation">[</span>which<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
             <span class="token operator">&amp;</span>GetFileIterator<span class="token punctuation">,</span> table_cache_<span class="token punctuation">,</span> options<span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token punctuation">}</span>
     <span class="token punctuation">}</span>
@@ -454,7 +454,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
 <span class="token punctuation">}</span>
 </code></pre>
 <p>继续看 <code>DBImpl::DoCompactionWork</code>：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
   <span class="token comment">// Release mutex while we're actually doing the compaction work</span>
   mutex_<span class="token punctuation">.</span><span class="token function">Unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -554,7 +554,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
 <p>一个巨大的循环。首先判断是否已经 <code>shutting_down_</code>，如果已经关闭了，则终止当前的 Compaction 过程；随后判断当前是否有 <code>imm_</code>，如果存在的话则也先执行 <code>CompactMemTable</code>；再来判断当前输出的文件是否可以结束了，如果是的话就执行 <code>FinishCompactionOutputFile</code> 完成当前文件。</p>
 <p>接下来是是否丢弃键值对的判定。如果某个 <code>user_key</code> 的非最新版本小于快照版本，则可以直接丢弃，因为读最新的版本就足够了；如果某个删除操作的版本小于快照版本，并且在更高层没有相同的 <code>user_key</code>，那么这个删除操作及其之前更早的插入操作可以同时丢弃了。</p>
 <p>对于没有丢弃的键值对，将其写入当前的 Table Builder。当输出的大小超过阈值，同样执行 <code>FinishCompactionOutputFile</code>：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">OpenCompactionOutputFile</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">OpenCompactionOutputFile</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>compact <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>builder <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">uint64_t</span> file_number<span class="token punctuation">;</span>
@@ -579,7 +579,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
   <span class="token keyword">return</span> s<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-Status DBImpl<span class="token operator">::</span><span class="token function">FinishCompactionOutputFile</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">,</span>
+Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">FinishCompactionOutputFile</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">,</span>
                                           Iterator<span class="token operator">*</span> input<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>compact <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>outfile <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -629,7 +629,7 @@ Status DBImpl<span class="token operator">::</span><span class="token function">
 <span class="token punctuation">}</span>
 </code></pre>
 <p>继续来看 <code>DBImpl::DoCompactionWork</code>：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">InstallCompactionResults</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">InstallCompactionResults</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">Log</span><span class="token punctuation">(</span>options_<span class="token punctuation">.</span>info_log<span class="token punctuation">,</span> <span class="token string">"Compacted %d@%d + %d@%d files => %lld bytes"</span><span class="token punctuation">,</span>
       compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">num_input_files</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">level</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
@@ -647,10 +647,10 @@ Status DBImpl<span class="token operator">::</span><span class="token function">
   <span class="token keyword">return</span> versions_<span class="token operator">-></span><span class="token function">LogAndApply</span><span class="token punctuation">(</span>compact<span class="token operator">-></span>compaction<span class="token operator">-></span><span class="token function">edit</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-Status DBImpl<span class="token operator">::</span><span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">DoCompactionWork</span><span class="token punctuation">(</span>CompactionState<span class="token operator">*</span> compact<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> shutting_down_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    status <span class="token operator">=</span> Status<span class="token operator">::</span><span class="token function">IOError</span><span class="token punctuation">(</span><span class="token string">"Deleting DB during compaction"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    status <span class="token operator">=</span> <span class="token class-name">Status</span><span class="token operator">::</span><span class="token function">IOError</span><span class="token punctuation">(</span><span class="token string">"Deleting DB during compaction"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>status<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> compact<span class="token operator">-></span>builder <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     status <span class="token operator">=</span> <span class="token function">FinishCompactionOutputFile</span><span class="token punctuation">(</span>compact<span class="token punctuation">,</span> input<span class="token punctuation">)</span><span class="token punctuation">;</span>

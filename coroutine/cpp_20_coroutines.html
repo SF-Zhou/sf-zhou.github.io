@@ -25,8 +25,8 @@
       <div class="markdown">
         <p>去年学习 <code>libco</code> 时写过一篇博文，<a href="/programming/cpp_magic_coroutine.html">讲述如何使用汇编实现协程切换</a>。今年官方的协程实现更加成熟，编译器原生支持加上无栈的设计都吸引着笔者，即使工作中没法用上也想一探究竟。最近 Mac 上可以直接通过 Homebrew 安装 gcc 10.1 了，借此机会探索一下 C++20 协程的玩法。</p>
 <p>首先建议阅读<a href="https://en.cppreference.com/w/cpp/language/coroutines">参考文献 1</a>，可以搭配本文中的几个例子同步学习。首先看这个例子🌰（<a href="https://godbolt.org/z/aGEo3j">在线执行</a>）：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;coroutine></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;coroutine></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 
 <span class="token keyword">struct</span> <span class="token class-name">Awaiter</span> <span class="token punctuation">{</span>
   <span class="token keyword">bool</span> <span class="token function">await_ready</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -137,7 +137,7 @@ main() exit
 </ol>
 <p>简明来看，一个协程函数会被编译器执行类似下方的展开：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 协程函数</span>
-<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> R<span class="token punctuation">,</span> <span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">R</span><span class="token punctuation">,</span> <span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
 R <span class="token function">Func</span><span class="token punctuation">(</span>Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> args<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">auto</span> ret <span class="token operator">=</span> <span class="token keyword">co_await</span> <span class="token function">Awaiter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">co_yield</span> ret<span class="token punctuation">;</span>
@@ -145,9 +145,9 @@ R <span class="token function">Func</span><span class="token punctuation">(</spa
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 编译器展开</span>
-<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> R<span class="token punctuation">,</span> <span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">R</span><span class="token punctuation">,</span> <span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
 R <span class="token function">Func</span><span class="token punctuation">(</span>Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> args<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  <span class="token keyword">using</span> promise_t <span class="token operator">=</span> <span class="token keyword">typename</span> coroutine_traits<span class="token operator">&lt;</span>R<span class="token punctuation">,</span> Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token operator">></span><span class="token operator">::</span>promise_type<span class="token punctuation">;</span>
+  <span class="token keyword">using</span> promise_t <span class="token operator">=</span> <span class="token keyword">typename</span> <span class="token class-name">coroutine_traits</span><span class="token operator">&lt;</span>R<span class="token punctuation">,</span> Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token operator">></span><span class="token operator">::</span>promise_type<span class="token punctuation">;</span>
 
   promise_t promise<span class="token punctuation">;</span>  <span class="token comment">// 实际上分配在堆上而非栈上，这里为了方便说明简化了</span>
   <span class="token keyword">auto</span> __return__ <span class="token operator">=</span> promise<span class="token punctuation">.</span><span class="token function">get_return_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -193,9 +193,9 @@ final_suspend<span class="token operator">:</span>
 <span class="token punctuation">}</span>
 </code></pre>
 <p>第一个样例中 <code>await_ready()</code> 始终返回 <code>true</code>，协程并不会挂起而是继续同步执行直到结束。看另一个例子🌰（<a href="https://godbolt.org/z/soG5P1">在线执行</a>）：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;coroutine></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;coroutine></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
 
 std<span class="token operator">::</span>coroutine_handle<span class="token operator">&lt;</span><span class="token operator">></span> handle<span class="token punctuation">;</span>
 
@@ -278,9 +278,9 @@ main() exit
 </code></pre>
 <p>这里 <code>awaiter.await_ready()</code> 返回 <code>false</code>，协程会被挂起。之后 <code>awaiter.await_suspend(handle)</code> 被执行，<code>handle</code> 也就是上文提到的协程句柄。该函数需要完成对句柄的调度，以便之后由执行器去恢复该协程或将其销毁。若 <code>awaiter.await_suspend(handle)</code> 的返回类型为 <code>void</code>，<code>co_await</code> 会立即将执行权归还给调用者。直到 <code>handle.resume()</code> 执行时，协程才会恢复执行，并且会调用 <code>awaiter.await_resume()</code> 并将其返回值作为 <code>co_await awaiter</code> 的返回值。上面的例子中将协程句柄赋值给了全局变量 <code>handle</code>，而后协程挂起，回到 <code>main</code> 函数，睡眠 1s 后调用 <code>handle.resume()</code> 恢复。</p>
 <p><code>awaiter.await_suspend(handle)</code> 执行前协程已完成挂起，此时协程状态中已经保存了恢复所需要的各种状态，所以也可以将协程句柄丢到另一个线程中恢复执行，再看一个例子🌰（<a href="https://godbolt.org/z/MMnT6E">在线执行</a>）：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;coroutine></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;coroutine></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
 
 std<span class="token operator">::</span>jthread thread<span class="token punctuation">;</span>
 

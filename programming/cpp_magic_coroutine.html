@@ -108,7 +108,7 @@ jmp _Z4funcv
 |high addr|
 </code></pre>
 <p>了解了栈帧之后，就可以尝试使用汇编实现一些魔法了，比如：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 
 <span class="token keyword">extern</span> <span class="token string">"C"</span> <span class="token keyword">void</span> <span class="token function">run</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span> <span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token string">"run"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token raw-string string">R"(
@@ -135,9 +135,9 @@ run:
 <span class="token punctuation">}</span>
 </code></pre>
 <p>在出让执行权时需要保存当前执行的状态，包括堆栈和寄存器等；而当再次获得执行权时，恢复先前保存的状态即可。实际上堆栈信息也保存在寄存器中（<code>RBP</code> 和 <code>RSP</code>），所以关注寄存器就够了，这一点可以参考 <a href="https://github.com/hnes/libaco#mathematical-induction">libaco 中关于寄存器状态的说明</a>。使用汇编实现寄存器的保存和恢复后，就可以实现上述函数了：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
 
 <span class="token keyword">extern</span> <span class="token string">"C"</span> <span class="token keyword">void</span> <span class="token function">swap_context</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">,</span> <span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span> <span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token string">"swap_context"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token raw-string string">R"(
@@ -215,12 +215,12 @@ swap_context:
 <h3 id="3.-事件循环-event-loop"><a href="#3.-%E4%BA%8B%E4%BB%B6%E5%BE%AA%E7%8E%AF-event-loop">3. 事件循环 Event Loop</a></h3>
 <p>正常工作的协程是不会无缘无故出让自己的执行权的，只有在等待 IO、无法继续执行下去时才会出让，例如 <code>usleep(1000)</code>。这时候闲着也是闲着，把执行权让出去、等 IO 完成再继续执行，系统才能获得最大的执行效率。由于协程无法做到主动抢占式执行，就需要有一个事件循环在协程等待的事件完成时唤醒协程，恰好主协程就特别适合做这件事情。</p>
 <p>以 <code>usleep</code> 为例，当子协程执行 <code>usleep</code> 时，可以将其加入定时器中，并执行 <code>yield</code> 出让执行权；事件循环则不断地重复，检查定时器中有没有等待结束的协程，如有则出让自己的执行权将其唤醒、继续子协程的任务，如此循环往复。</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;time.h></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;unistd.h></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;queue></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;time.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;unistd.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;queue></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
 
 <span class="token keyword">extern</span> <span class="token string">"C"</span> <span class="token keyword">void</span> <span class="token function">swap_context</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">,</span> <span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span> <span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token string">"swap_context"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token keyword">asm</span><span class="token punctuation">(</span><span class="token raw-string string">R"(

@@ -35,8 +35,8 @@
 </blockquote>
 <p>关于 <code>internal</code> 和 <code>external</code>，这里举个例子🌰，下面的代码一共有三个文件：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// a.h</span>
-<span class="token macro property">#<span class="token directive keyword">pragma</span> once</span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cstdio></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">pragma</span> <span class="token expression">once</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstdio></span></span>
 
 <span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
  <span class="token keyword">public</span><span class="token operator">:</span>
@@ -47,13 +47,13 @@
 
 
 <span class="token comment">// a.cpp</span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"a.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"a.h"</span></span>
 A <span class="token function">y</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
 
 <span class="token comment">// main.cpp</span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"a.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"a.h"</span></span>
 
 <span class="token keyword">extern</span> A y<span class="token punctuation">;</span>
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">printf</span><span class="token punctuation">(</span><span class="token string">"y at %p\n"</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>y<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
@@ -76,7 +76,7 @@ y at 0x10a73d012
 <p><em><strong>static</strong></em> storage duration. The storage for the object is allocated when the program begins and deallocated when the program ends. Only one instance of the object exists. All objects declared at namespace scope (including global namespace) have this storage duration, plus those declared with <code>static</code> or <code>extern</code>. See <a href="https://en.cppreference.com/w/cpp/language/initialization#Non-local_variables">Non-local variables</a> and <a href="https://en.cppreference.com/w/cpp/language/storage_duration#Static_local_variables">Static local variables</a> for details on initialization of objects with this storage duration.</p>
 </blockquote>
 <p>静态变量会在编译期确定空间大小，对于 <a href="https://en.cppreference.com/w/cpp/named_req/PODType">POD</a> 还会确定其值，并将其放入 .bss 段或者 .data 段。举个例子：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 
 <span class="token keyword">const</span> <span class="token keyword">int</span> N <span class="token operator">=</span> <span class="token number">1</span> <span class="token operator">&lt;&lt;</span> <span class="token number">20</span><span class="token punctuation">;</span>
 <span class="token keyword">int</span> a<span class="token punctuation">[</span>N<span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
@@ -107,7 +107,7 @@ y at 0x10a73d012
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-<span class="token keyword">class</span> <span class="token class-name">A</span><span class="token operator">:</span> <span class="token keyword">public</span> Singleton<span class="token operator">&lt;</span>A<span class="token operator">></span> <span class="token punctuation">{</span>
+<span class="token keyword">class</span> <span class="token class-name">A</span><span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">Singleton</span><span class="token operator">&lt;</span><span class="token class-name">A</span><span class="token operator">></span></span> <span class="token punctuation">{</span>
   <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 

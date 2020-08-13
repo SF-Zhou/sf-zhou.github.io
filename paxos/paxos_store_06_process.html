@@ -76,7 +76,7 @@
   <span class="token comment">// 同步等待 Cmd 执行完成</span>
   <span class="token keyword">int</span> iRet <span class="token operator">=</span> <span class="token function">SyncWaitCmd</span><span class="token punctuation">(</span>poWB<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">TIMERMS_STOP</span><span class="token punctuation">(</span>iUseTimeMS<span class="token punctuation">)</span><span class="token punctuation">;</span>
-  OSS<span class="token operator">::</span><span class="token function">ReportRunPaxosTimeMS</span><span class="token punctuation">(</span>iRet<span class="token punctuation">,</span> iUseTimeMS<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportRunPaxosTimeMS</span><span class="token punctuation">(</span>iRet<span class="token punctuation">,</span> iUseTimeMS<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">return</span> iRet<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
@@ -193,13 +193,13 @@
       poMachine<span class="token operator">-></span><span class="token function">SetCheckedEmpty</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token function">BroadcastToRemote</span><span class="token punctuation">(</span>ptInfo<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">,</span> poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
       m_poEntryMng<span class="token operator">-></span><span class="token function">AddTimeout</span><span class="token punctuation">(</span>ptInfo<span class="token punctuation">,</span> m_poConf<span class="token operator">-></span><span class="token function">GetCmdTimeoutMS</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-      OSS<span class="token operator">::</span><span class="token function">ReportCheckEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportCheckEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token keyword">return</span> eRetCodePtrReuse<span class="token punctuation">;</span>
     <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
-      OSS<span class="token operator">::</span><span class="token function">ReportPaxosForRead</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportPaxosForRead</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
   <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
-    OSS<span class="token operator">::</span><span class="token function">ReportPaxosForWrite</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportPaxosForWrite</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span>ptEntityInfo<span class="token operator">-></span>poLeasePolicy<span class="token operator">-></span><span class="token function">GetLeaseTimeoutMS</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -209,7 +209,7 @@
     ptEntityInfo<span class="token operator">-></span>poClientCmd <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
     m_poEntryMng<span class="token operator">-></span><span class="token function">AddTimeout</span><span class="token punctuation">(</span>ptInfo<span class="token punctuation">,</span> <span class="token number">10000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token function">InvalidClientCmd</span><span class="token punctuation">(</span>poCmd<span class="token punctuation">,</span> eRetCodeLeaseReject<span class="token punctuation">)</span><span class="token punctuation">;</span>
-    OSS<span class="token operator">::</span><span class="token function">ReportLeaseReject</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportLeaseReject</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token keyword">return</span> eRetCodePtrReuse<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
@@ -388,7 +388,7 @@
     <span class="token comment">// 此时已经 Chosen，不需要再 CatchUp 该 Entry 了</span>
     m_poEntryMng<span class="token operator">-></span><span class="token function">RemoveCatchUpFlag</span><span class="token punctuation">(</span>ptInfo<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
-    OSS<span class="token operator">::</span><span class="token function">ReportChosenProposalNum</span><span class="token punctuation">(</span>tSrcRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportChosenProposalNum</span><span class="token punctuation">(</span>tSrcRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
     <span class="token keyword">if</span> <span class="token punctuation">(</span>tSrcRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">></span> m_iAcceptorNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
       <span class="token function">CertainLogInfo</span><span class="token punctuation">(</span><span class="token string">"Not PreAuth record: %s"</span><span class="token punctuation">,</span> <span class="token function">EntryRecordToString</span><span class="token punctuation">(</span>tSrcRecord<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -433,14 +433,14 @@
       <span class="token function">AssertEqual</span><span class="token punctuation">(</span>poClientCmd<span class="token operator">-></span><span class="token function">GetEntityID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> iEntityID<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
       <span class="token keyword">if</span> <span class="token punctuation">(</span>poClientCmd<span class="token operator">-></span><span class="token function">GetWriteBatchID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> tSrcRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-<span class="token macro property">#<span class="token directive keyword">if</span> CERTAIN_DEBUG</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">if</span> <span class="token expression">CERTAIN_DEBUG</span></span>
         <span class="token keyword">if</span> <span class="token punctuation">(</span>tSrcRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue <span class="token operator">!=</span> ptEntityInfo<span class="token operator">-></span>poClientCmd<span class="token operator">-></span><span class="token function">GetWriteBatch</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
           <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"BUG record: %s cli_cmd: %s"</span><span class="token punctuation">,</span> <span class="token function">EntryRecordToString</span><span class="token punctuation">(</span>tSrcRecord<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
                           ptEntityInfo<span class="token operator">-></span>poClientCmd<span class="token operator">-></span><span class="token function">GetTextCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
           <span class="token function">AssertEqual</span><span class="token punctuation">(</span><span class="token function">CRC32</span><span class="token punctuation">(</span>tSrcRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">)</span><span class="token punctuation">,</span>
                       <span class="token function">CRC32</span><span class="token punctuation">(</span>ptEntityInfo<span class="token operator">-></span>poClientCmd<span class="token operator">-></span><span class="token function">GetWriteBatch</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
         <span class="token punctuation">}</span>
-<span class="token macro property">#<span class="token directive keyword">endif</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span></span>
         <span class="token comment">// 一致则 OK</span>
         <span class="token function">InvalidClientCmd</span><span class="token punctuation">(</span>ptEntityInfo<span class="token punctuation">,</span> eRetCodeOK<span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
@@ -554,11 +554,11 @@
     <span class="token comment">// 检查能否清理，失败则上报，并返回错误</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>m_poEntityMng<span class="token operator">-></span><span class="token function">CheckAndEliminate</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
       <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">EvictEntity</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-        OSS<span class="token operator">::</span><span class="token function">ReportEvictFail</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-        OSS<span class="token operator">::</span><span class="token function">ReportEntityLimited</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportEvictFail</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportEntityLimited</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
         <span class="token keyword">return</span> eRetCodeEntityLimited<span class="token punctuation">;</span>
       <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
-        OSS<span class="token operator">::</span><span class="token function">ReportEvictSucc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportEvictSucc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token punctuation">}</span>
     <span class="token punctuation">}</span>
 
@@ -710,7 +710,7 @@
     po<span class="token operator">-></span><span class="token function">SetUUID</span><span class="token punctuation">(</span>poPaxosCmd<span class="token operator">-></span><span class="token function">GetUUID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     po<span class="token operator">-></span><span class="token function">SetMaxChosenEntry</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">(</span>ptEntityInfo<span class="token operator">-></span>iMaxChosenEntry<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
-    OSS<span class="token operator">::</span><span class="token function">ReportFastFail</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token class-name">OSS</span><span class="token operator">::</span><span class="token function">ReportFastFail</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     m_poIOWorkerRouter<span class="token operator">-></span><span class="token function">GoAndDeleteIfFailed</span><span class="token punctuation">(</span>po<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
     <span class="token function">CheckForCatchUp</span><span class="token punctuation">(</span>ptEntityInfo<span class="token punctuation">,</span> iAcceptorID<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>

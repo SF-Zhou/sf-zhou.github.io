@@ -24,9 +24,9 @@
       </div>
       <div class="markdown">
         <p>时运不济，命途多舛，最近 Bug 有点多。大概是这样的：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cstring></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstring></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
 
 <span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
  <span class="token keyword">public</span><span class="token operator">:</span>
@@ -57,8 +57,8 @@
 <p>在循环 <code>for (auto &amp;path : paths)</code>  中加上常量修饰符 <code>const</code> 可以修复该 Bug。有兴趣可以再看看代码，想想是哪里的问题，下面将公布答案。</p>
 <h3 id="bug-分析"><a href="#bug-%E5%88%86%E6%9E%90">Bug 分析</a></h3>
 <p><code>path.length()</code> 本身是 <code>const</code> 的方法，<code>path</code> 是否是 <code>const</code> 并不受影响，所以只剩下 <code>&amp;path[0]</code> 比较可疑了。查看对应的 <code>std::string</code> 源码，会发现 <code>operator[]</code> 比 <code>operator[] const</code> 多调用一个 <code>_M_leak</code> 方法，最后会执行 <code>_M_mutate</code>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> _CharT<span class="token punctuation">,</span> <span class="token keyword">typename</span> _Traits<span class="token punctuation">,</span> <span class="token keyword">typename</span> _Alloc<span class="token operator">></span>
-<span class="token keyword">void</span> basic_string<span class="token operator">&lt;</span>_CharT<span class="token punctuation">,</span> _Traits<span class="token punctuation">,</span> _Alloc<span class="token operator">></span><span class="token operator">::</span><span class="token function">_M_mutate</span><span class="token punctuation">(</span>size_type __pos<span class="token punctuation">,</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">_CharT</span><span class="token punctuation">,</span> <span class="token keyword">typename</span> <span class="token class-name">_Traits</span><span class="token punctuation">,</span> <span class="token keyword">typename</span> <span class="token class-name">_Alloc</span><span class="token operator">></span>
+<span class="token keyword">void</span> <span class="token class-name">basic_string</span><span class="token operator">&lt;</span>_CharT<span class="token punctuation">,</span> _Traits<span class="token punctuation">,</span> _Alloc<span class="token operator">></span><span class="token operator">::</span><span class="token function">_M_mutate</span><span class="token punctuation">(</span>size_type __pos<span class="token punctuation">,</span>
                                                       size_type __len1<span class="token punctuation">,</span>
                                                       size_type __len2<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">const</span> size_type __old_size <span class="token operator">=</span> <span class="token keyword">this</span><span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -87,9 +87,9 @@
 </code></pre>
 <p>嗯会有修改操作。查询得知 gcc 4.8 的 <code>std::string</code> 是 copy-on-write 的，在修改时才会去执行复制，多线程环境下就挂了。按照 C++11 的规范已经不允许这种 COW 了，gcc 5 以上的版本就不会存在这样的问题，但 gcc 4.8 没有完全按照标准规范实现。</p>
 <p>验证 COW 也很简单，<a href="https://godbolt.org/z/iDxXiu">点击在线执行</a>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   std<span class="token operator">::</span>string a <span class="token operator">=</span> <span class="token string">"Hello World"</span><span class="token punctuation">;</span>
@@ -101,13 +101,13 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>复现 COW 导致的 core dump：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;chrono></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;chrono></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   std<span class="token operator">::</span>string a <span class="token operator">=</span> <span class="token string">"hello world"</span><span class="token punctuation">;</span>

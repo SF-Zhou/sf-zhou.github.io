@@ -65,8 +65,8 @@
 <p>Linux 内核中提供了 RCU 方法，笔者目前对此还没有太多的了解。本文主要介绍 Hazard Pointer，一种无锁编程中广泛使用的安全内存回收方法，适用于需要高性能读、读多写少的场景。其论文可参考<a href="https://cs.nyu.edu/courses/fall16/CSCI-GA.3033-017/readings/hazard_pointers.pdf">文献 1</a>，标准草案可参考<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0566r5.pdf">文献 2</a>，代码实现可参考 Folly 中的 <code>HazPtr</code>。</p>
 <h3 id="2.-hazard-pointer"><a href="#2.-hazard-pointer">2. Hazard Pointer</a></h3>
 <p>首先回忆下<a href="/programming/atomic_shared_ptr.html#1.-shared-pointer">引用计数的做法</a>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
 
 <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
 <span class="token keyword">class</span> <span class="token class-name">ReferenceCount</span> <span class="token punctuation">{</span>
@@ -97,9 +97,9 @@
 <li>当所有的读取操作都完成时引用计数归 0，此时内存可以安全回收。</li>
 </ol>
 <p>总结起来，当对象正在使用时，就不能回收内存。每一个“正在使用”都需要对应一个标记，引用计数使用的标记是计数数值一，对应的原子操作性能问题就成为它无法摆脱的原罪。而 Hazard Pointer 使用的标记更为轻巧，一般通过在链表中标记该对象的指针实现，回收时如果发现链表中有对应的指针就不进行内存回收，将标记的复杂度转移到回收部分，也就更适合读多写少的场景。Hazard Pointer 的简单实现（<a href="https://wandbox.org/permlink/qbEzCwR6J31yH5jm">在线执行</a>）：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;unordered_set></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;unordered_set></span></span>
 
 <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
 <span class="token keyword">struct</span> <span class="token class-name">HazardPointer</span> <span class="token punctuation">{</span>
@@ -131,7 +131,7 @@
   <span class="token punctuation">}</span>
 
   <span class="token keyword">static</span> Holder <span class="token function">Acquire</span><span class="token punctuation">(</span><span class="token keyword">const</span> std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span>T <span class="token operator">*</span><span class="token operator">></span> <span class="token operator">&amp;</span>target<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    <span class="token keyword">auto</span> pointer <span class="token operator">=</span> HazardPointer<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token operator">::</span><span class="token function">Alloc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> pointer <span class="token operator">=</span> <span class="token class-name">HazardPointer</span><span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token operator">::</span><span class="token function">Alloc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
     <span class="token keyword">do</span> <span class="token punctuation">{</span>
       pointer<span class="token operator">-></span>target_ <span class="token operator">=</span> target<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -232,14 +232,14 @@ std<span class="token operator">::</span>atomic<span class="token operator">&lt;
 <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
 std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">uint32_t</span><span class="token operator">></span> HazardPointer<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token operator">::</span>retire_count_<span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
 <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
-std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">typename</span> HazardPointer<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token operator">::</span>List <span class="token operator">*</span><span class="token operator">></span> HazardPointer<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token operator">::</span>retire_list_<span class="token punctuation">{</span>
+std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">HazardPointer</span><span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token operator">::</span>List <span class="token operator">*</span><span class="token operator">></span> HazardPointer<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token operator">::</span>retire_list_<span class="token punctuation">{</span>
     <span class="token keyword">nullptr</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
 
 <span class="token comment">// example</span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
 
 std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> g_count<span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
 <span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
@@ -265,10 +265,10 @@ std<span class="token operator">::</span>atomic<span class="token operator">&lt;
       <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> M<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
         <span class="token keyword">if</span> <span class="token punctuation">(</span>i <span class="token operator">%</span> W <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
           <span class="token comment">// write less</span>
-          HazardPointer<span class="token operator">&lt;</span>A<span class="token operator">></span><span class="token operator">::</span><span class="token function">Update</span><span class="token punctuation">(</span>target<span class="token punctuation">,</span> <span class="token keyword">new</span> <span class="token function">A</span><span class="token punctuation">(</span>t <span class="token operator">*</span> M <span class="token operator">+</span> i<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token class-name">HazardPointer</span><span class="token operator">&lt;</span>A<span class="token operator">></span><span class="token operator">::</span><span class="token function">Update</span><span class="token punctuation">(</span>target<span class="token punctuation">,</span> <span class="token keyword">new</span> <span class="token function">A</span><span class="token punctuation">(</span>t <span class="token operator">*</span> M <span class="token operator">+</span> i<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
         <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
           <span class="token comment">// read more</span>
-          <span class="token keyword">auto</span> holder <span class="token operator">=</span> HazardPointer<span class="token operator">&lt;</span>A<span class="token operator">></span><span class="token operator">::</span><span class="token function">Acquire</span><span class="token punctuation">(</span>target<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">auto</span> holder <span class="token operator">=</span> <span class="token class-name">HazardPointer</span><span class="token operator">&lt;</span>A<span class="token operator">></span><span class="token operator">::</span><span class="token function">Acquire</span><span class="token punctuation">(</span>target<span class="token punctuation">)</span><span class="token punctuation">;</span>
           sum<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span>holder<span class="token operator">-></span><span class="token function">Value</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
         <span class="token punctuation">}</span>
       <span class="token punctuation">}</span>
@@ -280,7 +280,7 @@ std<span class="token operator">::</span>atomic<span class="token operator">&lt;
     thread<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
-  HazardPointer<span class="token operator">&lt;</span>A<span class="token operator">></span><span class="token operator">::</span><span class="token function">Reclaim</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token class-name">HazardPointer</span><span class="token operator">&lt;</span>A<span class="token operator">></span><span class="token operator">::</span><span class="token function">Reclaim</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">printf</span><span class="token punctuation">(</span><span class="token string">"Remain: %d\n"</span><span class="token punctuation">,</span> g_count<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>

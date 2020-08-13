@@ -68,7 +68,7 @@ mov <span class="token register variable">r2</span>, <span class="token operator
 <li><code>std::memory_order</code> 是通过限制本线程内的代码执行和生效顺序，来解决多线程下的内存一致性/可见性问题。</li>
 </ol>
 <p>高级内存可见性语义与硬件内存屏障语义并不是一一对应的。以 x86 系列 CPU 为例，由于其本身已经具备了强内存一致性语义，C++ 提供的大部分内存序在编译后都会被省略掉，仅会阻止编译器的重排。x86 只会在 Store-Load 情况下产生可见性乱序，举个例子（修改自参考文献 7）：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;bits/stdc++.h></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;bits/stdc++.h></span></span>
 
 <span class="token keyword">void</span> <span class="token function">threadfun</span><span class="token punctuation">(</span>std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> <span class="token operator">&amp;</span>cnt0<span class="token punctuation">,</span> std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> <span class="token operator">&amp;</span>cnt1<span class="token punctuation">,</span>
                std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> <span class="token operator">&amp;</span>x<span class="token punctuation">,</span> std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> <span class="token operator">&amp;</span>y<span class="token punctuation">,</span> std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> <span class="token operator">&amp;</span>r<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -128,13 +128,13 @@ mov <span class="token register variable">r2</span>, <span class="token operator
 </ol>
 <h3 id="3.-应用举例"><a href="#3.-%E5%BA%94%E7%94%A8%E4%B8%BE%E4%BE%8B">3. 应用举例</a></h3>
 <p>使用原子量实现一个基于 Ring-Buffer 的 MPSC 无锁队列：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
 
-<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> T<span class="token operator">></span>
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
 <span class="token keyword">class</span> <span class="token class-name">LockFreeQueue</span> <span class="token punctuation">{</span>
  <span class="token keyword">public</span><span class="token operator">:</span>
   <span class="token keyword">enum</span> <span class="token punctuation">{</span>
@@ -238,10 +238,10 @@ mov <span class="token register variable">r2</span>, <span class="token operator
 <p>在 x86 平台上，原子量的 <code>load</code> 操作使用非 <code>std::memory_order_relaxed</code> 的编译结果是一致的；<code>fetch_add</code> 和 CAS 自带内存屏障也没有优化的必要和可能，这样看使用默认参数就已经足够好了。</p>
 <h3 id="4.-非对称内存屏障"><a href="#4.-%E9%9D%9E%E5%AF%B9%E7%A7%B0%E5%86%85%E5%AD%98%E5%B1%8F%E9%9A%9C">4. 非对称内存屏障</a></h3>
 <p>某些并发算法中会存在简单路径和复杂路径，并且需要内存屏障完成同步。如果全部使用 <code>std::memory_order_seq_cst</code>，会导致简单路径时间成本过高。这时候就可以用上非对称内存屏障，在简单路径中快速执行，将同步的复杂度转移到复杂路径中。以 x86 平台为例，简单路径中可只保证编译器指令不重排，复杂路径中可使用 <code>mprotect</code> 强制所有线程内存一致，可参考 <a href="https://github.com/facebook/folly/blob/master/folly/synchronization/AsymmetricMemoryBarrier.cpp"><code>folly</code> 的实现</a>。这里举个例子（<a href="https://wandbox.org/permlink/rjXzHCCEDl1fPblZ">在线执行</a>）：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;bits/stdc++.h></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;sys/mman.h></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;bits/stdc++.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;sys/mman.h></span></span>
 
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
 
 <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token operator">*</span><span class="token function">CreatePage</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">auto</span> ptr <span class="token operator">=</span> <span class="token function">mmap</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">,</span> PROT_READ<span class="token punctuation">,</span> MAP_PRIVATE <span class="token operator">|</span> MAP_ANONYMOUS<span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>

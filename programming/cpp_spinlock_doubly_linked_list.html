@@ -36,7 +36,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>C++ 中一般使用 <a href="https://en.cppreference.com/w/cpp/atomic/atomic_flag"><code>std::atomic_flag</code></a> 来完成 <code>bool</code> 型的 CAS 操作。下面实现一个自旋锁：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
 
 <span class="token keyword">class</span> <span class="token class-name">SpinMutex</span> <span class="token punctuation">{</span>
  <span class="token keyword">public</span><span class="token operator">:</span>
@@ -53,10 +53,10 @@
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
 <p>注意 <code>ATOMIC_FLAG_INIT</code>，按照<a href="http://en.cppreference.com/w/cpp/atomic/ATOMIC_FLAG_INIT">文档要求</a>只能使用 <code>operator=</code> 来完成 <code>std::atomic_flag</code> 的初始化。由于提供了 <code>lock</code> 和 <code>unlock</code>，可以配合 <code>std::lock_guard</code> 使用。下面使用自旋锁实现双向链表：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;mutex></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;mutex></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
 
 <span class="token keyword">class</span> <span class="token class-name">SpinMutex</span> <span class="token punctuation">{</span> <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
 

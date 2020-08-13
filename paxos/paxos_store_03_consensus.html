@@ -227,7 +227,7 @@
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
 <p><code>m_atRecord</code> 中存储了自身的状态和其他节点的视图状态，可以通过 <code>iAcceptorID</code> 访问。整个 <code>clsEntryStateMachine</code> 构成一个状态机，接收到消息时通过执行 <code>Update</code> （对应算法描述中的 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="bold">U</mi><mi mathvariant="bold">p</mi><mi mathvariant="bold">d</mi><mi mathvariant="bold">a</mi><mi mathvariant="bold">t</mi><mi mathvariant="bold">e</mi><mi mathvariant="bold">S</mi><mi mathvariant="bold">t</mi><mi mathvariant="bold">a</mi><mi mathvariant="bold">t</mi><mi mathvariant="bold">e</mi><mi mathvariant="bold">s</mi></mrow><annotation encoding="application/x-tex">\mathbf {UpdateStates}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8888799999999999em;vertical-align:-0.19444em;"></span><span class="mord"><span class="mord mathbf">U</span><span class="mord mathbf">p</span><span class="mord mathbf">d</span><span class="mord mathbf">a</span><span class="mord mathbf">t</span><span class="mord mathbf">e</span><span class="mord mathbf">S</span><span class="mord mathbf">t</span><span class="mord mathbf">a</span><span class="mord mathbf">t</span><span class="mord mathbf">e</span><span class="mord mathbf">s</span></span></span></span></span></eq>）更新自身的实际状态和其他节点的视图状态，进而推进 Paxos 的流程。当前 Paxos 执行的阶段使用 <code>m_iEntryState</code> 表示，初始化阶段是 <code>kEntryStateNormal</code>，最终 Chosen 的阶段是 <code>kEntryStateChosen</code>。下面是状态机代码的实现：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"EntryState.h"</span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"EntryState.h"</span></span>
 
 <span class="token keyword">namespace</span> Certain <span class="token punctuation">{</span>
 
@@ -424,7 +424,7 @@
       <span class="token keyword">continue</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
-<span class="token macro property">#<span class="token directive keyword">if</span> CERTAIN_DEBUG</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">if</span> <span class="token expression">CERTAIN_DEBUG</span></span>
     <span class="token comment">// For check only.</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
       <span class="token keyword">if</span> <span class="token punctuation">(</span>tRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue <span class="token operator">!=</span> tRealRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue <span class="token operator">||</span>
@@ -438,7 +438,7 @@
         <span class="token function">Assert</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token punctuation">}</span>
     <span class="token punctuation">}</span>
-<span class="token macro property">#<span class="token directive keyword">endif</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span></span>
     tRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span> tRealRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
     <span class="token keyword">break</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
@@ -470,9 +470,9 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
 <span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">Update</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iEntityID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntry<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span>
                                  <span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">,</span>
                                  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tRecordMayWithValueIDOnly<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-<span class="token macro property">#<span class="token directive keyword">if</span> CERTAIN_DEBUG</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">if</span> <span class="token expression">CERTAIN_DEBUG</span></span>
   <span class="token function">RETURN_RANDOM_ERROR_WHEN_IN_DEBUG_MODE</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-<span class="token macro property">#<span class="token directive keyword">endif</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span></span>
 
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
 
@@ -658,9 +658,9 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
 <span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">AcceptOnMajorityPromise</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span>
                                                   <span class="token keyword">const</span> PaxosValue_t <span class="token operator">&amp;</span>tValue<span class="token punctuation">,</span>
                                                   <span class="token keyword">bool</span> <span class="token operator">&amp;</span>bAcceptPreparedValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-<span class="token macro property">#<span class="token directive keyword">if</span> CERTAIN_DEBUG</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">if</span> <span class="token expression">CERTAIN_DEBUG</span></span>
   <span class="token function">RETURN_RANDOM_ERROR_WHEN_IN_DEBUG_MODE</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-<span class="token macro property">#<span class="token directive keyword">endif</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span></span>
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
 
   bAcceptPreparedValue <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>

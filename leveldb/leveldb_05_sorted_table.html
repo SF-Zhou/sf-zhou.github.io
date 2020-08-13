@@ -26,7 +26,7 @@
         <p>本系列的<a href="/leveldb/leveldb_04_write_batch_and_log.html">上一篇</a>介绍了内存数据库，并且提到了内存数据库的大小限制问题。当内存数据块占用的内存达到阈值时（LevelDB 默认 4MB），会将当前的内存数据库 <code>mem_</code> 转为不可修改的 <code>imm_</code>，并且为 <code>mem_</code> 赋值一个新的内存数据库。这使得内存数据库的大小始终保持在阈值以下，同时保持着超高的读写性能。而不可修改的 <code>imm_</code> 会经历 Compaction 过程，转为 Sorted Table 存储到磁盘中。本篇将详细阐述该过程。</p>
 <h3 id="1.-compact-内存数据库"><a href="#1.-compact-%E5%86%85%E5%AD%98%E6%95%B0%E6%8D%AE%E5%BA%93">1. Compact 内存数据库</a></h3>
 <p>在 <code>DBImpl::Write</code> 写入内存数据库前，会先调用 <code>DBImpl::MakeRoomForWrite</code> 申请空间：</p>
-<pre class="language-cpp"><code class="language-cpp">Status DBImpl<span class="token operator">::</span><span class="token function">MakeRoomForWrite</span><span class="token punctuation">(</span><span class="token keyword">bool</span> force<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">MakeRoomForWrite</span><span class="token punctuation">(</span><span class="token keyword">bool</span> force<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>writers_<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">bool</span> allow_delay <span class="token operator">=</span> <span class="token operator">!</span>force<span class="token punctuation">;</span>
@@ -99,7 +99,7 @@
 </ol>
 <p>除了第 1 步和第 3 步，其他步骤完成后均重新进入循环，最终从 1 或 3 中退出。第 2 步中当 L0 文件数目达到 <code>kL0_SlowdownWritesTrigger</code> 限制时，对每个写入请求等待 1 毫秒，也就减缓了写入的速度；第 5 步中当 L0 文件数目达到 <code>kL0_StopWritesTrigger</code> 限制时，就强制等待当前的 Compact 完成，直到 L0 文件数目小于限制时，下次循环才能到达第 6 步。</p>
 <p>继续看 <code>MaybeScheduleCompaction</code> 及其后续过程：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">MaybeScheduleCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">MaybeScheduleCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>background_compaction_scheduled_<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token comment">// Already scheduled</span>
@@ -116,11 +116,11 @@
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">BGWork</span><span class="token punctuation">(</span><span class="token keyword">void</span><span class="token operator">*</span> db<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">BGWork</span><span class="token punctuation">(</span><span class="token keyword">void</span><span class="token operator">*</span> db<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">reinterpret_cast</span><span class="token operator">&lt;</span>DBImpl<span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>db<span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">BackgroundCall</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">BackgroundCall</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">BackgroundCall</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   MutexLock <span class="token function">l</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>background_compaction_scheduled_<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>shutting_down_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -139,7 +139,7 @@
   background_work_finished_signal_<span class="token punctuation">.</span><span class="token function">SignalAll</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">BackgroundCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">BackgroundCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span>imm_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -149,7 +149,7 @@
   <span class="token comment">// ...</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> DBImpl<span class="token operator">::</span><span class="token function">CompactMemTable</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">CompactMemTable</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>imm_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
@@ -161,7 +161,7 @@
   base<span class="token operator">-></span><span class="token function">Unref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> shutting_down_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    s <span class="token operator">=</span> Status<span class="token operator">::</span><span class="token function">IOError</span><span class="token punctuation">(</span><span class="token string">"Deleting DB during memtable compaction"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    s <span class="token operator">=</span> <span class="token class-name">Status</span><span class="token operator">::</span><span class="token function">IOError</span><span class="token punctuation">(</span><span class="token string">"Deleting DB during memtable compaction"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
   <span class="token comment">// Replace immutable memtable with the generated Table</span>
@@ -182,7 +182,7 @@
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
-Status DBImpl<span class="token operator">::</span><span class="token function">WriteLevel0Table</span><span class="token punctuation">(</span>MemTable<span class="token operator">*</span> mem<span class="token punctuation">,</span> VersionEdit<span class="token operator">*</span> edit<span class="token punctuation">,</span>
+Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">WriteLevel0Table</span><span class="token punctuation">(</span>MemTable<span class="token operator">*</span> mem<span class="token punctuation">,</span> VersionEdit<span class="token operator">*</span> edit<span class="token punctuation">,</span>
                                 Version<span class="token operator">*</span> base<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> start_micros <span class="token operator">=</span> env_<span class="token operator">-></span><span class="token function">NowMicros</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -228,15 +228,15 @@ Status DBImpl<span class="token operator">::</span><span class="token function">
 </code></pre>
 <p><code>MaybeScheduleCompaction</code> 经过一些判断，最后调用 <code>env_-&gt;Schedule</code> 创建一个 Detached 的线程启动 <code>DBImpl::BGWork</code>，继而调用 <code>DBImpl::BackgroundCall</code>，继而调用 <code>DBImpl::BackgroundCompaction</code>。该函数在 <code>imm_</code> 非空的情况下，直接执行 <code>CompactMemTable</code> 返回。<code>CompactMemTable</code> 的核心操作为 <code>WriteLevel0Table(imm_, &amp;edit, base)</code>，将会把 <code>imm_</code> 中的数据写到 Level0 Table 里。这是我们第一次碰触到 LevelDB 名字中 Level 的边缘。</p>
 <p>如果先不看 Version 相关的部分，<code>WriteLevel0Table</code> 会调用 <code>BuildTable</code> 建 Sorted Table。该函数的实现位于 <a href="https://github.com/google/leveldb/blob/master/db/builder.cc"><code>db/builder.cc</code></a>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"db/builder.h"</span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"db/builder.h"</span></span>
 
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"db/dbformat.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"db/filename.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"db/table_cache.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"db/version_edit.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/env.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/iterator.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"db/dbformat.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"db/filename.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"db/table_cache.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"db/version_edit.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/env.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/iterator.h"</span></span>
 
 <span class="token keyword">namespace</span> leveldb <span class="token punctuation">{</span>
 
@@ -367,25 +367,25 @@ Status <span class="token function">BuildTable</span><span class="token punctuat
 <span class="token comment">//     num_restarts: uint32</span>
 <span class="token comment">// restarts[i] contains the offset within the block of the ith restart point.</span>
 
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"table/block_builder.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"table/block_builder.h"</span></span>
 
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;assert.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;assert.h></span></span>
 
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;algorithm></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;algorithm></span></span>
 
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/comparator.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/options.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"util/coding.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/comparator.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/options.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"util/coding.h"</span></span>
 
 <span class="token keyword">namespace</span> leveldb <span class="token punctuation">{</span>
 
-BlockBuilder<span class="token operator">::</span><span class="token function">BlockBuilder</span><span class="token punctuation">(</span><span class="token keyword">const</span> Options<span class="token operator">*</span> options<span class="token punctuation">)</span>
+<span class="token class-name">BlockBuilder</span><span class="token operator">::</span><span class="token function">BlockBuilder</span><span class="token punctuation">(</span><span class="token keyword">const</span> Options<span class="token operator">*</span> options<span class="token punctuation">)</span>
     <span class="token operator">:</span> <span class="token function">options_</span><span class="token punctuation">(</span>options<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">restarts_</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">counter_</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">finished_</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>options<span class="token operator">-></span>block_restart_interval <span class="token operator">>=</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   restarts_<span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// First restart point is at offset 0</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> BlockBuilder<span class="token operator">::</span><span class="token function">Reset</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">BlockBuilder</span><span class="token operator">::</span><span class="token function">Reset</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   buffer_<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   restarts_<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   restarts_<span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// First restart point is at offset 0</span>
@@ -394,13 +394,13 @@ BlockBuilder<span class="token operator">::</span><span class="token function">B
   last_key_<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-size_t BlockBuilder<span class="token operator">::</span><span class="token function">CurrentSizeEstimate</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+size_t <span class="token class-name">BlockBuilder</span><span class="token operator">::</span><span class="token function">CurrentSizeEstimate</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
   <span class="token keyword">return</span> <span class="token punctuation">(</span>buffer_<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span>                       <span class="token comment">// Raw data buffer</span>
           restarts_<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">*</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span><span class="token punctuation">)</span> <span class="token operator">+</span>  <span class="token comment">// Restart array</span>
           <span class="token keyword">sizeof</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>                     <span class="token comment">// Restart array length</span>
 <span class="token punctuation">}</span>
 
-Slice BlockBuilder<span class="token operator">::</span><span class="token function">Finish</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+Slice <span class="token class-name">BlockBuilder</span><span class="token operator">::</span><span class="token function">Finish</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token comment">// Append restart array</span>
   <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> restarts_<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token function">PutFixed32</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>buffer_<span class="token punctuation">,</span> restarts_<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -410,7 +410,7 @@ Slice BlockBuilder<span class="token operator">::</span><span class="token funct
   <span class="token keyword">return</span> <span class="token function">Slice</span><span class="token punctuation">(</span>buffer_<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> BlockBuilder<span class="token operator">::</span><span class="token function">Add</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> value<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">BlockBuilder</span><span class="token operator">::</span><span class="token function">Add</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> value<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   Slice <span class="token function">last_key_piece</span><span class="token punctuation">(</span>last_key_<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>finished_<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>counter_ <span class="token operator">&lt;=</span> options_<span class="token operator">-></span>block_restart_interval<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -528,14 +528,14 @@ value: char[value_length]        # Value
 <span class="token comment">// non-const method, all threads accessing the same TableBuilder must use</span>
 <span class="token comment">// external synchronization.</span>
 
-<span class="token macro property">#<span class="token directive keyword">ifndef</span> STORAGE_LEVELDB_INCLUDE_TABLE_BUILDER_H_</span>
-<span class="token macro property">#<span class="token directive keyword">define</span> STORAGE_LEVELDB_INCLUDE_TABLE_BUILDER_H_</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">ifndef</span> <span class="token expression">STORAGE_LEVELDB_INCLUDE_TABLE_BUILDER_H_</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token expression">STORAGE_LEVELDB_INCLUDE_TABLE_BUILDER_H_</span></span>
 
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
 
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/export.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/options.h"</span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"leveldb/status.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/export.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/options.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/status.h"</span></span>
 
 <span class="token keyword">namespace</span> leveldb <span class="token punctuation">{</span>
 
@@ -608,10 +608,10 @@ value: char[value_length]        # Value
 
 <span class="token punctuation">}</span>  <span class="token comment">// namespace leveldb</span>
 
-<span class="token macro property">#<span class="token directive keyword">endif</span>  </span><span class="token comment">// STORAGE_LEVELDB_INCLUDE_TABLE_BUILDER_H_</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span>  <span class="token comment">// STORAGE_LEVELDB_INCLUDE_TABLE_BUILDER_H_</span></span>
 </code></pre>
 <p>接口代码里，LevelDB 都提供了详细的英文注释，不再赘述。这里刚好遇到 <code>pImpl</code> 范式，多说一点。对 C++ 来说，ABI 始终是一个痛点。Zero-Overhead 的 OOP，会把这部分 Overhead 加到编译期上。当一个类的数据成员发生变化时，会影响该类对象的大小和内存布局，进而导致所有依赖该类的文件需要重新编译。如果使用动态链接库，当版本升级、类发生变化时，由于 ABI 不兼容会导致无法直接替换动态链接库文件完成升级。而使用 <code>pImpl</code> 范式，将类的成员和类的声明隔离开，使用一个指针指向存储成员的对象 <code>rep_</code> 上。当成员发生变化时，也不需要重新编译，并且保证了 ABI 的稳定。该方案的缺点是访问成员时增加了一次指针寻址，不过瑕不掩瑜，和智能指针一样耗费微小的代价、带来极大的提升。LevelDB 的源代码中大量使用了该范式。接着看 <code>TableBuilder</code> 的实现 <a href="https://github.com/google/leveldb/blob/master/db/table_builder.cc"><code>table/table_builder.cc</code></a>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">TableBuilder</span><span class="token operator">::</span>Rep <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">TableBuilder</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Rep</span></span> <span class="token punctuation">{</span>
   <span class="token function">Rep</span><span class="token punctuation">(</span><span class="token keyword">const</span> Options<span class="token operator">&amp;</span> opt<span class="token punctuation">,</span> WritableFile<span class="token operator">*</span> f<span class="token punctuation">)</span>
       <span class="token operator">:</span> <span class="token function">options</span><span class="token punctuation">(</span>opt<span class="token punctuation">)</span><span class="token punctuation">,</span>
         <span class="token function">index_block_options</span><span class="token punctuation">(</span>opt<span class="token punctuation">)</span><span class="token punctuation">,</span>
@@ -655,24 +655,24 @@ value: char[value_length]        # Value
   std<span class="token operator">::</span>string compressed_output<span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-TableBuilder<span class="token operator">::</span><span class="token function">TableBuilder</span><span class="token punctuation">(</span><span class="token keyword">const</span> Options<span class="token operator">&amp;</span> options<span class="token punctuation">,</span> WritableFile<span class="token operator">*</span> file<span class="token punctuation">)</span>
+<span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token function">TableBuilder</span><span class="token punctuation">(</span><span class="token keyword">const</span> Options<span class="token operator">&amp;</span> options<span class="token punctuation">,</span> WritableFile<span class="token operator">*</span> file<span class="token punctuation">)</span>
     <span class="token operator">:</span> <span class="token function">rep_</span><span class="token punctuation">(</span><span class="token keyword">new</span> <span class="token function">Rep</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> file<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>rep_<span class="token operator">-></span>filter_block <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     rep_<span class="token operator">-></span>filter_block<span class="token operator">-></span><span class="token function">StartBlock</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
-TableBuilder<span class="token operator">::</span><span class="token operator">~</span><span class="token function">TableBuilder</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token operator">~</span><span class="token function">TableBuilder</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>rep_<span class="token operator">-></span>closed<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// Catch errors where caller forgot to call Finish()</span>
   <span class="token keyword">delete</span> rep_<span class="token operator">-></span>filter_block<span class="token punctuation">;</span>
   <span class="token keyword">delete</span> rep_<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-Status TableBuilder<span class="token operator">::</span><span class="token function">status</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rep_<span class="token operator">-></span>status<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+Status <span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token function">status</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rep_<span class="token operator">-></span>status<span class="token punctuation">;</span> <span class="token punctuation">}</span>
 
-<span class="token keyword">uint64_t</span> TableBuilder<span class="token operator">::</span><span class="token function">NumEntries</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rep_<span class="token operator">-></span>num_entries<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">uint64_t</span> <span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token function">NumEntries</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rep_<span class="token operator">-></span>num_entries<span class="token punctuation">;</span> <span class="token punctuation">}</span>
 
-<span class="token keyword">uint64_t</span> TableBuilder<span class="token operator">::</span><span class="token function">FileSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rep_<span class="token operator">-></span>offset<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">uint64_t</span> <span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token function">FileSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rep_<span class="token operator">-></span>offset<span class="token punctuation">;</span> <span class="token punctuation">}</span>
 </code></pre>
 <p>首先是 <code>TableBuilder::Rep</code> 的定义。该定义位于 <code>.cc</code> 文件内，即使发生修改也仅仅会重新编译文件本身。<code>TableBuilder</code> 的构造函数中会初始化 <code>rep_</code> 对象，并且在析构函数中将 <code>rep_</code> 删除。而需要访问成员变量时，都需要使用 <code>rep_-&gt;</code> 进行多一次的寻址。</p>
 <p><code>TableBuilder::rep_</code> 包含两个 <code>BlockBuilder</code> 对象，分别用来存储键值对数据和元数据。接下来是 <code>TableBuilder::Add</code> 等函数的实现。由于依赖的原因，这里需要先看 <a href="https://github.com/google/leveldb/blob/master/table/format.h"><code>table/format.h</code></a>：</p>
@@ -753,11 +753,11 @@ Status <span class="token function">ReadBlock</span><span class="token punctuati
 
 <span class="token comment">// Implementation details follow.  Clients should ignore,</span>
 
-<span class="token keyword">inline</span> BlockHandle<span class="token operator">::</span><span class="token function">BlockHandle</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token keyword">inline</span> <span class="token class-name">BlockHandle</span><span class="token operator">::</span><span class="token function">BlockHandle</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
     <span class="token operator">:</span> <span class="token function">offset_</span><span class="token punctuation">(</span><span class="token operator">~</span><span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">size_</span><span class="token punctuation">(</span><span class="token operator">~</span><span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
 </code></pre>
 <p><code>BlockBuilder</code> 将 Block 的数据写到字节流中，当需要进行解析时，必须知道其起始位置和长度，以便于读取复活点信息。故这里引入了 <code>BlockHandle</code>，存储 Block 数据所在的位置 <code>offset_</code> 和长度 <code>size_</code>。其 <code>EncodeTo</code> 和 <code>DecodeFrom</code> 函数的实现都非常简单，不再赘述。有了 <code>BlockHandle</code>，就可以读取对应的 <code>Block</code> 数据，<code>Footer</code> 就用来存储两个 <code>BlockHandle</code>。最后来看下 <code>TableBuilder</code> 的核心部分：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> TableBuilder<span class="token operator">::</span><span class="token function">Add</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> value<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token function">Add</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> value<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   Rep<span class="token operator">*</span> r <span class="token operator">=</span> rep_<span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>r<span class="token operator">-></span>closed<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">return</span><span class="token punctuation">;</span>
@@ -788,7 +788,7 @@ Status <span class="token function">ReadBlock</span><span class="token punctuati
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> TableBuilder<span class="token operator">::</span><span class="token function">Flush</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token function">Flush</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   Rep<span class="token operator">*</span> r <span class="token operator">=</span> rep_<span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>r<span class="token operator">-></span>closed<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">ok</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">return</span><span class="token punctuation">;</span>
@@ -804,7 +804,7 @@ Status <span class="token function">ReadBlock</span><span class="token punctuati
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> TableBuilder<span class="token operator">::</span><span class="token function">WriteBlock</span><span class="token punctuation">(</span>BlockBuilder<span class="token operator">*</span> block<span class="token punctuation">,</span> BlockHandle<span class="token operator">*</span> handle<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> <span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token function">WriteBlock</span><span class="token punctuation">(</span>BlockBuilder<span class="token operator">*</span> block<span class="token punctuation">,</span> BlockHandle<span class="token operator">*</span> handle<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token comment">// File format contains a sequence of blocks where each block has:</span>
   <span class="token comment">//    block_data: uint8[n]</span>
   <span class="token comment">//    type: uint8</span>
@@ -840,7 +840,7 @@ Status <span class="token function">ReadBlock</span><span class="token punctuati
   block<span class="token operator">-></span><span class="token function">Reset</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> TableBuilder<span class="token operator">::</span><span class="token function">WriteRawBlock</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> block_contents<span class="token punctuation">,</span>
+<span class="token keyword">void</span> <span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token function">WriteRawBlock</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> block_contents<span class="token punctuation">,</span>
                                  CompressionType type<span class="token punctuation">,</span> BlockHandle<span class="token operator">*</span> handle<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   Rep<span class="token operator">*</span> r <span class="token operator">=</span> rep_<span class="token punctuation">;</span>
   handle<span class="token operator">-></span><span class="token function">set_offset</span><span class="token punctuation">(</span>r<span class="token operator">-></span>offset<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -859,7 +859,7 @@ Status <span class="token function">ReadBlock</span><span class="token punctuati
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
-Status TableBuilder<span class="token operator">::</span><span class="token function">Finish</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+Status <span class="token class-name">TableBuilder</span><span class="token operator">::</span><span class="token function">Finish</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   Rep<span class="token operator">*</span> r <span class="token operator">=</span> rep_<span class="token punctuation">;</span>
   <span class="token function">Flush</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>r<span class="token operator">-></span>closed<span class="token punctuation">)</span><span class="token punctuation">;</span>

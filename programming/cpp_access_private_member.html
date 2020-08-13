@@ -24,9 +24,9 @@
       </div>
       <div class="markdown">
         <p>首先介绍一下类的数据成员指针。当对类的数据成员执行取址操作时，可以获得类的数据成员指针。本质上是附带类型信息的地址偏移。这部分可以参考文献 1。</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 
 <span class="token keyword">struct</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> x<span class="token punctuation">;</span>
@@ -54,9 +54,9 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>那么如果有类私有数据成员指针，就可以访问对应的私有变量了，但 C++ 并不允许直接对类私有成员取址：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 
 <span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
  <span class="token keyword">public</span><span class="token operator">:</span>
@@ -88,8 +88,8 @@
 <p>Explicit instantiation definitions ignore member access specifiers: parameter types and return types may be private.</p>
 </blockquote>
 <p>这也就允许传入类私有成员变量地址。如此设计的原因暂不得知，但利用该规则就可以实现访问任意类的私有成员变量：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 
 <span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
  <span class="token keyword">public</span><span class="token operator">:</span>
@@ -114,11 +114,11 @@
 </code></pre>
 <p>说它是奇技淫巧不为过，但某些场景下确实需要这样的黑科技。例如 folly 库中实现的 <code>atomic_shared_ptr</code>，就需要访问标准库 <code>std::shared_ptr</code> 的私有引用计数成员进行<a href="https://github.com/facebook/folly/blob/master/folly/concurrency/detail/AtomicSharedPtr-detail.h">计数的修改</a>。</p>
 <p>这种方法还是需要定义几个辅助类，如果想访问标准库中的类私有成员，有没有更简单、直接的技巧呢？有的 :D</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 
-<span class="token macro property">#<span class="token directive keyword">define</span> private public</span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
-<span class="token macro property">#<span class="token directive keyword">undef</span> private</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token expression"><span class="token keyword">private</span> <span class="token keyword">public</span></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">undef</span> <span class="token expression"><span class="token keyword">private</span></span></span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   std<span class="token operator">::</span>shared_ptr<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> a<span class="token punctuation">;</span>
@@ -126,8 +126,8 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>宏替换 <code>private</code> 并不总是有效，不建议在实际项目中使用，仅适用于单元测试场景。实际项目中可以使用 <a href="https://github.com/martong/access_private">access_private</a>，其头文件中定义了一些访问私有成员 / 函数的宏，原理仍然是模版类显式实例化：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
-<span class="token macro property">#<span class="token directive keyword">include</span> <span class="token string">"access_private.hpp"</span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"access_private.hpp"</span></span>
 
 <span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> m_i <span class="token operator">=</span> <span class="token number">3</span><span class="token punctuation">;</span>

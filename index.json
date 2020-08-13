@@ -167,7 +167,7 @@
     "url_path": "/linux/socket_and_epoll.html"
   },
   {
-    "title": "C++ Lambda 表达式隐式转换引发的 Bug",
+    "title": "C++ 隐式转换引发的 Bug",
     "date": "2019.11.22",
     "author": "SF-Zhou",
     "tags": [

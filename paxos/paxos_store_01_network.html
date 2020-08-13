@@ -401,9 +401,9 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>RunOnce</code> 获得可用的文件描述符及事件后，读取其对应的 FD 对象并执行 <code>HandleRead</code> 和 <code>HandleWrite</code>，注意这里忽略了处理的返回值。接下来看 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/network/IOChannel.h"><code>network/IOChannel.h</code></a>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property">#<span class="token directive keyword">define</span> CERTAIN_IO_BUFFER_SIZE (40 &lt;&lt; 20)  </span><span class="token comment">// 40MB == 2 * (MAX_WRITEBATCH_SIZE + 1000)</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token expression"><span class="token function">CERTAIN_IO_BUFFER_SIZE</span> <span class="token punctuation">(</span><span class="token number">40</span> <span class="token operator">&lt;&lt;</span> <span class="token number">20</span><span class="token punctuation">)</span>  </span><span class="token comment">// 40MB == 2 * (MAX_WRITEBATCH_SIZE + 1000)</span></span>
 
-<span class="token keyword">class</span> <span class="token class-name">clsIOChannel</span> <span class="token operator">:</span> <span class="token keyword">public</span> clsFDBase <span class="token punctuation">{</span>
+<span class="token keyword">class</span> <span class="token class-name">clsIOChannel</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsFDBase</span></span> <span class="token punctuation">{</span>
  <span class="token keyword">private</span><span class="token operator">:</span>
   ConnInfo_t m_tConnInfo<span class="token punctuation">;</span>
 
@@ -729,7 +729,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 </code></pre>
 <p><code>Read</code> 时先将缓存的数据读取出来，后执行 <code>read(fd)</code> 读取真实的数据。注意 <code>Readable</code> 状态的判断和使用。<code>Write</code> 时先将数据写入缓存中，而后执行 <code>FlushWriteBuffer</code> 执行真正的 <code>write(fd)</code>。实际使用中需要配合 <code>clsEpollIO</code> 和 <code>clsIOHandlerBase</code> 一起使用，在 <code>HandleRead</code> 执行 <code>Read</code>，在 <code>HandleWrite</code> 时执行 <code>FlushWriteBuffer</code>，这部分将在之后的 <code>clsIOWorker</code> 类中有所体现。</p>
 <p>接下来看一下 <code>ConnWorker</code> 的实现。这里调整一下代码的顺序，先看 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/ConnWorker.h"><code>src/ConnWorker.h</code></a> 中 <code>clsConnWorker</code> 的定义：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">clsConnWorker</span> <span class="token operator">:</span> <span class="token keyword">public</span> clsThreadBase <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">clsConnWorker</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsThreadBase</span></span> <span class="token punctuation">{</span>
  <span class="token keyword">private</span><span class="token operator">:</span>
   clsConfigure <span class="token operator">*</span>m_poConf<span class="token punctuation">;</span>
   clsEpollIO <span class="token operator">*</span>m_poEpollIO<span class="token punctuation">;</span>
@@ -826,7 +826,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>AddListen</code> 中创建了 Socket 连接，并且监听了服务端设定的地址，而后创建了一 <code>clsListenContext</code> 对象并将其加入 Epoll 对象中。当该连接可读时，说明有新的客户端尝试连接 <code>connect</code>，服务端需执行 <code>accept</code> 接受连接，这里看 <code>clsListenContext</code> 及其 <code>Handler</code> 的实现：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">clsListenContext</span> <span class="token operator">:</span> <span class="token keyword">public</span> clsFDBase <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">clsListenContext</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsFDBase</span></span> <span class="token punctuation">{</span>
  <span class="token keyword">private</span><span class="token operator">:</span>
   InetAddr_t m_tLocalAddr<span class="token punctuation">;</span>
 
@@ -839,7 +839,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   InetAddr_t <span class="token function">GetLocalAddr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> m_tLocalAddr<span class="token punctuation">;</span> <span class="token punctuation">}</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-<span class="token keyword">class</span> <span class="token class-name">clsListenHandler</span> <span class="token operator">:</span> <span class="token keyword">public</span> clsIOHandlerBase <span class="token punctuation">{</span>
+<span class="token keyword">class</span> <span class="token class-name">clsListenHandler</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsIOHandlerBase</span></span> <span class="token punctuation">{</span>
  <span class="token keyword">private</span><span class="token operator">:</span>
   clsConnWorker <span class="token operator">*</span>m_poConnWorker<span class="token punctuation">;</span>
 
@@ -931,7 +931,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 </code></pre>
 <p>在 <code>AcceptOneFD</code> 中，服务端接受了新连接，将新连接设定为非阻塞模式，并构造了 <code>clsNegoContext</code> 加入 Epoll 对象中，当客户端写入数据、该连接可读时：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 协商上下文</span>
-<span class="token keyword">class</span> <span class="token class-name">clsNegoContext</span> <span class="token operator">:</span> <span class="token keyword">public</span> clsFDBase <span class="token punctuation">{</span>
+<span class="token keyword">class</span> <span class="token class-name">clsNegoContext</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsFDBase</span></span> <span class="token punctuation">{</span>
  <span class="token keyword">private</span><span class="token operator">:</span>
   ConnInfo_t m_tConnInfo<span class="token punctuation">;</span>
   <span class="token keyword">uint32_t</span> m_iServerID<span class="token punctuation">;</span>
@@ -948,7 +948,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token function">TYPE_GET_SET</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span><span class="token punctuation">,</span> ServerID<span class="token punctuation">,</span> iServerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-<span class="token keyword">class</span> <span class="token class-name">clsNegoHandler</span> <span class="token operator">:</span> <span class="token keyword">public</span> clsIOHandlerBase <span class="token punctuation">{</span>
+<span class="token keyword">class</span> <span class="token class-name">clsNegoHandler</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsIOHandlerBase</span></span> <span class="token punctuation">{</span>
  <span class="token keyword">private</span><span class="token operator">:</span>
   clsConnWorker <span class="token operator">*</span>m_poConnWorker<span class="token punctuation">;</span>
 
@@ -1060,7 +1060,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 </code></pre>
 <p><code>RecvNegoMsg</code> 函数中会尝试读取客户端发送过来的三个字节，校验 Magic Number；<code>RecvNegoMsg</code> 函数中会判断是否为内部服务器；均成功则将键值对 <code>&lt;ServerID, ConnInfo&gt;</code> 加入连接池 <code>clsConnInfoMng</code> 中：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 连接池单例</span>
-<span class="token keyword">class</span> <span class="token class-name">clsConnInfoMng</span> <span class="token operator">:</span> <span class="token keyword">public</span> clsSingleton<span class="token operator">&lt;</span>clsConnInfoMng<span class="token operator">></span> <span class="token punctuation">{</span>
+<span class="token keyword">class</span> <span class="token class-name">clsConnInfoMng</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsSingleton</span><span class="token operator">&lt;</span><span class="token class-name">clsConnInfoMng</span><span class="token operator">></span></span> <span class="token punctuation">{</span>
  <span class="token keyword">private</span><span class="token operator">:</span>
   clsConfigure <span class="token operator">*</span>m_poConf<span class="token punctuation">;</span>
 
