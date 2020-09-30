@@ -14,7 +14,7 @@
     "katex": "^0.12.0",
     "less": "^3.10.3",
     "markdown-it": "^11.0.0",
-    "markdown-it-anchor": "^5.2.5",
+    "markdown-it-anchor": "^6.0.0",
     "markdown-it-implicit-figures": "^0.10.0",
     "markdown-it-texmath": "^0.8.0",
     "md5": ">=2.2.1",
