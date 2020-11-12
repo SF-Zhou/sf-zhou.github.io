@@ -9,16 +9,16 @@
   },
   "devDependencies": {
     "download": "^8.0.0",
-    "file-type": "^16.0.0",
-    "gitalk": "^1.5.2",
+    "file-type": "^16.0.1",
+    "gitalk": "^1.7.0",
     "katex": "^0.12.0",
-    "less": "^3.10.3",
-    "markdown-it": "^12.0.0",
+    "less": "^3.12.2",
+    "markdown-it": "^12.0.2",
     "markdown-it-anchor": "^6.0.0",
     "markdown-it-implicit-figures": "^0.10.0",
     "markdown-it-texmath": "^0.8.0",
-    "md5": ">=2.2.1",
-    "mustache": "^4.0.0",
-    "prismjs": "^1.19.0"
+    "md5": "^2.3.0",
+    "mustache": "^4.0.1",
+    "prismjs": "^1.22.0"
   }
 }
