@@ -6,7 +6,7 @@
     "tags": [
       "Rust",
       "Tokio",
-      "Coroutine"
+      "Bytes"
     ],
     "filename": "tokio_02_bytes",
     "url_path": "/tokio/tokio_02_bytes.html"
@@ -18,7 +18,7 @@
     "tags": [
       "Rust",
       "Tokio",
-      "Coroutine"
+      "Epoll"
     ],
     "filename": "tokio_01_mio",
     "url_path": "/tokio/tokio_01_mio.html"
