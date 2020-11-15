@@ -41,7 +41,7 @@
     "tags": [
       "C++",
       "Hazard",
-      "Pointer"
+      "Lock-Free"
     ],
     "filename": "hazard_pointer",
     "url_path": "/programming/hazard_pointer.html"
@@ -77,7 +77,7 @@
     "tags": [
       "C++",
       "Atomic",
-      "Pointer"
+      "Lock-Free"
     ],
     "filename": "atomic_shared_ptr",
     "url_path": "/programming/atomic_shared_ptr.html"
@@ -89,7 +89,7 @@
     "tags": [
       "C++",
       "Memory",
-      "Consistency"
+      "Lock-Free"
     ],
     "filename": "memory_barrier",
     "url_path": "/programming/memory_barrier.html"
