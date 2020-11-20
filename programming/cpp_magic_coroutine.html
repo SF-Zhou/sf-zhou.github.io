@@ -124,7 +124,7 @@ run:
   <span class="token function">run</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span>func<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<p>上述代码需要 C++11 支持，<a href="https://godbolt.org/z/ZHvSM8">可以点击此处在线编译执行</a>。这里手写了一个汇编函数 <code>run</code>，其功能为跳转到第一个参数指向的地址处，即 <code>func</code> 函数。由于返回地址仍然是 <code>main</code> 函数的位置，故不需要其他额外的修改操作。</p>
+<p>上述代码需要 C++11 支持，<a href="https://godbolt.org/z/dc7Kj3">可以点击此处在线编译执行</a>。这里手写了一个汇编函数 <code>run</code>，其功能为跳转到第一个参数指向的地址处，即 <code>func</code> 函数。由于返回地址仍然是 <code>main</code> 函数的位置，故不需要其他额外的修改操作。</p>
 <p>而这就是实现协程切换的核心魔法了。</p>
 <h3 id="2.-协程切换-swap-coroutines"><a href="#2.-%E5%8D%8F%E7%A8%8B%E5%88%87%E6%8D%A2-swap-coroutines">2. 协程切换 Swap Coroutines</a></h3>
 <p>在协程的执行过程中，一般会在遇到 IO 等待事件时主动出让执行权；而当 IO 事件完成、获得执行权时，再恢复出让前的状态，继续执行。举个例子：</p>
@@ -188,7 +188,7 @@ swap_context:
   <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<p><a href="https://godbolt.org/z/EcbdaZ">可以点击此处在线编译执行</a>。定义的 <code>Registers</code> 结构体内会存储 8 个寄存器，定义两个 <code>ma</code> 和 <code>co</code> 状态用来保存主协程和子协程的寄存器值。<code>main</code> 函数中申请了一段空间作为子协程的栈，设定子协程存储的寄存器中的 <code>RAX</code> 为 <code>func</code> 函数地址，<code>RCX</code> 为栈顶，而后执行 <code>swap_context</code> 保存当前主协程状态并切换到子协程。</p>
+<p><a href="https://godbolt.org/z/Tvxebh">可以点击此处在线编译执行</a>。定义的 <code>Registers</code> 结构体内会存储 8 个寄存器，定义两个 <code>ma</code> 和 <code>co</code> 状态用来保存主协程和子协程的寄存器值。<code>main</code> 函数中申请了一段空间作为子协程的栈，设定子协程存储的寄存器中的 <code>RAX</code> 为 <code>func</code> 函数地址，<code>RCX</code> 为栈顶，而后执行 <code>swap_context</code> 保存当前主协程状态并切换到子协程。</p>
 <pre class="language-nasm"><code class="language-nasm"><span class="token label function">swap_context:</span>
   mov <span class="token number">0x00</span>(<span class="token operator">%</span><span class="token register variable">rsp</span>), <span class="token operator">%</span><span class="token register variable">rdx</span>  <span class="token comment">; 将返回地址保存到 RDX 寄存器</span>
   lea <span class="token number">0x08</span>(<span class="token operator">%</span><span class="token register variable">rsp</span>), <span class="token operator">%</span><span class="token register variable">rcx</span>  <span class="token comment">; 将原 RSP 地址存储到 RCX 寄存器</span>
