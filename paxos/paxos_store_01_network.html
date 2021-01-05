@@ -401,7 +401,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>RunOnce</code> 获得可用的文件描述符及事件后，读取其对应的 FD 对象并执行 <code>HandleRead</code> 和 <code>HandleWrite</code>，注意这里忽略了处理的返回值。接下来看 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/network/IOChannel.h"><code>network/IOChannel.h</code></a>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token expression"><span class="token function">CERTAIN_IO_BUFFER_SIZE</span> <span class="token punctuation">(</span><span class="token number">40</span> <span class="token operator">&lt;&lt;</span> <span class="token number">20</span><span class="token punctuation">)</span>  </span><span class="token comment">// 40MB == 2 * (MAX_WRITEBATCH_SIZE + 1000)</span></span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name">CERTAIN_IO_BUFFER_SIZE</span> <span class="token expression"><span class="token punctuation">(</span><span class="token number">40</span> <span class="token operator">&lt;&lt;</span> <span class="token number">20</span><span class="token punctuation">)</span>  </span><span class="token comment">// 40MB == 2 * (MAX_WRITEBATCH_SIZE + 1000)</span></span>
 
 <span class="token keyword">class</span> <span class="token class-name">clsIOChannel</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsFDBase</span></span> <span class="token punctuation">{</span>
  <span class="token keyword">private</span><span class="token operator">:</span>
@@ -1205,7 +1205,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
           Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
         </div>
         <div class="copyright">
-          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+          Copyright©2021 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
         </div>
       </div>
     </div>

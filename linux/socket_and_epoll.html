@@ -71,7 +71,7 @@
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
 
-<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token expression"><span class="token function">ZERO_OR_RETURN</span><span class="token punctuation">(</span>expr<span class="token punctuation">)</span>                             </span><span class="token punctuation">\</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name function">ZERO_OR_RETURN</span><span class="token expression"><span class="token punctuation">(</span>expr<span class="token punctuation">)</span>                             </span><span class="token punctuation">\</span>
   <span class="token expression"><span class="token keyword">do</span> <span class="token punctuation">{</span>                                                   </span><span class="token punctuation">\</span>
     <span class="token expression"><span class="token keyword">int</span> ret <span class="token operator">=</span> <span class="token punctuation">(</span>expr<span class="token punctuation">)</span><span class="token punctuation">;</span>                                    </span><span class="token punctuation">\</span>
     <span class="token expression"><span class="token keyword">if</span> <span class="token punctuation">(</span>ret <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>                                      </span><span class="token punctuation">\</span>
@@ -234,7 +234,7 @@ CLIENT: Recv [Hello Socket]
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;sys/epoll.h></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;unistd.h></span></span>
 
-<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token expression"><span class="token function">ZERO_OR_RETURN</span><span class="token punctuation">(</span>expr<span class="token punctuation">)</span>            </span><span class="token punctuation">\</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name function">ZERO_OR_RETURN</span><span class="token expression"><span class="token punctuation">(</span>expr<span class="token punctuation">)</span>            </span><span class="token punctuation">\</span>
   <span class="token expression"><span class="token keyword">do</span> <span class="token punctuation">{</span>                                  </span><span class="token punctuation">\</span>
     <span class="token expression"><span class="token keyword">int</span> ret <span class="token operator">=</span> <span class="token punctuation">(</span>expr<span class="token punctuation">)</span><span class="token punctuation">;</span>                   </span><span class="token punctuation">\</span>
     <span class="token expression"><span class="token keyword">if</span> <span class="token punctuation">(</span>ret <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>                     </span><span class="token punctuation">\</span>
@@ -328,7 +328,7 @@ CLIENT: Recv [Hello Socket]
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
 
-<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token expression"><span class="token function">ZERO_OR_RETURN</span><span class="token punctuation">(</span>expr<span class="token punctuation">)</span>            </span><span class="token punctuation">\</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name function">ZERO_OR_RETURN</span><span class="token expression"><span class="token punctuation">(</span>expr<span class="token punctuation">)</span>            </span><span class="token punctuation">\</span>
   <span class="token expression"><span class="token keyword">do</span> <span class="token punctuation">{</span>                                  </span><span class="token punctuation">\</span>
     <span class="token expression"><span class="token keyword">int</span> ret <span class="token operator">=</span> <span class="token punctuation">(</span>expr<span class="token punctuation">)</span><span class="token punctuation">;</span>                   </span><span class="token punctuation">\</span>
     <span class="token expression"><span class="token keyword">if</span> <span class="token punctuation">(</span>ret <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>                     </span><span class="token punctuation">\</span>
@@ -419,7 +419,7 @@ std<span class="token operator">::</span>atomic<span class="token operator">&lt;
           Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
         </div>
         <div class="copyright">
-          Copyright©2020 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+          Copyright©2021 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
         </div>
       </div>
     </div>
