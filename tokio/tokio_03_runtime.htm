@@ -26,6 +26,11 @@
         <p>Tokio 的核心是一套 M:N 的协程 Runtime，下层通过 Rust 协程和 Mio 驱动，支撑上层的 HTTP / RPC 应用。本篇开始分析 Runtime，代码版本 <a href="https://github.com/tokio-rs/tokio/tree/tokio-1.0.2">v1.0.2</a>。</p>
 <figure tabindex="1"><a href="../images/5e364463cf50f41fec2e028df84f6a4a.svg"><img src="../images/5e364463cf50f41fec2e028df84f6a4a.svg" alt=""></a><figcaption>Tokio 架构图 from <a href="http://tokio.rs">tokio.rs</a></figcaption></figure>
 <h3 id="1.-概览"><a href="#1.-%E6%A6%82%E8%A7%88">1. 概览</a></h3>
+<p>在阅读核心代码前，先介绍一下异步编程中的核心关键字：</p>
+<p><strong>Asynchrony</strong>：异步指事件的发生与主程序流及处理此类事件的方式无关。这些事件可能是像信号这样的外部事件，或者是由程序引发的动作，会和程序的执行同时发生，而程序不会阻塞地等待结果。简而言之，事件发生在非调用方的线程中。同步与异步关注的是事件是否是在本线程中处理。</p>
+<p><strong>Non-blocking</strong>：非阻塞指执行的操作不会阻塞程序的继续执行。阻塞与非阻塞关注的是调用方等待结果时的状态。阻塞非阻塞和同步异步是正交的，即存在同步阻塞、同步非阻塞、异步阻塞、异步非阻塞。</p>
+<p><strong>Resumable Function</strong>：可恢复函数指可以暂停执行并从调用中返回，并且可以在将来从暂停的位置恢复执行的函数。可恢复函数是协程的基石。</p>
+<p><strong>Asynchronous Runtime</strong>：异步运行时，上述概念的整合，通过可恢复函数、挂起位置埋点和用户态调度实现非抢占式的用户态线程切换，称之为协程。一般将同步阻塞 IO 的位置作为默认的挂起位置。</p>
 <p>Tokio 库的代码量十分巨大，<a href="https://github.com/tokio-rs/tokio/tree/tokio-1.0.2/tokio/src"><code>tokio/src</code></a> 目录下共计 242 个代码文件，行数 5w+。核心代码的文件结构为：</p>
 <pre class="language-markup"><code class="language-markup">tokio/src
 ├── blocking.rs
@@ -86,6 +91,9 @@
 <h3 id="references"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://tokio.rs/blog/2020-12-tokio-1-0">&quot;Announcing Tokio 1.0&quot;, <em>tokio.rs</em></a></li>
+<li><a href="https://en.wikipedia.org/wiki/Asynchrony_(computer_programming)">&quot;Asynchrony (computer programming)&quot;, <em>Wikipedia</em></a></li>
+<li><a href="https://en.wikipedia.org/wiki/Asynchronous_I/O">&quot;Asynchronous I/O&quot;, <em>Wikipedia</em></a></li>
+<li><a href="https://en.wikipedia.org/wiki/Talk:Asynchronous_I/O#async_is_not_nonblocking">&quot;async is not nonblocking&quot;, <em>Wikipedia</em></a></li>
 </ol>
 
       </div>
