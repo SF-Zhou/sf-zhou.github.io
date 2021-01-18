@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>C++ Container Iterator Invalidation &  Thread Safety | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> C++ Container Iterator Invalidation &  Thread Safety </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2021.01.18 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-iterator-invalidation"><a href="#1.-iterator-invalidation">1. Iterator Invalidation</a></h3>
+<table>
+<thead>
+<tr>
+<th>container</th>
+<th>are iterators valid after insertion?</th>
+<th>are iterators valid after erasure?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>vector</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>list</td>
+<td>Yes</td>
+<td>Yes, except erased element(s)</td>
+</tr>
+<tr>
+<td>map / set</td>
+<td>Yes</td>
+<td>Yes, except erased element(s)</td>
+</tr>
+<tr>
+<td>unordered_map</td>
+<td>No</td>
+<td>Yes, except erased element(s)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="2.-thread-safety"><a href="#2.-thread-safety">2. Thread Safety</a></h3>
+<ol>
+<li>All container functions can be called concurrently by different threads on different containers.</li>
+<li>All const member functions can be called concurrently by different threads on the same container.</li>
+<li>Different elements in the same container can be modified concurrently by different threads, except for the elements of <code>std::vector&lt;bool&gt;</code>.</li>
+<li>Iterator operations read, but do not modify the underlying container, and may be executed concurrently with operations on other iterators on the same container, with the const member functions, or reads from the elements. Container operations that invalidate any iterators modify the container and cannot be executed concurrently with any operations on existing iterators even if those iterators are not invalidated</li>
+</ol>
+<h3 id="references"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://en.cppreference.com/w/cpp/container">&quot;Containers Library&quot;, <em>C++ Reference</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2021 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
