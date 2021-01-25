@@ -88,6 +88,125 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>如果之前接触过协程和网络编程，肯定会赞叹上方 Echo Server 的高效和简洁。</p>
+<h3 id="2.-tokio/runtime/task"><a href="#2.-tokio%2Fruntime%2Ftask">2. <code>tokio/runtime/task</code></a></h3>
+<p>Tokio 的 Runtime 提供以下能力：</p>
+<blockquote>
+<ul>
+<li>An <strong>I/O event loop</strong>, called the driver, which drives I/O resources and dispatches I/O events to tasks that depend on them.</li>
+<li>A <strong>scheduler</strong> to execute <a href="https://docs.rs/tokio/0.2.24/tokio/task/index.html">tasks</a> that use these I/O resources.</li>
+<li>A <strong>timer</strong> for scheduling work to run after a set period of time.</li>
+</ul>
+</blockquote>
+<p>这一节来看任务 <code>task</code> 相关的抽象，代码路径为 <a href="https://github.com/tokio-rs/tokio/tree/tokio-1.0.2/tokio/src/runtime/task">tokio/src/runtime/task</a>。先看任务状态 <a href="https://github.com/tokio-rs/tokio/blob/tokio-1.0.2/tokio/src/runtime/task/state.rs"><code>state.rs</code></a>：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">// State 本身是原子无符号数</span>
+<span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">super</span><span class="token punctuation">)</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">State</span> <span class="token punctuation">{</span>
+    val<span class="token punctuation">:</span> <span class="token class-name">AtomicUsize</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Snapshot 是从 State 读取到的值</span>
+<span class="token attribute attr-name">#[derive(Copy, Clone)]</span>
+<span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">super</span><span class="token punctuation">)</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Snapshot</span><span class="token punctuation">(</span><span class="token keyword">usize</span><span class="token punctuation">)</span>
+
+<span class="token comment">// 更新 State 时的 Result，成功返回更新后的 Snapshot</span>
+<span class="token keyword">type</span> <span class="token class-name">UpdateResult</span> <span class="token operator">=</span> <span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token class-name">Snapshot</span><span class="token punctuation">,</span> <span class="token class-name">Snapshot</span><span class="token operator">></span><span class="token punctuation">;</span>
+
+<span class="token comment">// State 实际的编码，包括一个引用计数</span>
+<span class="token keyword">const</span> <span class="token constant">RUNNING</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token number">0b0001</span><span class="token punctuation">;</span>       <span class="token comment">// 是否在运行</span>
+<span class="token keyword">const</span> <span class="token constant">COMPLETE</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token number">0b0010</span><span class="token punctuation">;</span>      <span class="token comment">// 是否已完成</span>
+<span class="token keyword">const</span> <span class="token constant">LIFECYCLE_MASK</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token number">0b11</span><span class="token punctuation">;</span>
+<span class="token keyword">const</span> <span class="token constant">NOTIFIED</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token number">0b100</span><span class="token punctuation">;</span>       <span class="token comment">// task 是否已经加入运行队列</span>
+<span class="token keyword">const</span> <span class="token constant">JOIN_INTEREST</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token number">0b1_000</span><span class="token punctuation">;</span>
+<span class="token keyword">const</span> <span class="token constant">JOIN_WAKER</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token number">0b10_000</span><span class="token punctuation">;</span>
+<span class="token keyword">const</span> <span class="token constant">CANCELLED</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token number">0b100_000</span><span class="token punctuation">;</span>  <span class="token comment">// 任务被取消</span>
+<span class="token keyword">const</span> <span class="token constant">STATE_MASK</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token constant">LIFECYCLE_MASK</span> <span class="token operator">|</span> <span class="token constant">NOTIFIED</span> <span class="token operator">|</span> <span class="token constant">JOIN_INTEREST</span> <span class="token operator">|</span> <span class="token constant">JOIN_WAKER</span> <span class="token operator">|</span> <span class="token constant">CANCELLED</span><span class="token punctuation">;</span>  <span class="token comment">// 所有状态相关的位</span>
+
+<span class="token keyword">const</span> <span class="token constant">REF_COUNT_MASK</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token operator">!</span><span class="token constant">STATE_MASK</span><span class="token punctuation">;</span>   <span class="token comment">// 引用计数使用的位</span>
+<span class="token keyword">const</span> <span class="token constant">REF_COUNT_SHIFT</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token constant">REF_COUNT_MASK</span><span class="token punctuation">.</span><span class="token function">count_zeros</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">as</span> <span class="token keyword">usize</span><span class="token punctuation">;</span>
+<span class="token keyword">const</span> <span class="token constant">REF_ONE</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token number">1</span> <span class="token operator">&lt;&lt;</span> <span class="token constant">REF_COUNT_SHIFT</span><span class="token punctuation">;</span>  <span class="token comment">// 引用计数中的 1</span>
+
+<span class="token keyword">const</span> <span class="token constant">INITIAL_STATE</span><span class="token punctuation">:</span> <span class="token keyword">usize</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token constant">REF_ONE</span> <span class="token operator">*</span> <span class="token number">2</span><span class="token punctuation">)</span> <span class="token operator">|</span> <span class="token constant">JOIN_INTEREST</span> <span class="token operator">|</span> <span class="token constant">NOTIFIED</span><span class="token punctuation">;</span>  <span class="token comment">// 初始化状态，scheduler 和 `JoinHandle` 会引用它</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">State</span> <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">super</span><span class="token punctuation">)</span> <span class="token keyword">fn</span> <span class="token function-definition function">new</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">State</span> <span class="token punctuation">{</span>
+        <span class="token class-name">State</span> <span class="token punctuation">{</span>
+            val<span class="token punctuation">:</span> <span class="token class-name">AtomicUsize</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token constant">INITIAL_STATE</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 读取当前的状态，使用 Acquire Ordering</span>
+    <span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">super</span><span class="token punctuation">)</span> <span class="token keyword">fn</span> <span class="token function-definition function">load</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Snapshot</span> <span class="token punctuation">{</span>
+        <span class="token class-name">Snapshot</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">.</span>val<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token class-name">Acquire</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 使用 CAS 实现线程安全的状态转移，转移失败时返回当前的状态</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">fetch_update</span><span class="token operator">&lt;</span><span class="token class-name">F</span><span class="token operator">></span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> <span class="token keyword">mut</span> f<span class="token punctuation">:</span> <span class="token class-name">F</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token class-name">Snapshot</span><span class="token punctuation">,</span> <span class="token class-name">Snapshot</span><span class="token operator">></span>
+    <span class="token keyword">where</span>
+        <span class="token class-name">F</span><span class="token punctuation">:</span> <span class="token class-name">FnMut</span><span class="token punctuation">(</span><span class="token class-name">Snapshot</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Option</span><span class="token operator">&lt;</span><span class="token class-name">Snapshot</span><span class="token operator">></span><span class="token punctuation">,</span>
+    <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> curr <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">loop</span> <span class="token punctuation">{</span>
+            <span class="token keyword">let</span> next <span class="token operator">=</span> <span class="token keyword">match</span> <span class="token function">f</span><span class="token punctuation">(</span>curr<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                <span class="token class-name">Some</span><span class="token punctuation">(</span>next<span class="token punctuation">)</span> <span class="token operator">=></span> next<span class="token punctuation">,</span>
+                <span class="token class-name">None</span> <span class="token operator">=></span> <span class="token keyword">return</span> <span class="token class-name">Err</span><span class="token punctuation">(</span>curr<span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+            <span class="token keyword">let</span> res <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>val<span class="token punctuation">.</span><span class="token function">compare_exchange</span><span class="token punctuation">(</span>curr<span class="token number">.0</span><span class="token punctuation">,</span> next<span class="token number">.0</span><span class="token punctuation">,</span> <span class="token class-name">AcqRel</span><span class="token punctuation">,</span> <span class="token class-name">Acquire</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+            <span class="token keyword">match</span> res <span class="token punctuation">{</span>
+                <span class="token class-name">Ok</span><span class="token punctuation">(</span>_<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token keyword">return</span> <span class="token class-name">Ok</span><span class="token punctuation">(</span>next<span class="token punctuation">)</span><span class="token punctuation">,</span>
+                <span class="token class-name">Err</span><span class="token punctuation">(</span>actual<span class="token punctuation">)</span> <span class="token operator">=></span> curr <span class="token operator">=</span> <span class="token class-name">Snapshot</span><span class="token punctuation">(</span>actual<span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 尝试转移到 running 状态</span>
+    <span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">super</span><span class="token punctuation">)</span> <span class="token keyword">fn</span> <span class="token function-definition function">transition_to_running</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> ref_inc<span class="token punctuation">:</span> <span class="token keyword">bool</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">UpdateResult</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">fetch_update</span><span class="token punctuation">(</span><span class="token closure-params"><span class="token closure-punctuation punctuation">|</span>curr<span class="token closure-punctuation punctuation">|</span></span> <span class="token punctuation">{</span>
+            <span class="token macro property">assert!</span><span class="token punctuation">(</span>curr<span class="token punctuation">.</span><span class="token function">is_notified</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+            <span class="token keyword">let</span> <span class="token keyword">mut</span> next <span class="token operator">=</span> curr<span class="token punctuation">;</span>
+
+            <span class="token keyword">if</span> <span class="token operator">!</span>next<span class="token punctuation">.</span><span class="token function">is_idle</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                <span class="token keyword">return</span> <span class="token class-name">None</span><span class="token punctuation">;</span>
+            <span class="token punctuation">}</span>
+
+            <span class="token keyword">if</span> ref_inc <span class="token punctuation">{</span>
+                next<span class="token punctuation">.</span><span class="token function">ref_inc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token punctuation">}</span>
+
+            next<span class="token punctuation">.</span><span class="token function">set_running</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            next<span class="token punctuation">.</span><span class="token function">unset_notified</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token class-name">Some</span><span class="token punctuation">(</span>next<span class="token punctuation">)</span>
+        <span class="token punctuation">}</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 增加引用计数</span>
+    <span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">super</span><span class="token punctuation">)</span> <span class="token keyword">fn</span> <span class="token function-definition function">ref_inc</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span></span>process<span class="token punctuation">;</span>
+        <span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>sync<span class="token punctuation">::</span>atomic<span class="token punctuation">::</span></span><span class="token class-name">Ordering</span><span class="token punctuation">::</span><span class="token class-name">Relaxed</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">let</span> prev <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>val<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span><span class="token constant">REF_ONE</span><span class="token punctuation">,</span> <span class="token class-name">Relaxed</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token comment">// If the reference count overflowed, abort.</span>
+        <span class="token keyword">if</span> prev <span class="token operator">></span> <span class="token keyword">isize</span><span class="token punctuation">::</span><span class="token function">max_value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">as</span> <span class="token keyword">usize</span> <span class="token punctuation">{</span>
+            <span class="token namespace">process<span class="token punctuation">::</span></span><span class="token function">abort</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Snapshot 提供状态读写的街口</span>
+<span class="token keyword">impl</span> <span class="token class-name">Snapshot</span> <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">super</span><span class="token punctuation">)</span> <span class="token keyword">fn</span> <span class="token function-definition function">is_running</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">bool</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span> <span class="token operator">&amp;</span> <span class="token constant">RUNNING</span> <span class="token operator">==</span> <span class="token constant">RUNNING</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">set_running</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span> <span class="token operator">|=</span> <span class="token constant">RUNNING</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token punctuation">...</span>
+<span class="token punctuation">}</span>
+</code></pre>
 <h3 id="references"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://tokio.rs/blog/2020-12-tokio-1-0">&quot;Announcing Tokio 1.0&quot;, <em>tokio.rs</em></a></li>
