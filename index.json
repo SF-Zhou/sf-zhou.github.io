@@ -4,7 +4,7 @@
     "date": "2021.03.02",
     "author": "SF-Zhou",
     "tags": [
-      "brpc",
+      "bRPC",
       "C++"
     ],
     "filename": "brpc_01_bthread",
