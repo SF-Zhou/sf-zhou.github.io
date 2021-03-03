@@ -1,5 +1,16 @@
 [
   {
+    "title": "bRPC 源码分析「二、内存管理」",
+    "date": "2021.03.03",
+    "author": "SF-Zhou",
+    "tags": [
+      "bRPC",
+      "C++"
+    ],
+    "filename": "brpc_02_memory",
+    "url_path": "/brpc/brpc_02_memory.html"
+  },
+  {
     "title": "bRPC 源码分析「一、协程设计」",
     "date": "2021.03.02",
     "author": "SF-Zhou",
