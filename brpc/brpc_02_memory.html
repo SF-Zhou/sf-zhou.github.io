@@ -396,9 +396,242 @@ BAIDU_THREAD_LOCAL
   <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
+<h3 id="3.-io-buf"><a href="#3.-io-buf">3. IO Buf</a></h3>
+<p>bRPC 中使用 <code>IOBuf</code> 处理字节流相关的数据，它是一种非连续零拷贝缓冲，提供类似 <code>std::string</code> 的接口。该数据结构和笔者之前分析的 <a href="/tokio/tokio_02_bytes.html">Tokio Bytes</a> 也很像，均使用引用计数实现零拷贝。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// iobuf.h</span>
+<span class="token comment">// IOBuf is a non-continuous buffer that can be cut and combined w/o copying</span>
+<span class="token comment">// payload. It can be read from or flushed into file descriptors as well.</span>
+<span class="token comment">// IOBuf is [thread-compatible]. Namely using different IOBuf in different</span>
+<span class="token comment">// threads simultaneously is safe, and reading a static IOBuf from different</span>
+<span class="token comment">// threads is safe as well.</span>
+<span class="token comment">// IOBuf is [NOT thread-safe]. Modifying a same IOBuf from different threads</span>
+<span class="token comment">// simultaneously is unsafe and likely to crash.</span>
+<span class="token keyword">class</span> <span class="token class-name">IOBuf</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">static</span> <span class="token keyword">const</span> size_t DEFAULT_BLOCK_SIZE <span class="token operator">=</span> <span class="token number">8192</span><span class="token punctuation">;</span>  <span class="token comment">// block 默认大小 8KB</span>
+
+  <span class="token comment">// can't directly use `struct iovec' here because we also need to access the</span>
+  <span class="token comment">// reference counter(nshared) in Block*</span>
+  <span class="token keyword">struct</span> <span class="token class-name">BlockRef</span> <span class="token punctuation">{</span>
+    <span class="token comment">// NOTICE: first bit of `offset' is shared with BigView::start</span>
+    <span class="token keyword">uint32_t</span> offset<span class="token punctuation">;</span>  <span class="token comment">// block 上的偏移，这里保证 offset &lt;= max_int</span>
+    <span class="token keyword">uint32_t</span> length<span class="token punctuation">;</span>  <span class="token comment">// 和长度</span>
+    Block <span class="token operator">*</span>block<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// IOBuf is essentially a tiny queue of BlockRefs.</span>
+  <span class="token keyword">struct</span> <span class="token class-name">SmallView</span> <span class="token punctuation">{</span>
+    BlockRef refs<span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">;</span>  <span class="token comment">// 引用少于两个 block</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// SmallView 与 BigView 大小相同</span>
+  <span class="token keyword">struct</span> <span class="token class-name">BigView</span> <span class="token punctuation">{</span>
+    <span class="token keyword">int32_t</span> magic<span class="token punctuation">;</span>
+    <span class="token keyword">uint32_t</span> start<span class="token punctuation">;</span>  <span class="token comment">// 起始的 block 下标</span>
+    BlockRef <span class="token operator">*</span>refs<span class="token punctuation">;</span>  <span class="token comment">// block 列表</span>
+    <span class="token keyword">uint32_t</span> nref<span class="token punctuation">;</span>   <span class="token comment">// block 列表大小</span>
+    <span class="token keyword">uint32_t</span> cap_mask<span class="token punctuation">;</span>
+    size_t nbytes<span class="token punctuation">;</span>  <span class="token comment">// 当前总长度</span>
+
+    <span class="token keyword">const</span> BlockRef <span class="token operator">&amp;</span><span class="token function">ref_at</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> refs<span class="token punctuation">[</span><span class="token punctuation">(</span>start <span class="token operator">+</span> i<span class="token punctuation">)</span> <span class="token operator">&amp;</span> cap_mask<span class="token punctuation">]</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    BlockRef <span class="token operator">&amp;</span><span class="token function">ref_at</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> refs<span class="token punctuation">[</span><span class="token punctuation">(</span>start <span class="token operator">+</span> i<span class="token punctuation">)</span> <span class="token operator">&amp;</span> cap_mask<span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+    <span class="token keyword">uint32_t</span> <span class="token function">capacity</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> cap_mask <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>  <span class="token comment">// block 列表容量</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">_small</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> _bv<span class="token punctuation">.</span>magic <span class="token operator">>=</span> <span class="token number">0</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>  <span class="token comment">// 小于 0 时为 BigView</span>
+
+  size_t <span class="token function">length</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">_small</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">?</span> <span class="token punctuation">(</span>_sv<span class="token punctuation">.</span>refs<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span>length <span class="token operator">+</span> _sv<span class="token punctuation">.</span>refs<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">.</span>length<span class="token punctuation">)</span> <span class="token operator">:</span> _bv<span class="token punctuation">.</span>nbytes<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">union</span> <span class="token punctuation">{</span>
+    BigView _bv<span class="token punctuation">;</span>  <span class="token comment">// _bv.magic 与 _sv.refs[0].offset 地址相同，小于 0 时表示 BigView</span>
+    SmallView _sv<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+
+<span class="token comment">// iobuf.cpp，看一下 append 的流程</span>
+<span class="token keyword">void</span> <span class="token class-name">IOBuf</span><span class="token operator">::</span><span class="token function">append</span><span class="token punctuation">(</span><span class="token keyword">const</span> IOBuf <span class="token operator">&amp;</span>other<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> size_t nref <span class="token operator">=</span> other<span class="token punctuation">.</span><span class="token function">_ref_num</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> nref<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">_push_back_ref</span><span class="token punctuation">(</span>other<span class="token punctuation">.</span><span class="token function">_ref_at</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 引用的 Block 数量</span>
+<span class="token keyword">inline</span> size_t <span class="token class-name">IOBuf</span><span class="token operator">::</span><span class="token function">_ref_num</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token function">_small</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">?</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token operator">!</span>_sv<span class="token punctuation">.</span>refs<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span>block <span class="token operator">+</span> <span class="token operator">!</span><span class="token operator">!</span>_sv<span class="token punctuation">.</span>refs<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">.</span>block<span class="token punctuation">)</span> <span class="token operator">:</span> _bv<span class="token punctuation">.</span>nref<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">void</span> <span class="token class-name">IOBuf</span><span class="token operator">::</span><span class="token function">_push_back_ref</span><span class="token punctuation">(</span><span class="token keyword">const</span> BlockRef <span class="token operator">&amp;</span>r<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">_small</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> _push_or_move_back_ref_to_smallview<span class="token operator">&lt;</span><span class="token boolean">false</span><span class="token operator">></span><span class="token punctuation">(</span>r<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> _push_or_move_back_ref_to_bigview<span class="token operator">&lt;</span><span class="token boolean">false</span><span class="token operator">></span><span class="token punctuation">(</span>r<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">bool</span> MOVE<span class="token operator">></span>
+<span class="token keyword">void</span> <span class="token class-name">IOBuf</span><span class="token operator">::</span><span class="token function">_push_or_move_back_ref_to_bigview</span><span class="token punctuation">(</span><span class="token keyword">const</span> BlockRef <span class="token operator">&amp;</span>r<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  BlockRef <span class="token operator">&amp;</span>back <span class="token operator">=</span> _bv<span class="token punctuation">.</span><span class="token function">ref_at</span><span class="token punctuation">(</span>_bv<span class="token punctuation">.</span>nref <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>back<span class="token punctuation">.</span>block <span class="token operator">==</span> r<span class="token punctuation">.</span>block <span class="token operator">&amp;&amp;</span> back<span class="token punctuation">.</span>offset <span class="token operator">+</span> back<span class="token punctuation">.</span>length <span class="token operator">==</span> r<span class="token punctuation">.</span>offset<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Merge ref</span>
+    back<span class="token punctuation">.</span>length <span class="token operator">+=</span> r<span class="token punctuation">.</span>length<span class="token punctuation">;</span>
+    _bv<span class="token punctuation">.</span>nbytes <span class="token operator">+=</span> r<span class="token punctuation">.</span>length<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>MOVE<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      r<span class="token punctuation">.</span>block<span class="token operator">-></span><span class="token function">dec_ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>_bv<span class="token punctuation">.</span>nref <span class="token operator">!=</span> _bv<span class="token punctuation">.</span><span class="token function">capacity</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// block 列表有容量的情况下，直接增加对该 block 的引用</span>
+    _bv<span class="token punctuation">.</span><span class="token function">ref_at</span><span class="token punctuation">(</span>_bv<span class="token punctuation">.</span>nref<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token operator">=</span> r<span class="token punctuation">;</span>
+    _bv<span class="token punctuation">.</span>nbytes <span class="token operator">+=</span> r<span class="token punctuation">.</span>length<span class="token punctuation">;</span>  <span class="token comment">// 长度叠加</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>MOVE<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      r<span class="token punctuation">.</span>block<span class="token operator">-></span><span class="token function">inc_ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token comment">// resize, don't modify bv until new_refs is fully assigned</span>
+  <span class="token comment">// 当前 block 列表容量不足，倍增申请</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> new_cap <span class="token operator">=</span> _bv<span class="token punctuation">.</span><span class="token function">capacity</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">*</span> <span class="token number">2</span><span class="token punctuation">;</span>
+  BlockRef <span class="token operator">*</span>new_refs <span class="token operator">=</span> iobuf<span class="token operator">::</span><span class="token function">acquire_blockref_array</span><span class="token punctuation">(</span>new_cap<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> _bv<span class="token punctuation">.</span>nref<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 复制原 block</span>
+    new_refs<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">=</span> _bv<span class="token punctuation">.</span><span class="token function">ref_at</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  new_refs<span class="token punctuation">[</span>_bv<span class="token punctuation">.</span>nref<span class="token operator">++</span><span class="token punctuation">]</span> <span class="token operator">=</span> r<span class="token punctuation">;</span>
+
+  <span class="token comment">// Change other variables</span>
+  _bv<span class="token punctuation">.</span>start <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token comment">// 删除原 block 列表</span>
+  iobuf<span class="token operator">::</span><span class="token function">release_blockref_array</span><span class="token punctuation">(</span>_bv<span class="token punctuation">.</span>refs<span class="token punctuation">,</span> _bv<span class="token punctuation">.</span><span class="token function">capacity</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  _bv<span class="token punctuation">.</span>refs <span class="token operator">=</span> new_refs<span class="token punctuation">;</span>
+  _bv<span class="token punctuation">.</span>cap_mask <span class="token operator">=</span> new_cap <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">;</span>
+  _bv<span class="token punctuation">.</span>nbytes <span class="token operator">+=</span> r<span class="token punctuation">.</span>length<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>MOVE<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    r<span class="token punctuation">.</span>block<span class="token operator">-></span><span class="token function">inc_ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Block 的实现</span>
+<span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">(</span><span class="token operator">*</span>blockmem_allocate<span class="token punctuation">)</span><span class="token punctuation">(</span>size_t<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token operator">::</span>malloc<span class="token punctuation">;</span>
+<span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>blockmem_deallocate<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token operator">::</span>free<span class="token punctuation">;</span>
+
+<span class="token keyword">const</span> <span class="token keyword">uint16_t</span> IOBUF_BLOCK_FLAGS_USER_DATA <span class="token operator">=</span> <span class="token number">0x1</span><span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> <span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>UserDataDeleter<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">UserDataExtension</span> <span class="token punctuation">{</span>
+  UserDataDeleter deleter<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">IOBuf</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Block</span></span> <span class="token punctuation">{</span>
+  butil<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> nshared<span class="token punctuation">;</span>  <span class="token comment">// 引用计数</span>
+  <span class="token keyword">uint16_t</span> flags<span class="token punctuation">;</span>  <span class="token comment">// 是否使用自定义 deleter，可以看下方的英文注释</span>
+  <span class="token keyword">uint16_t</span> abi_check<span class="token punctuation">;</span> <span class="token comment">// original cap, never be zero.</span>
+  <span class="token keyword">uint32_t</span> size<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> cap<span class="token punctuation">;</span>
+  Block <span class="token operator">*</span>portal_next<span class="token punctuation">;</span>
+  <span class="token comment">// When flag is 0, data points to `size` bytes starting at</span>
+  <span class="token comment">// `(char*)this+sizeof(Block)' When flag &amp; IOBUF_BLOCK_FLAGS_USER_DATA is</span>
+  <span class="token comment">// non-0, data points to the user data and the deleter is put in</span>
+  <span class="token comment">// UserDataExtension at `(char*)this+sizeof(Block)'</span>
+  <span class="token keyword">char</span> <span class="token operator">*</span>data<span class="token punctuation">;</span>
+
+  <span class="token function">Block</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>data_in<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> data_size<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">nshared</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">flags</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">abi_check</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">size</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">cap</span><span class="token punctuation">(</span>data_size<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">portal_next</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">data</span><span class="token punctuation">(</span>data_in<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    iobuf<span class="token operator">::</span>g_nblock<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    iobuf<span class="token operator">::</span>g_blockmem<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span>data_size <span class="token operator">+</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>Block<span class="token punctuation">)</span><span class="token punctuation">,</span>
+                                butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">Block</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>data_in<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> data_size<span class="token punctuation">,</span> UserDataDeleter deleter<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">nshared</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">flags</span><span class="token punctuation">(</span>IOBUF_BLOCK_FLAGS_USER_DATA<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">abi_check</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">size</span><span class="token punctuation">(</span>data_size<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">cap</span><span class="token punctuation">(</span>data_size<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">portal_next</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">data</span><span class="token punctuation">(</span>data_in<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">get_user_data_extension</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>deleter <span class="token operator">=</span> deleter<span class="token punctuation">;</span>  <span class="token comment">// 自定义 deleter</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Undefined behavior when (flags &amp; IOBUF_BLOCK_FLAGS_USER_DATA) is 0.</span>
+  UserDataExtension <span class="token operator">*</span><span class="token function">get_user_data_extension</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">char</span> <span class="token operator">*</span>p <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token keyword">this</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token punctuation">(</span>UserDataExtension <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">(</span>p <span class="token operator">+</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>Block<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 当前内存之后的 4 字节</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">inc_ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">check_abi</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    nshared<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">dec_ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">check_abi</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>nshared<span class="token punctuation">.</span><span class="token function">fetch_sub</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_release<span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      butil<span class="token operator">::</span><span class="token function">atomic_thread_fence</span><span class="token punctuation">(</span>butil<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>flags<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        iobuf<span class="token operator">::</span>g_nblock<span class="token punctuation">.</span><span class="token function">fetch_sub</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        iobuf<span class="token operator">::</span>g_blockmem<span class="token punctuation">.</span><span class="token function">fetch_sub</span><span class="token punctuation">(</span>cap <span class="token operator">+</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>Block<span class="token punctuation">)</span><span class="token punctuation">,</span>
+                                    butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">this</span><span class="token operator">-></span><span class="token operator">~</span><span class="token function">Block</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 调用析构函数，不删除内存</span>
+        iobuf<span class="token operator">::</span><span class="token function">blockmem_deallocate</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 删除内存</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>flags <span class="token operator">&amp;</span> IOBUF_BLOCK_FLAGS_USER_DATA<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">get_user_data_extension</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">deleter</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 执行自定义删除</span>
+        <span class="token keyword">this</span><span class="token operator">-></span><span class="token operator">~</span><span class="token function">Block</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">free</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">int</span> <span class="token function">ref_count</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> nshared<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token function">full</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> size <span class="token operator">>=</span> cap<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  size_t <span class="token function">left_space</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> cap <span class="token operator">-</span> size<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// 创建 block，同时存储 Block 对象和实际数据</span>
+<span class="token keyword">inline</span> IOBuf<span class="token operator">::</span>Block <span class="token operator">*</span><span class="token function">create_block</span><span class="token punctuation">(</span><span class="token keyword">const</span> size_t block_size<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>block_size <span class="token operator">></span> <span class="token number">0xFFFFFFFFULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"block_size="</span> <span class="token operator">&lt;&lt;</span> block_size <span class="token operator">&lt;&lt;</span> <span class="token string">" is too large"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">char</span> <span class="token operator">*</span>mem <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span><span class="token punctuation">)</span>iobuf<span class="token operator">::</span><span class="token function">blockmem_allocate</span><span class="token punctuation">(</span>block_size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>mem <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token keyword">new</span> <span class="token punctuation">(</span>mem<span class="token punctuation">)</span> <span class="token class-name">IOBuf</span><span class="token operator">::</span><span class="token function">Block</span><span class="token punctuation">(</span>mem <span class="token operator">+</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>IOBuf<span class="token operator">::</span>Block<span class="token punctuation">)</span><span class="token punctuation">,</span>
+                                block_size <span class="token operator">-</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>IOBuf<span class="token operator">::</span>Block<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 追加用户数据，所有权取决于传入的 deleter</span>
+<span class="token keyword">int</span> <span class="token class-name">IOBuf</span><span class="token operator">::</span><span class="token function">append_user_data</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span>data<span class="token punctuation">,</span> size_t size<span class="token punctuation">,</span> <span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>deleter<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>size <span class="token operator">></span> <span class="token number">0xFFFFFFFFULL</span> <span class="token operator">-</span> <span class="token number">100</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"data_size="</span> <span class="token operator">&lt;&lt;</span> size <span class="token operator">&lt;&lt;</span> <span class="token string">" is too large"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">char</span> <span class="token operator">*</span>mem <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token function">malloc</span><span class="token punctuation">(</span><span class="token keyword">sizeof</span><span class="token punctuation">(</span>IOBuf<span class="token operator">::</span>Block<span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>UserDataExtension<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>mem <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>deleter <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    deleter <span class="token operator">=</span> <span class="token operator">::</span>free<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  IOBuf<span class="token operator">::</span>Block <span class="token operator">*</span>b <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token punctuation">(</span>mem<span class="token punctuation">)</span> <span class="token class-name">IOBuf</span><span class="token operator">::</span><span class="token function">Block</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span><span class="token punctuation">)</span>data<span class="token punctuation">,</span> size<span class="token punctuation">,</span> deleter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> IOBuf<span class="token operator">::</span>BlockRef r <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">,</span> b<span class="token operator">-></span>cap<span class="token punctuation">,</span> b<span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token function">_move_back_ref</span><span class="token punctuation">(</span>r<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>IOBuf</code> 提供了丰富的字节流处理能力，整体代码也非常长，超过 3k 行。这里省略其他处理细节的分析了，有兴趣可以自行阅读。</p>
 <h3 id="references"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/memory_management.md">&quot;bRPC Memory Management&quot;, <em>incubator-brpc</em></a></li>
+<li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/iobuf.md">&quot;bRPC IOBuf&quot;, <em>incubator-brpc</em></a></li>
 </ol>
 
       </div>
