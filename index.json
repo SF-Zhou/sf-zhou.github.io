@@ -12,7 +12,7 @@
     "url_path": "/brpc/brpc_03_socket.html"
   },
   {
-    "title": "bRPC 源码分析「二、内存管理」",
+    "title": "bRPC 源码分析「二、资源管理」",
     "date": "2021.03.03",
     "author": "SF-Zhou",
     "tags": [

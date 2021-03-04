@@ -419,9 +419,7 @@ ssize_t <span class="token class-name">Socket</span><span class="token operator"
 <span class="token punctuation">}</span>
 </code></pre>
 <h3 id="3.-message-receiving"><a href="#3.-message-receiving">3. Message Receiving</a></h3>
-<blockquote>
-<p>WIP</p>
-</blockquote>
+<p>传统 RPC 框架一般通过独立的 IO 线程监听并读取连接上的数据，存在的问题是单一时间内一个线程只能读取一个连接，当多个繁忙的连接聚集在同一个 IO 线程中时，会导致部分的连接的读取被延迟，影响可用性。bRPC 中使用 <a href="https://github.com/brpc/brpc/blob/master/src/brpc/event_dispatcher.h">EventDispatcher</a> 监听连接是否可用，当连接可读时，会在当前线程启动一个新的 bthread 并立即切换过去执行读取操作，使其有更好的缓存局部性。而 EventDispatcher 所在的 bthread  会重新加入 bthread 的队列中，依赖 work stealing 继续在其他线程中执行。该方法使得 bRPC 读取同一个连接时产生的竞争是 <a href="http://en.wikipedia.org/wiki/Non-blocking_algorithm#Wait-freedom">wait-free</a> 的。当从连接上解析出多个数据包时，也会立即启动新的 bthread 并发处理这些数据包。这样连接间和连接内的消息在 bRPC 中都获得了并发处理，在高负载时仍能及时处理不同来源的消息，减少长尾。</p>
 <h3 id="references"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/io.md">&quot;bRPC IO&quot;, <em>incubator-brpc</em></a></li>

@@ -254,7 +254,7 @@ ContextualStack<span class="token operator">*</span> stk <span class="token oper
   <span class="token punctuation">}</span>
 
   <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">return_stack</span><span class="token punctuation">(</span>ContextualStack<span class="token operator">*</span> sc<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    <span class="token comment">// 对象池回收时会执行析构</span>
+    <span class="token comment">// 对象池回收时不会执行析构，申请的栈空间可以复用</span>
     butil<span class="token operator">::</span><span class="token function">return_object</span><span class="token punctuation">(</span><span class="token keyword">static_cast</span><span class="token operator">&lt;</span>Wrapper<span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>sc<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
