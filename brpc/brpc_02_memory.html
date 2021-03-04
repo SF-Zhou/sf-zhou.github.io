@@ -628,10 +628,311 @@ BAIDU_THREAD_LOCAL
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>IOBuf</code> 提供了丰富的字节流处理能力，整体代码也非常长，超过 3k 行。这里省略其他处理细节的分析了，有兴趣可以自行阅读。</p>
+<h3 id="4.-socket"><a href="#4.-socket">4. Socket</a></h3>
+<p>bRPC 中使用 <code>Socket</code> 来管理连接，并且使用了 64 位的 <code>SocketId</code> 来指代 <code>Socket</code> 对象方便在多线程下环境下使用连接。使用 Socket 时会用到以下数据结构：</p>
+<ol>
+<li><code>Socket</code> 对象本身；</li>
+<li><code>SocketUniquePtr</code>，实际上更像是 <code>std::shared_ptr</code>，析构时减少引用计数；</li>
+<li><code>SocketId</code>，带版本校验，使用上类似 <code>std::weak_ptr</code>。</li>
+</ol>
+<p>常用的方法有：</p>
+<ol>
+<li><code>Create</code>：创建 Socket 对象并返回 <code>SocketId</code>；</li>
+<li><code>Address</code>：获取 <code>SocketId</code> 对应的 <code>Socket</code> 对象，会返回一个 <code>SocketUniquePtr</code>；</li>
+<li><code>SetFailed</code>：标记一个 <code>Socket</code> 对象为失败，之后所有对该 <code>SocketId</code> 的 <code>Address</code> 操作会返回空指针，当 <code>Socket</code> 对象使用计数为 0 时触发回收。</li>
+</ol>
+<p>官方文档上也解释了为何设计地如此复杂（摘录自参考文献 3）：</p>
+<blockquote>
+<p>Socket 独有的 SetFailed 可以在需要时确保 Socket 不能被继续 Address 而最终引用计数归 0，单纯使用 shared_ptr/weak_ptr 则无法保证这点，当一个 server 需要退出时，如果请求仍频繁地到来，对应 Socket 的引用计数可能迟迟无法清 0 而导致 server 无法退出。另外 weak_ptr 无法直接作为 epoll 的 data，而 SocketId 可以。这些因素使我们设计了 Socket。</p>
+<p>存储 SocketUniquePtr 还是 SocketId 取决于是否需要强引用。像 Controller 贯穿了 RPC 的整个流程，和 Socket 中的数据有大量交互，它存放的是 SocketUniquePtr。epoll 主要是提醒对应 fd 上发生了事件，如果 Socket 回收了，那这个事件是可有可无的，所以它存放了 SocketId。</p>
+<p>由于 SocketUniquePtr 只要有效，其中的数据就不会变，这个机制使用户不用关心麻烦的 race conditon 和 ABA  problem，可以放心地对共享的 fd 进行操作。这种方法也规避了隐式的引用计数，内存的 ownership 明确，程序的质量有很好的保证。bRPC 中有大量的 SocketUniquePtr 和 SocketId，它们确实简化了我们的开发。</p>
+</blockquote>
+<p>部分理念需要等分析完 bRPC 全流程的代码后才能体会到了。先看 <code>Socket</code> 本身的实现：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">BAIDU_CACHELINE_ALIGNMENT</span> Socket <span class="token punctuation">{</span>
+  <span class="token keyword">struct</span> <span class="token class-name">Forbidden</span> <span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">Socket</span><span class="token punctuation">(</span>Forbidden<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 禁止用户直接构造，但 ResourcePool 又需要访问 public 的构造函数，私有的 Forbidden 可以实现这个 trick</span>
+
+  <span class="token comment">// Create a Socket according to `options', put the identifier into `id'.</span>
+  <span class="token comment">// Returns 0 on sucess, -1 otherwise.</span>
+  <span class="token keyword">static</span> <span class="token keyword">int</span> <span class="token function">Create</span><span class="token punctuation">(</span><span class="token keyword">const</span> SocketOptions <span class="token operator">&amp;</span>options<span class="token punctuation">,</span> SocketId <span class="token operator">*</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Place the Socket associated with identifier `id' into unique_ptr `ptr',</span>
+  <span class="token comment">// which will be released automatically when out of scope (w/o explicit</span>
+  <span class="token comment">// std::move). User can still access `ptr' after calling ptr->SetFailed()</span>
+  <span class="token comment">// before release of `ptr'.</span>
+  <span class="token comment">// This function is wait-free.</span>
+  <span class="token comment">// Returns 0 on success, -1 when the Socket was SetFailed().</span>
+  <span class="token keyword">static</span> <span class="token keyword">int</span> <span class="token function">Address</span><span class="token punctuation">(</span>SocketId id<span class="token punctuation">,</span> SocketUniquePtr <span class="token operator">*</span>ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Mark this Socket or the Socket associated with `id' as failed.</span>
+  <span class="token comment">// Any later Address() of the identifier shall return NULL unless the</span>
+  <span class="token comment">// Socket was revivied by HealthCheckThread. The Socket is NOT recycled</span>
+  <span class="token comment">// after calling this function, instead it will be recycled when no one</span>
+  <span class="token comment">// references it. Internal fields of the Socket are still accessible</span>
+  <span class="token comment">// after calling this function. Calling SetFailed() of a Socket more</span>
+  <span class="token comment">// than once is OK.</span>
+  <span class="token comment">// This function is lock-free.</span>
+  <span class="token comment">// Returns -1 when the Socket was already SetFailed(), 0 otherwise.</span>
+  <span class="token keyword">int</span> <span class="token function">SetFailed</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token comment">// unsigned 32-bit version + signed 32-bit referenced-count.</span>
+  <span class="token comment">// Meaning of version:</span>
+  <span class="token comment">// * Created version: no SetFailed() is called on the Socket yet. Must be</span>
+  <span class="token comment">//   same evenness with initial _versioned_ref because during lifetime of</span>
+  <span class="token comment">//   a Socket on the slot, the version is added with 1 twice. This is</span>
+  <span class="token comment">//   also the version encoded in SocketId.</span>
+  <span class="token comment">// * Failed version: = created version + 1, SetFailed()-ed but returned.</span>
+  <span class="token comment">// * Other versions: the socket is already recycled.</span>
+  <span class="token comment">// Socket 自身记录的版本+引用计数，首次构造对象时为 0</span>
+  butil<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span> _versioned_ref<span class="token punctuation">;</span>
+
+  <span class="token comment">// Flag used to mark whether additional reference has been decreased</span>
+  <span class="token comment">// by either `SetFailed' or `SetRecycle'</span>
+  <span class="token comment">// 回收标记</span>
+  butil<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">bool</span><span class="token operator">></span> _recycle_flag<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// SocketId = 32-bit version + 32-bit slot.</span>
+<span class="token comment">//   version: from version part of _versioned_nref, must be an EVEN number.</span>
+<span class="token comment">//   slot: designated by ResourcePool.</span>
+<span class="token keyword">int</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">Create</span><span class="token punctuation">(</span><span class="token keyword">const</span> SocketOptions <span class="token operator">&amp;</span>options<span class="token punctuation">,</span> SocketId <span class="token operator">*</span>id<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  butil<span class="token operator">::</span>ResourceId<span class="token operator">&lt;</span>Socket<span class="token operator">></span> slot<span class="token punctuation">;</span>  <span class="token comment">// 接收返回的资源 ID</span>
+  Socket <span class="token operator">*</span><span class="token keyword">const</span> m <span class="token operator">=</span> butil<span class="token operator">::</span><span class="token function">get_resource</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>slot<span class="token punctuation">,</span> <span class="token function">Forbidden</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to get_resource&lt;Socket>"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  g_vars<span class="token operator">-></span>nsocket <span class="token operator">&lt;&lt;</span> <span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token constant">NULL</span> <span class="token operator">==</span> m<span class="token operator">-></span>_shared_part<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token comment">// nref can be non-zero due to concurrent AddressSocket().</span>
+  <span class="token comment">// _this_id will only be used in destructor/Destroy of referenced</span>
+  <span class="token comment">// slots, which is safe and properly fenced. Although it's better</span>
+  <span class="token comment">// to put the id into SocketUniquePtr.</span>
+  <span class="token comment">// 构造 SocketId，_versioned_ref 引用计数加 1，首次构造时版本为 0</span>
+  m<span class="token operator">-></span>_this_id <span class="token operator">=</span> <span class="token function">MakeSocketId</span><span class="token punctuation">(</span><span class="token function">VersionOfVRef</span><span class="token punctuation">(</span>m<span class="token operator">-></span>_versioned_ref<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span>
+                                 <span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_release<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                             slot<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token operator">*</span>id <span class="token operator">=</span> m<span class="token operator">-></span>_this_id<span class="token punctuation">;</span>  <span class="token comment">// 返回 socket id</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Utility functions to combine and extract SocketId.</span>
+BUTIL_FORCE_INLINE SocketId <span class="token function">MakeSocketId</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> version<span class="token punctuation">,</span>
+                                         butil<span class="token operator">::</span>ResourceId<span class="token operator">&lt;</span>Socket<span class="token operator">></span> slot<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token function">SocketId</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">)</span>version<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token number">32</span><span class="token punctuation">)</span> <span class="token operator">|</span> slot<span class="token punctuation">.</span>value<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Utility functions to combine and extract Socket::_versioned_ref</span>
+BUTIL_FORCE_INLINE <span class="token keyword">uint32_t</span> <span class="token function">VersionOfVRef</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> vref<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span><span class="token punctuation">)</span><span class="token punctuation">(</span>vref <span class="token operator">>></span> <span class="token number">32</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+BUTIL_FORCE_INLINE butil<span class="token operator">::</span>ResourceId<span class="token operator">&lt;</span>Socket<span class="token operator">></span> <span class="token function">SlotOfSocketId</span><span class="token punctuation">(</span>SocketId sid<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  butil<span class="token operator">::</span>ResourceId<span class="token operator">&lt;</span>Socket<span class="token operator">></span> id <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token punctuation">(</span>sid <span class="token operator">&amp;</span> <span class="token number">0xFFFFFFFFul</span><span class="token punctuation">)</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> id<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+BUTIL_FORCE_INLINE <span class="token keyword">int32_t</span> <span class="token function">NRefOfVRef</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> vref<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token keyword">int32_t</span><span class="token punctuation">)</span><span class="token punctuation">(</span>vref <span class="token operator">&amp;</span> <span class="token number">0xFFFFFFFFul</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">int</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">Address</span><span class="token punctuation">(</span>SocketId id<span class="token punctuation">,</span> SocketUniquePtr <span class="token operator">*</span>ptr<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// 解析 ResourceId</span>
+  <span class="token keyword">const</span> butil<span class="token operator">::</span>ResourceId<span class="token operator">&lt;</span>Socket<span class="token operator">></span> slot <span class="token operator">=</span> <span class="token function">SlotOfSocketId</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">// 获取对象地址</span>
+  Socket <span class="token operator">*</span><span class="token keyword">const</span> m <span class="token operator">=</span> <span class="token function">address_resource</span><span class="token punctuation">(</span>slot<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">__builtin_expect</span><span class="token punctuation">(</span>m <span class="token operator">!=</span> <span class="token constant">NULL</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// acquire fence makes sure this thread sees latest changes before</span>
+    <span class="token comment">// Dereference() or Revive().</span>
+    <span class="token comment">// 引用计数 +1，注意这里返回的 vref1 是自增前的 _versioned_ref</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> vref1 <span class="token operator">=</span>
+        m<span class="token operator">-></span>_versioned_ref<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// 获取版本</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> ver1 <span class="token operator">=</span> <span class="token function">VersionOfVRef</span><span class="token punctuation">(</span>vref1<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>ver1 <span class="token operator">==</span> <span class="token function">VersionOfSocketId</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 版本与 SocketId 的版本一致则返回成功</span>
+      ptr<span class="token operator">-></span><span class="token function">reset</span><span class="token punctuation">(</span>m<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 版本不一致，恢复引用计数，返回的 vref2 是前面自增后的 _versioned_ref</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> vref2 <span class="token operator">=</span>
+        m<span class="token operator">-></span>_versioned_ref<span class="token punctuation">.</span><span class="token function">fetch_sub</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_release<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// 取出引用数量</span>
+    <span class="token keyword">const</span> <span class="token keyword">int32_t</span> nref <span class="token operator">=</span> <span class="token function">NRefOfVRef</span><span class="token punctuation">(</span>vref2<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>nref <span class="token operator">></span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">__builtin_expect</span><span class="token punctuation">(</span>nref <span class="token operator">==</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 无引用，再次读取版本</span>
+      <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> ver2 <span class="token operator">=</span> <span class="token function">VersionOfVRef</span><span class="token punctuation">(</span>vref2<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token comment">// 如果版本是奇数，说明刚进行了 SetFailed 操作</span>
+      <span class="token comment">// 并且当前无引用，触发 socket 回收</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>ver2 <span class="token operator">&amp;</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>ver1 <span class="token operator">==</span> ver2 <span class="token operator">||</span> ver1 <span class="token operator">+</span> <span class="token number">1</span> <span class="token operator">==</span> ver2<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">uint64_t</span> expected_vref <span class="token operator">=</span> vref2 <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">;</span>  <span class="token comment">// 自减后 _versioned_ref 的理论值</span>
+          <span class="token comment">// 尝试 CAS，原子地将 _versioned_ref 替换为版本 id_ver + 2，计数 0</span>
+          <span class="token keyword">if</span> <span class="token punctuation">(</span>m<span class="token operator">-></span>_versioned_ref<span class="token punctuation">.</span><span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>
+                  expected_vref<span class="token punctuation">,</span> <span class="token function">MakeVRef</span><span class="token punctuation">(</span>ver2 <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                  butil<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token comment">// 成功 CAS 后，执行回收</span>
+            m<span class="token operator">-></span><span class="token function">OnRecycle</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 执行实际的回收操作</span>
+            <span class="token function">return_resource</span><span class="token punctuation">(</span><span class="token function">SlotOfSocketId</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+          <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"ref-version="</span> <span class="token operator">&lt;&lt;</span> ver1 <span class="token operator">&lt;&lt;</span> <span class="token string">" unref-version="</span> <span class="token operator">&lt;&lt;</span> ver2<span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token function">CHECK_EQ</span><span class="token punctuation">(</span>ver1<span class="token punctuation">,</span> ver2<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">// Addressed a free slot.</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Over dereferenced SocketId="</span> <span class="token operator">&lt;&lt;</span> id<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">SetFailed</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">SetFailed</span><span class="token punctuation">(</span>EFAILEDSOCKET<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">SetFailed</span><span class="token punctuation">(</span><span class="token keyword">int</span> error_code<span class="token punctuation">,</span> <span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>error_fmt<span class="token punctuation">,</span> <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>error_code <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"error_code is 0"</span><span class="token punctuation">;</span>
+    error_code <span class="token operator">=</span> EFAILEDSOCKET<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_ver <span class="token operator">=</span> <span class="token function">VersionOfSocketId</span><span class="token punctuation">(</span>_this_id<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 获取 socket id 上的版本</span>
+  <span class="token keyword">uint64_t</span> vref <span class="token operator">=</span> _versioned_ref<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token punctuation">;</span><span class="token punctuation">;</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token comment">// need iteration to retry compare_exchange_strong</span>
+    <span class="token comment">// version_ref 的版本与 socket id 的版本不一致，返回失败</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">VersionOfVRef</span><span class="token punctuation">(</span>vref<span class="token punctuation">)</span> <span class="token operator">!=</span> id_ver<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">// Try to set version=id_ver+1 (to make later Address() return NULL),</span>
+    <span class="token comment">// retry on fail.</span>
+    <span class="token comment">// 尝试 CAS，原子地将 _version_ref 替换为版本 id_ver + 1，计数不变</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>_versioned_ref<span class="token punctuation">.</span><span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>
+            vref<span class="token punctuation">,</span> <span class="token function">MakeVRef</span><span class="token punctuation">(</span>id_ver <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token function">NRefOfVRef</span><span class="token punctuation">(</span>vref<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            butil<span class="token operator">::</span>memory_order_release<span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// CAS 成功后，原先的 socket id Address 操作会因为版本校验而失败</span>
+      <span class="token comment">// _version_ref 的版本也会修改为一个**奇数**</span>
+      <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+
+      <span class="token comment">// Deref additionally which is added at creation so that this</span>
+      <span class="token comment">// Socket's reference will hit 0(recycle) when no one addresses it.</span>
+      <span class="token function">ReleaseAdditionalReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token comment">// NOTE: This Socket may be recycled at this point, don't</span>
+      <span class="token comment">// touch anything.</span>
+      <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">ReleaseAdditionalReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">bool</span> expect <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token comment">// Use `relaxed' fence here since `Dereference' has `released' fence</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>_recycle_flag<span class="token punctuation">.</span><span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>expect<span class="token punctuation">,</span> <span class="token boolean">true</span><span class="token punctuation">,</span>
+                                            butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">,</span>
+                                            butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">Dereference</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 引用计数 -1</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>每次 <code>SocketUniquePtr</code> 析构时，会调用 <code>DereferenceSocket</code> 减少引用计数，当引用计数为 0 时回收 <code>Socket</code> 对象。中间 <code>SetFailed</code> 与 <code>Address</code> 操作并发时会产生一些计数的特殊情况，需要特殊处理，这里可以仔细思考下。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// socket_id.h</span>
+<span class="token keyword">typedef</span> <span class="token keyword">uint64_t</span> SocketId<span class="token punctuation">;</span>
+
+<span class="token keyword">const</span> SocketId INVALID_SOCKET_ID <span class="token operator">=</span> <span class="token punctuation">(</span>SocketId<span class="token punctuation">)</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">Socket</span><span class="token punctuation">;</span>
+
+<span class="token keyword">extern</span> <span class="token keyword">void</span> <span class="token function">DereferenceSocket</span><span class="token punctuation">(</span>Socket <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">SocketDeleter</span> <span class="token punctuation">{</span>
+  <span class="token keyword">void</span> <span class="token keyword">operator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">(</span>Socket <span class="token operator">*</span>m<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token function">DereferenceSocket</span><span class="token punctuation">(</span>m<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// RAII，析构时执行 SocketDeleter() -> DereferenceSocket</span>
+<span class="token keyword">typedef</span> std<span class="token operator">::</span>unique_ptr<span class="token operator">&lt;</span>Socket<span class="token punctuation">,</span> SocketDeleter<span class="token operator">></span> SocketUniquePtr<span class="token punctuation">;</span>
+
+<span class="token comment">// socket.cpp</span>
+<span class="token keyword">void</span> <span class="token function">DereferenceSocket</span><span class="token punctuation">(</span>Socket <span class="token operator">*</span>s<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>s<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 减少引用计数</span>
+    s<span class="token operator">-></span><span class="token function">Dereference</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">int</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">Dereference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> SocketId id <span class="token operator">=</span> _this_id<span class="token punctuation">;</span>
+  <span class="token comment">// 引用计数 -1</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> vref <span class="token operator">=</span>
+      _versioned_ref<span class="token punctuation">.</span><span class="token function">fetch_sub</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_release<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">int32_t</span> nref <span class="token operator">=</span> <span class="token function">NRefOfVRef</span><span class="token punctuation">(</span>vref<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 获得计数的值</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>nref <span class="token operator">></span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 存在其他引用，直接返回</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">__builtin_expect</span><span class="token punctuation">(</span>nref <span class="token operator">==</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 无引用，需要回收</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> ver <span class="token operator">=</span> <span class="token function">VersionOfVRef</span><span class="token punctuation">(</span>vref<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 获取 version_ref 上的版本</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_ver <span class="token operator">=</span> <span class="token function">VersionOfSocketId</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 获取 socket id 上的版本</span>
+    <span class="token comment">// SetFailed 与 Address 并发时对特殊情况的处理，可以自行看英文注释</span>
+    <span class="token comment">// Besides first successful SetFailed() adds 1 to version, one of</span>
+    <span class="token comment">// those dereferencing nref from 1->0 adds another 1 to version.</span>
+    <span class="token comment">// Notice "one of those": The wait-free Address() may make ref of a</span>
+    <span class="token comment">// version-unmatched slot change from 1 to 0 for mutiple times, we</span>
+    <span class="token comment">// have to use version as a guard variable to prevent returning the</span>
+    <span class="token comment">// Socket to pool more than once.</span>
+    <span class="token comment">//</span>
+    <span class="token comment">// Note: `ver == id_ver' means this socket has been `SetRecycle'</span>
+    <span class="token comment">// before rather than `SetFailed'; `ver == ide_ver+1' means we</span>
+    <span class="token comment">// had `SetFailed' this socket before. We should destroy the</span>
+    <span class="token comment">// socket under both situation</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">__builtin_expect</span><span class="token punctuation">(</span>ver <span class="token operator">==</span> id_ver <span class="token operator">||</span> ver <span class="token operator">==</span> id_ver <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// sees nref:1->0, try to set version=id_ver+2,--nref.</span>
+      <span class="token comment">// No retry: if version changes, the slot is already returned by</span>
+      <span class="token comment">// another one who sees nref:1->0 concurrently; if nref changes,</span>
+      <span class="token comment">// which must be non-zero, the slot will be returned when</span>
+      <span class="token comment">// nref changes from 1->0 again.</span>
+      <span class="token comment">// Example:</span>
+      <span class="token comment">//   SetFailed(): --nref, sees nref:1->0           (1)</span>
+      <span class="token comment">//                try to set version=id_ver+2      (2)</span>
+      <span class="token comment">//    Address():  ++nref, unmatched version        (3)</span>
+      <span class="token comment">//                --nref, sees nref:1->0           (4)</span>
+      <span class="token comment">//                try to set version=id_ver+2      (5)</span>
+      <span class="token comment">// 1,2,3,4,5 or 1,3,4,2,5:</span>
+      <span class="token comment">//            SetFailed() succeeds, Address() fails at (5).</span>
+      <span class="token comment">// 1,3,2,4,5: SetFailed() fails with (2), the slot will be</span>
+      <span class="token comment">//            returned by (5) of Address()</span>
+      <span class="token comment">// 1,3,4,5,2: SetFailed() fails with (2), the slot is already</span>
+      <span class="token comment">//            returned by (5) of Address().</span>
+      <span class="token keyword">uint64_t</span> expected_vref <span class="token operator">=</span> vref <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>_versioned_ref<span class="token punctuation">.</span><span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>
+              expected_vref<span class="token punctuation">,</span> <span class="token function">MakeVRef</span><span class="token punctuation">(</span>id_ver <span class="token operator">+</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+              butil<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">OnRecycle</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 执行实际的回收操作</span>
+        <span class="token function">return_resource</span><span class="token punctuation">(</span><span class="token function">SlotOfSocketId</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">return</span> <span class="token number">1</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Invalid SocketId="</span> <span class="token operator">&lt;&lt;</span> id<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Over dereferenced SocketId="</span> <span class="token operator">&lt;&lt;</span> id<span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
 <h3 id="references"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/memory_management.md">&quot;bRPC Memory Management&quot;, <em>incubator-brpc</em></a></li>
 <li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/iobuf.md">&quot;bRPC IOBuf&quot;, <em>incubator-brpc</em></a></li>
+<li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/io.md">&quot;bRPC IO&quot;, <em>incubator-brpc</em></a></li>
 </ol>
 
       </div>
