@@ -232,6 +232,7 @@ ssize_t <span class="token class-name">IOBuf</span><span class="token operator">
     <span class="token keyword">if</span> <span class="token punctuation">(</span>req<span class="token operator">-></span>next <span class="token operator">!=</span> <span class="token constant">NULL</span> <span class="token operator">&amp;&amp;</span> req<span class="token operator">-></span>data<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
       WriteRequest <span class="token operator">*</span><span class="token keyword">const</span> saved_req <span class="token operator">=</span> req<span class="token punctuation">;</span>
       req <span class="token operator">=</span> req<span class="token operator">-></span>next<span class="token punctuation">;</span>
+      <span class="token comment">// 已经写完的包及时从链表中剔除，并回复</span>
       s<span class="token operator">-></span><span class="token function">ReturnSuccessfulWriteRequest</span><span class="token punctuation">(</span>saved_req<span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
     <span class="token keyword">const</span> ssize_t nw <span class="token operator">=</span> s<span class="token operator">-></span><span class="token function">DoWrite</span><span class="token punctuation">(</span>req<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 尝试执行写入</span>
@@ -412,12 +413,15 @@ ssize_t <span class="token class-name">Socket</span><span class="token operator"
   <span class="token keyword">for</span> <span class="token punctuation">(</span>WriteRequest <span class="token operator">*</span>q <span class="token operator">=</span> tail<span class="token punctuation">;</span> q<span class="token punctuation">;</span> q <span class="token operator">=</span> q<span class="token operator">-></span>next<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     q<span class="token operator">-></span><span class="token function">Setup</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
+  <span class="token comment">// 链表翻转完成后，头部是 old_head，尾部是 new_head，new_head 指向 NULL</span>
+  <span class="token comment">// 这一段将会在下次写入时批量完成</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>new_tail<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token operator">*</span>new_tail <span class="token operator">=</span> new_head<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
   <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
+<figure tabindex="2"><a href="../images/453c1a23d92766864abfb955acd6eba3.svg"><img src="../images/453c1a23d92766864abfb955acd6eba3.svg" alt=""></a><figcaption>写入请求链表示意图</figcaption></figure>
 <h3 id="3.-message-receiving"><a href="#3.-message-receiving">3. Message Receiving</a></h3>
 <p>传统 RPC 框架一般通过独立的 IO 线程监听并读取连接上的数据，存在的问题是单一时间内一个线程只能读取一个连接，当多个繁忙的连接聚集在同一个 IO 线程中时，会导致部分的连接的读取被延迟，影响可用性。bRPC 中使用 <code>EventDispatcher</code> 监听连接是否可用，当连接可读时，会在当前线程启动一个新的 bthread 并立即切换过去执行读取操作，使其有更好的缓存局部性。而 <code>EventDispatcher</code> 所在的 bthread  会重新加入 bthread 的队列中，依赖 work stealing 继续在其他线程中执行。该方法使得 bRPC 读取同一个连接时产生的竞争是 <a href="http://en.wikipedia.org/wiki/Non-blocking_algorithm#Wait-freedom">wait-free</a> 的。当从连接上解析出多个数据包时，也会立即启动新的 bthread 并发处理这些数据包。这样连接间和连接内的消息在 bRPC 中都获得了并发处理，在高负载时仍能及时处理不同来源的消息，减少长尾。</p>
 <p>先来看 <code>EventDispatcher</code> 的代码（仅保留 Linux 平台实现）：</p>

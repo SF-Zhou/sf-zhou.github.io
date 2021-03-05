@@ -5,8 +5,7 @@
     "author": "SF-Zhou",
     "tags": [
       "bRPC",
-      "C++",
-      "WIP"
+      "C++"
     ],
     "filename": "brpc_03_socket",
     "url_path": "/brpc/brpc_03_socket.html"
