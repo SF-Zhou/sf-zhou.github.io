@@ -1090,6 +1090,7 @@ BUTIL_FORCE_INLINE <span class="token keyword">int</span>
   <span class="token comment">// TaskGroup::interrupt() no-op, there's no race between following code and</span>
   <span class="token comment">// the two functions. The on-stack ButexBthreadWaiter is safe to use and</span>
   <span class="token comment">// bw->waiter_state will not change again.</span>
+  <span class="token comment">// 如果没有成功 wait，则清理定时器，并切回原协程</span>
   <span class="token function">unsleep_if_necessary</span><span class="token punctuation">(</span>bw<span class="token punctuation">,</span> <span class="token function">get_global_timer_thread</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   tls_task_group<span class="token operator">-></span><span class="token function">ready_to_run</span><span class="token punctuation">(</span>bw<span class="token operator">-></span>tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token comment">// FIXME: jump back to original thread is buggy.</span>

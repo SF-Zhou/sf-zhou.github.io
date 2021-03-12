@@ -166,7 +166,7 @@
 <span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token operator">::</span><span class="token function">ready_to_run</span><span class="token punctuation">(</span>bthread_t tid<span class="token punctuation">,</span> <span class="token keyword">bool</span> nosignal<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token function">push_rq</span><span class="token punctuation">(</span>tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>nosignal<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    <span class="token operator">++</span>_num_nosignal<span class="token punctuation">;</span>
+    <span class="token operator">++</span>_num_nosignal<span class="token punctuation">;</span>  <span class="token comment">// 对于设定了不触发信号的任务，仅增加计数</span>
   <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
     <span class="token keyword">const</span> <span class="token keyword">int</span> additional_signal <span class="token operator">=</span> _num_nosignal<span class="token punctuation">;</span>
     _num_nosignal <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
@@ -174,6 +174,50 @@
     <span class="token comment">// 调用 signal_task 唤醒</span>
     _control<span class="token operator">-></span><span class="token function">signal_task</span><span class="token punctuation">(</span><span class="token number">1</span> <span class="token operator">+</span> additional_signal<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 将还没有触发信号的任务统一触发信号（工作线程内调用）</span>
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token operator">::</span><span class="token function">flush_nosignal_tasks</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> val <span class="token operator">=</span> _num_nosignal<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>val<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    _num_nosignal <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    _nsignaled <span class="token operator">+=</span> val<span class="token punctuation">;</span>
+    _control<span class="token operator">-></span><span class="token function">signal_task</span><span class="token punctuation">(</span>val<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 从工作线程外提交任务</span>
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token operator">::</span><span class="token function">ready_to_run_remote</span><span class="token punctuation">(</span>bthread_t tid<span class="token punctuation">,</span> <span class="token keyword">bool</span> nosignal<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  _remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 加锁</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token operator">!</span>_remote_rq<span class="token punctuation">.</span><span class="token function">push_locked</span><span class="token punctuation">(</span>tid<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">flush_nosignal_tasks_remote_locked</span><span class="token punctuation">(</span>_remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LOG_EVERY_SECOND</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"_remote_rq is full, capacity="</span>
+                            <span class="token operator">&lt;&lt;</span> _remote_rq<span class="token punctuation">.</span><span class="token function">capacity</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token operator">::</span><span class="token function">usleep</span><span class="token punctuation">(</span><span class="token number">1000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    _remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>nosignal<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token operator">++</span>_remote_num_nosignal<span class="token punctuation">;</span>
+    _remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> <span class="token keyword">int</span> additional_signal <span class="token operator">=</span> _remote_num_nosignal<span class="token punctuation">;</span>
+    _remote_num_nosignal <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    _remote_nsignaled <span class="token operator">+=</span> <span class="token number">1</span> <span class="token operator">+</span> additional_signal<span class="token punctuation">;</span>
+    _remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 锁的生命周期内也保护了计数相关变量</span>
+    _control<span class="token operator">-></span><span class="token function">signal_task</span><span class="token punctuation">(</span><span class="token number">1</span> <span class="token operator">+</span> additional_signal<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token operator">::</span><span class="token function">flush_nosignal_tasks_remote_locked</span><span class="token punctuation">(</span>butil<span class="token operator">::</span>Mutex<span class="token operator">&amp;</span> locked_mutex<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> val <span class="token operator">=</span> _remote_num_nosignal<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>val<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    locked_mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  _remote_num_nosignal <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  _remote_nsignaled <span class="token operator">+=</span> val<span class="token punctuation">;</span>
+  locked_mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  _control<span class="token operator">-></span><span class="token function">signal_task</span><span class="token punctuation">(</span>val<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
 <h3 id="2.-task-runner"><a href="#2.-task-runner">2. Task Runner</a></h3>
