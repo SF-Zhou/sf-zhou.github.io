@@ -791,106 +791,8 @@ EventDispatcher <span class="token operator">&amp;</span><span class="token func
   <span class="token keyword">return</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<p><code>_on_edge_triggered_events</code> 有 <code>OnNewConnections</code> 和 <code>OnNewMessages</code> 两种取值，前者负责处理新连接，后者负责收消息。</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// acceptor.cpp</span>
-<span class="token comment">// 处理新连接</span>
-<span class="token keyword">void</span> <span class="token class-name">Acceptor</span><span class="token operator">::</span><span class="token function">OnNewConnections</span><span class="token punctuation">(</span>Socket <span class="token operator">*</span>acception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  <span class="token keyword">int</span> progress <span class="token operator">=</span> Socket<span class="token operator">::</span>PROGRESS_INIT<span class="token punctuation">;</span>
-  <span class="token keyword">do</span> <span class="token punctuation">{</span>
-    <span class="token function">OnNewConnectionsUntilEAGAIN</span><span class="token punctuation">(</span>acception<span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token keyword">if</span> <span class="token punctuation">(</span>acception<span class="token operator">-></span><span class="token function">Failed</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      <span class="token keyword">return</span><span class="token punctuation">;</span>
-    <span class="token punctuation">}</span>
-  <span class="token punctuation">}</span> <span class="token keyword">while</span> <span class="token punctuation">(</span>acception<span class="token operator">-></span><span class="token function">MoreReadEvents</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>progress<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 如果没有新的连接，bthread 退出</span>
-<span class="token punctuation">}</span>
-
-<span class="token keyword">void</span> <span class="token class-name">Acceptor</span><span class="token operator">::</span><span class="token function">OnNewConnectionsUntilEAGAIN</span><span class="token punctuation">(</span>Socket <span class="token operator">*</span>acception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    <span class="token keyword">struct</span> <span class="token class-name">sockaddr</span> in_addr<span class="token punctuation">;</span>
-    socklen_t in_len <span class="token operator">=</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>in_addr<span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token comment">// 尝试 accept</span>
-    butil<span class="token operator">::</span>fd_guard <span class="token function">in_fd</span><span class="token punctuation">(</span><span class="token function">accept</span><span class="token punctuation">(</span>acception<span class="token operator">-></span><span class="token function">fd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>in_addr<span class="token punctuation">,</span> <span class="token operator">&amp;</span>in_len<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token keyword">if</span> <span class="token punctuation">(</span>in_fd <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      <span class="token comment">// no EINTR because listened fd is non-blocking.</span>
-      <span class="token keyword">if</span> <span class="token punctuation">(</span>errno <span class="token operator">==</span> EAGAIN<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-        <span class="token keyword">return</span><span class="token punctuation">;</span>
-      <span class="token punctuation">}</span>
-      <span class="token comment">// Do NOT return -1 when `accept' failed, otherwise `_listened_fd'</span>
-      <span class="token comment">// will be closed. Continue to consume all the events until EAGAIN</span>
-      <span class="token comment">// instead.</span>
-      <span class="token comment">// If the accept was failed, the error may repeat constantly,</span>
-      <span class="token comment">// limit frequency of logging.</span>
-      <span class="token function">PLOG_EVERY_SECOND</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span>
-          <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to accept from listened_fd="</span> <span class="token operator">&lt;&lt;</span> acception<span class="token operator">-></span><span class="token function">fd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-      <span class="token keyword">continue</span><span class="token punctuation">;</span>
-    <span class="token punctuation">}</span>
-
-    Acceptor <span class="token operator">*</span>am <span class="token operator">=</span> <span class="token keyword">dynamic_cast</span><span class="token operator">&lt;</span>Acceptor <span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>acception<span class="token operator">-></span><span class="token function">user</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token constant">NULL</span> <span class="token operator">==</span> am<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Impossible! acception->user() MUST be Acceptor"</span><span class="token punctuation">;</span>
-      acception<span class="token operator">-></span><span class="token function">SetFailed</span><span class="token punctuation">(</span>EINVAL<span class="token punctuation">,</span>
-                           <span class="token string">"Impossible! acception->user() MUST be Acceptor"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-      <span class="token keyword">return</span><span class="token punctuation">;</span>
-    <span class="token punctuation">}</span>
-
-    <span class="token comment">// 使用 in_fd 建立新连接</span>
-    SocketId socket_id<span class="token punctuation">;</span>
-    SocketOptions options<span class="token punctuation">;</span>
-    options<span class="token punctuation">.</span>keytable_pool <span class="token operator">=</span> am<span class="token operator">-></span>_keytable_pool<span class="token punctuation">;</span>
-    options<span class="token punctuation">.</span>fd <span class="token operator">=</span> in_fd<span class="token punctuation">;</span>
-    options<span class="token punctuation">.</span>remote_side <span class="token operator">=</span> butil<span class="token operator">::</span><span class="token function">EndPoint</span><span class="token punctuation">(</span><span class="token operator">*</span><span class="token punctuation">(</span>sockaddr_in <span class="token operator">*</span><span class="token punctuation">)</span><span class="token operator">&amp;</span>in_addr<span class="token punctuation">)</span><span class="token punctuation">;</span>
-    options<span class="token punctuation">.</span>user <span class="token operator">=</span> acception<span class="token operator">-></span><span class="token function">user</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    options<span class="token punctuation">.</span>on_edge_triggered_events <span class="token operator">=</span> InputMessenger<span class="token operator">::</span>OnNewMessages<span class="token punctuation">;</span>
-    options<span class="token punctuation">.</span>initial_ssl_ctx <span class="token operator">=</span> am<span class="token operator">-></span>_ssl_ctx<span class="token punctuation">;</span>
-    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">Create</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> <span class="token operator">&amp;</span>socket_id<span class="token punctuation">)</span> <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      <span class="token function">LOG</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to create Socket"</span><span class="token punctuation">;</span>
-      <span class="token keyword">continue</span><span class="token punctuation">;</span>
-    <span class="token punctuation">}</span>
-    in_fd<span class="token punctuation">.</span><span class="token function">release</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token comment">// transfer ownership to socket_id</span>
-
-    <span class="token comment">// There's a funny race condition here. After Socket::Create, messages</span>
-    <span class="token comment">// from the socket are already handled and a RPC is possibly done</span>
-    <span class="token comment">// before the socket is added into _socket_map below. This is found in</span>
-    <span class="token comment">// ChannelTest.skip_parallel in test/brpc_channel_unittest.cpp (running</span>
-    <span class="token comment">// on machines with few cores) where the _messenger.ConnectionCount()</span>
-    <span class="token comment">// may surprisingly be 0 even if the RPC is already done.</span>
-
-    SocketUniquePtr sock<span class="token punctuation">;</span>
-    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">AddressFailedAsWell</span><span class="token punctuation">(</span>socket_id<span class="token punctuation">,</span> <span class="token operator">&amp;</span>sock<span class="token punctuation">)</span> <span class="token operator">>=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      <span class="token keyword">bool</span> is_running <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
-      <span class="token punctuation">{</span>
-        <span class="token function">BAIDU_SCOPED_LOCK</span><span class="token punctuation">(</span>am<span class="token operator">-></span>_map_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
-        is_running <span class="token operator">=</span> <span class="token punctuation">(</span>am<span class="token operator">-></span><span class="token function">status</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> RUNNING<span class="token punctuation">)</span><span class="token punctuation">;</span>
-        <span class="token comment">// Always add this socket into `_socket_map' whether it</span>
-        <span class="token comment">// has been `SetFailed' or not, whether `Acceptor' is</span>
-        <span class="token comment">// running or not. Otherwise, `Acceptor::BeforeRecycle'</span>
-        <span class="token comment">// may be called (inside Socket::OnRecycle) after `Acceptor'</span>
-        <span class="token comment">// has been destroyed</span>
-        am<span class="token operator">-></span>_socket_map<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span>socket_id<span class="token punctuation">,</span> <span class="token function">ConnectStatistics</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-      <span class="token punctuation">}</span>
-      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>is_running<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-        <span class="token function">LOG</span><span class="token punctuation">(</span>WARNING<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Acceptor on fd="</span> <span class="token operator">&lt;&lt;</span> acception<span class="token operator">-></span><span class="token function">fd</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-                     <span class="token operator">&lt;&lt;</span> <span class="token string">" has been stopped, discard newly created "</span> <span class="token operator">&lt;&lt;</span> <span class="token operator">*</span>sock<span class="token punctuation">;</span>
-        sock<span class="token operator">-></span><span class="token function">SetFailed</span><span class="token punctuation">(</span>ELOGOFF<span class="token punctuation">,</span>
-                        <span class="token string">"Acceptor on fd=%d has been stopped, "</span>
-                        <span class="token string">"discard newly created %s"</span><span class="token punctuation">,</span>
-                        acception<span class="token operator">-></span><span class="token function">fd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> sock<span class="token operator">-></span><span class="token function">description</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-        <span class="token keyword">return</span><span class="token punctuation">;</span>
-      <span class="token punctuation">}</span>
-    <span class="token punctuation">}</span> <span class="token comment">// else: The socket has already been destroyed, Don't add its id</span>
-      <span class="token comment">// into _socket_map</span>
-  <span class="token punctuation">}</span>
-<span class="token punctuation">}</span>
-
-<span class="token comment">// 检查是否有新的读取事件</span>
-<span class="token comment">// OnNewConnections CAS 失败的话意味着有新的连接</span>
-<span class="token keyword">inline</span> <span class="token keyword">bool</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">MoreReadEvents</span><span class="token punctuation">(</span><span class="token keyword">int</span> <span class="token operator">*</span>progress<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  <span class="token comment">// Fail to CAS means that new events arrived.</span>
-  <span class="token keyword">return</span> <span class="token operator">!</span>_nevent<span class="token punctuation">.</span><span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>
-      <span class="token operator">*</span>progress<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_release<span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
-<span class="token punctuation">}</span>
-
-<span class="token comment">// 处理新消息</span>
+<p><code>_on_edge_triggered_events</code> 有 <code>OnNewConnections</code> 和 <code>OnNewMessages</code> 两种取值，前者负责处理新连接，将在下一节详述，这里先看后者负责收消息的处理：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 处理新消息</span>
 <span class="token keyword">void</span> <span class="token class-name">InputMessenger</span><span class="token operator">::</span><span class="token function">OnNewMessages</span><span class="token punctuation">(</span>Socket <span class="token operator">*</span>m<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token comment">// Notes:</span>
   <span class="token comment">// - If the socket has only one message, the message will be parsed and</span>
@@ -1334,6 +1236,138 @@ EventDispatcher <span class="token operator">&amp;</span><span class="token func
                  <span class="token function">berror</span><span class="token punctuation">(</span>err<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     s<span class="token operator">-></span><span class="token function">ReleaseAllFailedWriteRequests</span><span class="token punctuation">(</span>req<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>Socket</code> 的 <code>Accept</code> 流程：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// server.cpp</span>
+<span class="token keyword">int</span> <span class="token class-name">Server</span><span class="token operator">::</span><span class="token function">StartInternal</span><span class="token punctuation">(</span><span class="token keyword">const</span> butil<span class="token operator">::</span>ip_t<span class="token operator">&amp;</span> ip<span class="token punctuation">,</span>
+                          <span class="token keyword">const</span> PortRange<span class="token operator">&amp;</span> port_range<span class="token punctuation">,</span>
+                          <span class="token keyword">const</span> ServerOptions <span class="token operator">*</span>opt<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token comment">// 启动监听</span>
+  butil<span class="token operator">::</span>fd_guard <span class="token function">sockfd</span><span class="token punctuation">(</span><span class="token function">tcp_listen</span><span class="token punctuation">(</span>_listen_addr<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">// 将监听的 sockfd 所有权转移给 Accetpor 对象</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>_am<span class="token operator">-></span><span class="token function">StartAccept</span><span class="token punctuation">(</span>sockfd<span class="token punctuation">,</span> _options<span class="token punctuation">.</span>idle_timeout_sec<span class="token punctuation">,</span>
+                       _default_ssl_ctx<span class="token punctuation">)</span> <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to start acceptor"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// acceptor.cpp</span>
+<span class="token keyword">int</span> <span class="token class-name">Acceptor</span><span class="token operator">::</span><span class="token function">StartAccept</span><span class="token punctuation">(</span><span class="token keyword">int</span> listened_fd<span class="token punctuation">,</span> <span class="token keyword">int</span> idle_timeout_sec<span class="token punctuation">,</span>
+                          <span class="token keyword">const</span> std<span class="token operator">::</span>shared_ptr<span class="token operator">&lt;</span>SocketSSLContext<span class="token operator">></span><span class="token operator">&amp;</span> ssl_ctx<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  SocketOptions options<span class="token punctuation">;</span>
+  options<span class="token punctuation">.</span>fd <span class="token operator">=</span> listened_fd<span class="token punctuation">;</span>
+  options<span class="token punctuation">.</span>user <span class="token operator">=</span> <span class="token keyword">this</span><span class="token punctuation">;</span>  <span class="token comment">// socket user 的设定</span>
+  options<span class="token punctuation">.</span>on_edge_triggered_events <span class="token operator">=</span> OnNewConnections<span class="token punctuation">;</span>  <span class="token comment">// 触发函数的设定</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">Create</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> <span class="token operator">&amp;</span>_acception_id<span class="token punctuation">)</span> <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Close-idle-socket thread will be stopped inside destructor</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to create _acception_id"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Epoll 发现 listened_fd 可用时，触发 OnNewConnections</span>
+<span class="token keyword">void</span> <span class="token class-name">Acceptor</span><span class="token operator">::</span><span class="token function">OnNewConnections</span><span class="token punctuation">(</span>Socket<span class="token operator">*</span> acception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> progress <span class="token operator">=</span> Socket<span class="token operator">::</span>PROGRESS_INIT<span class="token punctuation">;</span>
+  <span class="token keyword">do</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 处理新连接直到 EAGAIN</span>
+    <span class="token function">OnNewConnectionsUntilEAGAIN</span><span class="token punctuation">(</span>acception<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>acception<span class="token operator">-></span><span class="token function">Failed</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">// 需要处理完当前所有的可读事件</span>
+  <span class="token punctuation">}</span> <span class="token keyword">while</span> <span class="token punctuation">(</span>acception<span class="token operator">-></span><span class="token function">MoreReadEvents</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>progress<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">Acceptor</span><span class="token operator">::</span><span class="token function">OnNewConnectionsUntilEAGAIN</span><span class="token punctuation">(</span>Socket<span class="token operator">*</span> acception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">struct</span> <span class="token class-name">sockaddr</span> in_addr<span class="token punctuation">;</span>
+    socklen_t in_len <span class="token operator">=</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>in_addr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// accept 接收 client 端的 connect 请求</span>
+    butil<span class="token operator">::</span>fd_guard <span class="token function">in_fd</span><span class="token punctuation">(</span><span class="token function">accept</span><span class="token punctuation">(</span>acception<span class="token operator">-></span><span class="token function">fd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>in_addr<span class="token punctuation">,</span> <span class="token operator">&amp;</span>in_len<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>in_fd <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// no EINTR because listened fd is non-blocking.</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>errno <span class="token operator">==</span> EAGAIN<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// 直到 EAGAIN</span>
+        <span class="token keyword">return</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token comment">// Do NOT return -1 when `accept' failed, otherwise `_listened_fd'</span>
+      <span class="token comment">// will be closed. Continue to consume all the events until EAGAIN</span>
+      <span class="token comment">// instead.</span>
+      <span class="token comment">// If the accept was failed, the error may repeat constantly,</span>
+      <span class="token comment">// limit frequency of logging.</span>
+      <span class="token function">PLOG_EVERY_SECOND</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span>
+          <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to accept from listened_fd="</span> <span class="token operator">&lt;&lt;</span> acception<span class="token operator">-></span><span class="token function">fd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    Acceptor<span class="token operator">*</span> am <span class="token operator">=</span> <span class="token keyword">dynamic_cast</span><span class="token operator">&lt;</span>Acceptor<span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>acception<span class="token operator">-></span><span class="token function">user</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token constant">NULL</span> <span class="token operator">==</span> am<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Impossible! acception->user() MUST be Acceptor"</span><span class="token punctuation">;</span>
+      acception<span class="token operator">-></span><span class="token function">SetFailed</span><span class="token punctuation">(</span>EINVAL<span class="token punctuation">,</span>
+                           <span class="token string">"Impossible! acception->user() MUST be Acceptor"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    SocketId socket_id<span class="token punctuation">;</span>
+    SocketOptions options<span class="token punctuation">;</span>
+    options<span class="token punctuation">.</span>keytable_pool <span class="token operator">=</span> am<span class="token operator">-></span>_keytable_pool<span class="token punctuation">;</span>
+    options<span class="token punctuation">.</span>fd <span class="token operator">=</span> in_fd<span class="token punctuation">;</span>
+    options<span class="token punctuation">.</span>remote_side <span class="token operator">=</span> butil<span class="token operator">::</span><span class="token function">EndPoint</span><span class="token punctuation">(</span><span class="token operator">*</span><span class="token punctuation">(</span>sockaddr_in<span class="token operator">*</span><span class="token punctuation">)</span><span class="token operator">&amp;</span>in_addr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    options<span class="token punctuation">.</span>user <span class="token operator">=</span> acception<span class="token operator">-></span><span class="token function">user</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 也就是 Acceptor 对象</span>
+    options<span class="token punctuation">.</span>on_edge_triggered_events <span class="token operator">=</span> InputMessenger<span class="token operator">::</span>OnNewMessages<span class="token punctuation">;</span>  <span class="token comment">// 后续新消息通过 OnNewMessages 处理</span>
+    options<span class="token punctuation">.</span>initial_ssl_ctx <span class="token operator">=</span> am<span class="token operator">-></span>_ssl_ctx<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">Create</span><span class="token punctuation">(</span>options<span class="token punctuation">,</span> <span class="token operator">&amp;</span>socket_id<span class="token punctuation">)</span> <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">LOG</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to create Socket"</span><span class="token punctuation">;</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    in_fd<span class="token punctuation">.</span><span class="token function">release</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// transfer ownership to socket_id</span>
+
+    <span class="token comment">// There's a funny race condition here. After Socket::Create, messages</span>
+    <span class="token comment">// from the socket are already handled and a RPC is possibly done</span>
+    <span class="token comment">// before the socket is added into _socket_map below. This is found in</span>
+    <span class="token comment">// ChannelTest.skip_parallel in test/brpc_channel_unittest.cpp (running</span>
+    <span class="token comment">// on machines with few cores) where the _messenger.ConnectionCount()</span>
+    <span class="token comment">// may surprisingly be 0 even if the RPC is already done.</span>
+
+    SocketUniquePtr sock<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">AddressFailedAsWell</span><span class="token punctuation">(</span>socket_id<span class="token punctuation">,</span> <span class="token operator">&amp;</span>sock<span class="token punctuation">)</span> <span class="token operator">>=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">bool</span> is_running <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+      <span class="token punctuation">{</span>
+        <span class="token function">BAIDU_SCOPED_LOCK</span><span class="token punctuation">(</span>am<span class="token operator">-></span>_map_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        is_running <span class="token operator">=</span> <span class="token punctuation">(</span>am<span class="token operator">-></span><span class="token function">status</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> RUNNING<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">// Always add this socket into `_socket_map' whether it</span>
+        <span class="token comment">// has been `SetFailed' or not, whether `Acceptor' is</span>
+        <span class="token comment">// running or not. Otherwise, `Acceptor::BeforeRecycle'</span>
+        <span class="token comment">// may be called (inside Socket::OnRecycle) after `Acceptor'</span>
+        <span class="token comment">// has been destroyed</span>
+        am<span class="token operator">-></span>_socket_map<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span>socket_id<span class="token punctuation">,</span> <span class="token function">ConnectStatistics</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>is_running<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">LOG</span><span class="token punctuation">(</span>WARNING<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Acceptor on fd="</span> <span class="token operator">&lt;&lt;</span> acception<span class="token operator">-></span><span class="token function">fd</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+                     <span class="token operator">&lt;&lt;</span> <span class="token string">" has been stopped, discard newly created "</span> <span class="token operator">&lt;&lt;</span> <span class="token operator">*</span>sock<span class="token punctuation">;</span>
+        sock<span class="token operator">-></span><span class="token function">SetFailed</span><span class="token punctuation">(</span>ELOGOFF<span class="token punctuation">,</span>
+                        <span class="token string">"Acceptor on fd=%d has been stopped, "</span>
+                        <span class="token string">"discard newly created %s"</span><span class="token punctuation">,</span>
+                        acception<span class="token operator">-></span><span class="token function">fd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> sock<span class="token operator">-></span><span class="token function">description</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">return</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>  <span class="token comment">// else: The socket has already been destroyed, Don't add its id</span>
+       <span class="token comment">// into _socket_map</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">bool</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">MoreReadEvents</span><span class="token punctuation">(</span><span class="token keyword">int</span><span class="token operator">*</span> progress<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Fail to CAS means that new events arrived.</span>
+    <span class="token comment">// CAS 失败的话意味着有新的连接需要继续处理</span>
+    <span class="token keyword">return</span> <span class="token operator">!</span>_nevent<span class="token punctuation">.</span><span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>
+        <span class="token operator">*</span>progress<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_release<span class="token punctuation">,</span>
+            butil<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
 <h3 id="references"><a href="#references">References</a></h3>
