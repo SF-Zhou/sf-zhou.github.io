@@ -1,5 +1,17 @@
 [
   {
+    "title": "bRPC 源码分析「五、请求处理」",
+    "date": "2021.03.19",
+    "author": "SF-Zhou",
+    "tags": [
+      "bRPC",
+      "C++",
+      "WIP"
+    ],
+    "filename": "brpc_05_request",
+    "url_path": "/brpc/brpc_05_request.html"
+  },
+  {
     "title": "bRPC 源码分析「四、协程调度」",
     "date": "2021.03.10",
     "author": "SF-Zhou",
