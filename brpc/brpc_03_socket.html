@@ -1370,6 +1370,218 @@ EventDispatcher <span class="token operator">&amp;</span><span class="token func
             butil<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
+<p><code>Socket</code> 的 <code>Revive</code> 流程：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Socket 失败时增加定时任务检查连接是否可用</span>
+<span class="token keyword">int</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">SetFailed</span><span class="token punctuation">(</span><span class="token keyword">int</span> error_code<span class="token punctuation">,</span> <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> error_fmt<span class="token punctuation">,</span> <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token comment">// Do health-checking even if we're not connected before, needed</span>
+  <span class="token comment">// by Channel to revive never-connected socket when server side</span>
+  <span class="token comment">// comes online.</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>_health_check_interval_s <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">GetOrNewSharedPart</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>circuit_breaker<span class="token punctuation">.</span><span class="token function">MarkAsBroken</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">StartHealthCheck</span><span class="token punctuation">(</span><span class="token function">id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                     <span class="token function">GetOrNewSharedPart</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span>circuit_breaker<span class="token punctuation">.</span><span class="token function">isolation_duration_ms</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// health_check.cpp</span>
+<span class="token keyword">void</span> <span class="token function">StartHealthCheck</span><span class="token punctuation">(</span>SocketId id<span class="token punctuation">,</span> <span class="token keyword">int64_t</span> delay_ms<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// 启动定时任务</span>
+  <span class="token class-name">PeriodicTaskManager</span><span class="token operator">::</span><span class="token function">StartTaskAt</span><span class="token punctuation">(</span><span class="token keyword">new</span> <span class="token function">HealthCheckTask</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">,</span>
+                                   butil<span class="token operator">::</span><span class="token function">milliseconds_from_now</span><span class="token punctuation">(</span>delay_ms<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// periodic_task.cpp</span>
+<span class="token keyword">void</span> <span class="token class-name">PeriodicTaskManager</span><span class="token operator">::</span><span class="token function">StartTaskAt</span><span class="token punctuation">(</span>PeriodicTask<span class="token operator">*</span> task<span class="token punctuation">,</span> <span class="token keyword">const</span> timespec<span class="token operator">&amp;</span> abstime<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>task <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Param[task] is NULL"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  bthread_timer_t timer_id<span class="token punctuation">;</span>
+  <span class="token comment">// 设定定时器，执行 RunPeriodicTaskThread</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> rc <span class="token operator">=</span> <span class="token function">bthread_timer_add</span><span class="token punctuation">(</span>
+    <span class="token operator">&amp;</span>timer_id<span class="token punctuation">,</span> abstime<span class="token punctuation">,</span> RunPeriodicTaskThread<span class="token punctuation">,</span> task<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>rc <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to add timer for RunPerodicTaskThread"</span><span class="token punctuation">;</span>
+    task<span class="token operator">-></span><span class="token function">OnDestroyingTask</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+
+<span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">RunPeriodicTaskThread</span><span class="token punctuation">(</span><span class="token keyword">void</span><span class="token operator">*</span> arg<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  bthread_t th <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token comment">// 时间达标时启动新的 bthread 调用 PeriodicTaskThread</span>
+  <span class="token keyword">int</span> rc <span class="token operator">=</span> <span class="token function">bthread_start_background</span><span class="token punctuation">(</span>
+    <span class="token operator">&amp;</span>th<span class="token punctuation">,</span> <span class="token operator">&amp;</span>BTHREAD_ATTR_NORMAL<span class="token punctuation">,</span> PeriodicTaskThread<span class="token punctuation">,</span> arg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>rc <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to start PeriodicTaskThread"</span><span class="token punctuation">;</span>
+    <span class="token keyword">static_cast</span><span class="token operator">&lt;</span>PeriodicTask<span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>arg<span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">OnDestroyingTask</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">static</span> <span class="token keyword">void</span><span class="token operator">*</span> <span class="token function">PeriodicTaskThread</span><span class="token punctuation">(</span><span class="token keyword">void</span><span class="token operator">*</span> arg<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  PeriodicTask<span class="token operator">*</span> task <span class="token operator">=</span> <span class="token keyword">static_cast</span><span class="token operator">&lt;</span>PeriodicTask<span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>arg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  timespec abstime<span class="token punctuation">;</span>
+  <span class="token comment">// 执行 OnTriggeringTask，返回 false 则销毁该任务</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>task<span class="token operator">-></span>OnTriggeringTask，<span class="token punctuation">(</span><span class="token operator">&amp;</span>abstime<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token comment">// end</span>
+    task<span class="token operator">-></span><span class="token function">OnDestroyingTask</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token comment">// 否则继续加入到定时器</span>
+  <span class="token class-name">PeriodicTaskManager</span><span class="token operator">::</span><span class="token function">StartTaskAt</span><span class="token punctuation">(</span>task<span class="token punctuation">,</span> abstime<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">bool</span> <span class="token class-name">HealthCheckTask</span><span class="token operator">::</span><span class="token function">OnTriggeringTask</span><span class="token punctuation">(</span>timespec<span class="token operator">*</span> next_abstime<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  SocketUniquePtr ptr<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> rc <span class="token operator">=</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">AddressFailedAsWell</span><span class="token punctuation">(</span>_id<span class="token punctuation">,</span> <span class="token operator">&amp;</span>ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 获取指针</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span>rc <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>rc <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    RPC_VLOG <span class="token operator">&lt;&lt;</span> <span class="token string">"SocketId="</span> <span class="token operator">&lt;&lt;</span> _id
+      <span class="token operator">&lt;&lt;</span> <span class="token string">" was abandoned before health checking"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token comment">// Note: Making a Socket re-addessable is hard. An alternative is</span>
+  <span class="token comment">// creating another Socket with selected internal fields to replace</span>
+  <span class="token comment">// failed Socket. Although it avoids concurrent issues with in-place</span>
+  <span class="token comment">// revive, it changes SocketId: many code need to watch SocketId </span>
+  <span class="token comment">// and update on change, which is impractical. Another issue with</span>
+  <span class="token comment">// this method is that it has to move "selected internal fields" </span>
+  <span class="token comment">// which may be accessed in parallel, not trivial to be moved.</span>
+  <span class="token comment">// Finally we choose a simple-enough solution: wait until the</span>
+  <span class="token comment">// reference count hits `expected_nref', which basically means no</span>
+  <span class="token comment">// one is addressing the Socket(except here). Because the Socket </span>
+  <span class="token comment">// is not addressable, the reference count will not increase </span>
+  <span class="token comment">// again. This solution is not perfect because the `expected_nref'</span>
+  <span class="token comment">// is implementation specific. In our case, one reference comes </span>
+  <span class="token comment">// from SocketMapInsert(socket_map.cpp), one reference is here. </span>
+  <span class="token comment">// Although WaitAndReset() could hang when someone is addressing</span>
+  <span class="token comment">// the failed Socket forever (also indicating bug), this is not an </span>
+  <span class="token comment">// issue in current code. </span>
+  <span class="token comment">// 这里的英文注释很详细，简而言之，这里等待引用计数为 2 时再执行 Reset 保证线程安全</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>_first_time<span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// Only check at first time.</span>
+    _first_time <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>ptr<span class="token operator">-></span><span class="token function">WaitAndReset</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token comment">/*note*/</span><span class="token punctuation">)</span> <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">LOG</span><span class="token punctuation">(</span>INFO<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Cancel checking "</span> <span class="token operator">&lt;&lt;</span> <span class="token operator">*</span>ptr<span class="token punctuation">;</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// g_vars must not be NULL because it is newed at the creation of</span>
+  <span class="token comment">// first Socket. When g_vars is used, the socket is at health-checking</span>
+  <span class="token comment">// state, which means the socket must be created and then g_vars can</span>
+  <span class="token comment">// not be NULL.</span>
+  g_vars<span class="token operator">-></span>nhealthcheck <span class="token operator">&lt;&lt;</span> <span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token keyword">int</span> hc <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>ptr<span class="token operator">-></span>_user<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    hc <span class="token operator">=</span> ptr<span class="token operator">-></span>_user<span class="token operator">-></span><span class="token function">CheckHealth</span><span class="token punctuation">(</span>ptr<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 调用 Socket::CheckHealth</span>
+    hc <span class="token operator">=</span> ptr<span class="token operator">-></span><span class="token function">CheckHealth</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>hc <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>ptr<span class="token operator">-></span><span class="token function">CreatedByConnect</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      g_vars<span class="token operator">-></span>channel_conn <span class="token operator">&lt;&lt;</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>FLAGS_health_check_path<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      ptr<span class="token operator">-></span>_ninflight_app_health_check<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span>
+        <span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    ptr<span class="token operator">-></span><span class="token function">Revive</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 恢复版本和计数</span>
+    ptr<span class="token operator">-></span>_hc_count <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>FLAGS_health_check_path<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token class-name">HealthCheckManager</span><span class="token operator">::</span><span class="token function">StartCheck</span><span class="token punctuation">(</span>_id<span class="token punctuation">,</span> ptr<span class="token operator">-></span>_health_check_interval_s<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>hc <span class="token operator">==</span> ESTOP<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>INFO<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Cancel checking "</span> <span class="token operator">&lt;&lt;</span> <span class="token operator">*</span>ptr<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token operator">++</span> ptr<span class="token operator">-></span>_hc_count<span class="token punctuation">;</span>
+  <span class="token operator">*</span>next_abstime <span class="token operator">=</span> butil<span class="token operator">::</span><span class="token function">seconds_from_now</span><span class="token punctuation">(</span>ptr<span class="token operator">-></span>_health_check_interval_s<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// socket.cpp</span>
+<span class="token keyword">int</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">WaitAndReset</span><span class="token punctuation">(</span><span class="token keyword">int32_t</span> expected_nref<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_ver <span class="token operator">=</span> <span class="token function">VersionOfSocketId</span><span class="token punctuation">(</span>_this_id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> vref<span class="token punctuation">;</span>
+  <span class="token comment">// Wait until nref == expected_nref.</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// The acquire fence pairs with release fence in Dereference to avoid</span>
+    <span class="token comment">// inconsistent states to be seen by others.</span>
+    vref <span class="token operator">=</span> _versioned_ref<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token operator">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">VersionOfVRef</span><span class="token punctuation">(</span>vref<span class="token punctuation">)</span> <span class="token operator">!=</span> id_ver <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">LOG</span><span class="token punctuation">(</span>WARNING<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"SocketId="</span> <span class="token operator">&lt;&lt;</span> _this_id <span class="token operator">&lt;&lt;</span> <span class="token string">" is already alive or recycled"</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">NRefOfVRef</span><span class="token punctuation">(</span>vref<span class="token punctuation">)</span> <span class="token operator">></span> expected_nref<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// sleep 等待引用计数</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">bthread_usleep</span><span class="token punctuation">(</span><span class="token number">1000L</span><span class="token comment">/*FIXME*/</span><span class="token punctuation">)</span> <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">PLOG_IF</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">,</span> errno <span class="token operator">!=</span> ESTOP<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to sleep"</span><span class="token punctuation">;</span>
+        <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">NRefOfVRef</span><span class="token punctuation">(</span>vref<span class="token punctuation">)</span> <span class="token operator">&lt;</span> expected_nref<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      RPC_VLOG <span class="token operator">&lt;&lt;</span> <span class="token string">"SocketId="</span> <span class="token operator">&lt;&lt;</span> _this_id 
+        <span class="token operator">&lt;&lt;</span> <span class="token string">" was abandoned during health checking"</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// It's safe to close previous fd (provided expected_nref is correct).</span>
+  <span class="token comment">// 引用计数达标时，close 原先的 fd</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> prev_fd <span class="token operator">=</span> _fd<span class="token punctuation">.</span><span class="token function">exchange</span><span class="token punctuation">(</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">ValidFileDescriptor</span><span class="token punctuation">(</span>prev_fd<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>_on_edge_triggered_events <span class="token operator">!=</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">GetGlobalEventDispatcher</span><span class="token punctuation">(</span>prev_fd<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">RemoveConsumer</span><span class="token punctuation">(</span>prev_fd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token function">close</span><span class="token punctuation">(</span>prev_fd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">CreatedByConnect</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      g_vars<span class="token operator">-></span>channel_conn <span class="token operator">&lt;&lt;</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>  <span class="token comment">// 执行其他 Reset 操作</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// We don't care about the return value of Revive.</span>
+<span class="token keyword">void</span> <span class="token class-name">Socket</span><span class="token operator">::</span><span class="token function">Revive</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_ver <span class="token operator">=</span> <span class="token function">VersionOfSocketId</span><span class="token punctuation">(</span>_this_id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> vref <span class="token operator">=</span> _versioned_ref<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CHECK_EQ</span><span class="token punctuation">(</span>id_ver <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token function">VersionOfVRef</span><span class="token punctuation">(</span>vref<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// vref 的版本在 SetFailed 时加了 1</span>
+
+    <span class="token keyword">int32_t</span> nref <span class="token operator">=</span> <span class="token function">NRefOfVRef</span><span class="token punctuation">(</span>vref<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>nref <span class="token operator">&lt;=</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">CHECK_EQ</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> nref<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">LOG</span><span class="token punctuation">(</span>WARNING<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token operator">*</span><span class="token keyword">this</span> <span class="token operator">&lt;&lt;</span> <span class="token string">" was abandoned during revival"</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">// +1 is the additional ref added in Create(). TODO(gejun): we should</span>
+    <span class="token comment">// remove this additional nref someday.</span>
+    <span class="token comment">// CAS 降低 vref 的版本到可用状态</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>_versioned_ref<span class="token punctuation">.</span><span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>
+      vref<span class="token punctuation">,</span> <span class="token function">MakeVRef</span><span class="token punctuation">(</span>id_ver<span class="token punctuation">,</span> nref <span class="token operator">+</span> <span class="token number">1</span><span class="token comment">/*note*/</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      butil<span class="token operator">::</span>memory_order_release<span class="token punctuation">,</span>
+      butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// Set this flag to true since we add additional ref again</span>
+      <span class="token comment">// 清理 recycle 标记</span>
+      _recycle_flag<span class="token punctuation">.</span><span class="token function">store</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">,</span> butil<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>_user<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// 调用 AfterRevived，默认会打印 Revived ... (Connectable)</span>
+        _user<span class="token operator">-></span><span class="token function">AfterRevived</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token function">LOG</span><span class="token punctuation">(</span>INFO<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Revived "</span> <span class="token operator">&lt;&lt;</span> <span class="token operator">*</span><span class="token keyword">this</span> <span class="token operator">&lt;&lt;</span> <span class="token string">" (Connectable)"</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
 <h3 id="references"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/io.md">&quot;bRPC IO&quot;, <em>incubator-brpc</em></a></li>
