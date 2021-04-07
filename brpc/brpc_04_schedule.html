@@ -514,6 +514,7 @@
       <span class="token keyword">for</span> <span class="token punctuation">(</span>Task <span class="token operator">*</span>p <span class="token operator">=</span> bucket<span class="token punctuation">.</span><span class="token function">consume_tasks</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> p <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span> <span class="token operator">++</span>nscheduled<span class="token punctuation">)</span> <span class="token punctuation">{</span>
         Task <span class="token operator">*</span>next_task <span class="token operator">=</span> p<span class="token operator">-></span>next<span class="token punctuation">;</span>
 
+        <span class="token comment">// 对于已经取消的任务，不会加入到堆里，直接删除。这也是高性能的关键</span>
         <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>p<span class="token operator">-></span><span class="token function">try_delete</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
           <span class="token comment">// 循环加入到堆里</span>
           tasks<span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>p<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -710,6 +711,7 @@ TimerThread<span class="token operator">::</span><span class="token class-name">
 <li>RPC 场景下超时时间一般不变，大部分插入的时间是<strong>递增</strong>的，早于 <code>nearest_run_time</code> 而唤醒线程的次数很少</li>
 <li>通过 <code>ResourcePool</code> 和版本进行删除操作，不参与全局竞争</li>
 <li><code>TimerThread</code> 自行维护小顶堆，不参与全局竞争</li>
+<li><code>TimerThread</code> 醒来的频率大约是 RPC 超时的倒数，比如超时时间 100ms，<code>TimerThread</code> 一秒内大约醒 10 次，已经最优</li>
 </ol>
 <p>bthread 依赖 <code>TimerThread</code> 实现高效的 <code>usleep</code>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Suspend current thread for at least `microseconds'</span>
