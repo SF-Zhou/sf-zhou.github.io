@@ -622,7 +622,9 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>最后看下 <a href="https://github.com/tokio-rs/tokio/blob/tokio-1.5.0/tokio/src/runtime/task/mod.rs"><code>mod.rs</code></a>：</p>
-<pre class="language-rust"><code class="language-rust"><span class="token attribute attr-name">#[repr(transparent)]</span>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">// Task 的定义，实际上是 RawTask 的封装。</span>
+<span class="token comment">// PhantomData 用于绑定没有使用到的 S 类型。</span>
+<span class="token attribute attr-name">#[repr(transparent)]</span>
 <span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">crate</span><span class="token punctuation">)</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Task</span><span class="token operator">&lt;</span><span class="token class-name">S</span><span class="token punctuation">:</span> <span class="token lifetime-annotation symbol">'static</span><span class="token operator">></span> <span class="token punctuation">{</span>
     raw<span class="token punctuation">:</span> <span class="token class-name">RawTask</span><span class="token punctuation">,</span>
     _p<span class="token punctuation">:</span> <span class="token class-name">PhantomData</span><span class="token operator">&lt;</span><span class="token class-name">S</span><span class="token operator">></span><span class="token punctuation">,</span>
@@ -708,6 +710,198 @@
     <span class="token comment">/// Pre-emptively cancel the task as part of the shutdown process.</span>
     <span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">crate</span><span class="token punctuation">)</span> <span class="token keyword">fn</span> <span class="token function-definition function">shutdown</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
         <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span><span class="token punctuation">.</span><span class="token function">shutdown</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>配合单元测试 <a href="https://github.com/tokio-rs/tokio/blob/tokio-1.5.0/tokio/src/runtime/tests/task.rs"><code>task.rs</code></a> 整体看下：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> <span class="token keyword">crate</span><span class="token module-declaration namespace"><span class="token punctuation">::</span>runtime<span class="token punctuation">::</span>task<span class="token punctuation">::</span></span><span class="token punctuation">{</span><span class="token keyword">self</span><span class="token punctuation">,</span> <span class="token class-name">Schedule</span><span class="token punctuation">,</span> <span class="token class-name">Task</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token keyword">use</span> <span class="token keyword">crate</span><span class="token module-declaration namespace"><span class="token punctuation">::</span>util<span class="token punctuation">::</span>linked_list<span class="token punctuation">::</span></span><span class="token punctuation">{</span><span class="token class-name">Link</span><span class="token punctuation">,</span> <span class="token class-name">LinkedList</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token keyword">use</span> <span class="token keyword">crate</span><span class="token module-declaration namespace"><span class="token punctuation">::</span>util<span class="token punctuation">::</span></span><span class="token class-name">TryLock</span><span class="token punctuation">;</span>
+
+<span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>collections<span class="token punctuation">::</span></span><span class="token class-name">VecDeque</span><span class="token punctuation">;</span>
+<span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>sync<span class="token punctuation">::</span></span><span class="token class-name">Arc</span><span class="token punctuation">;</span>
+
+<span class="token attribute attr-name">#[test]</span>
+<span class="token keyword">fn</span> <span class="token function-definition function">schedule</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">with</span><span class="token punctuation">(</span><span class="token closure-params"><span class="token closure-punctuation punctuation">|</span>rt<span class="token closure-punctuation punctuation">|</span></span> <span class="token punctuation">{</span>
+        <span class="token comment">// 构造一个 task，注意这里依赖下面的 `rt.schedule` 完成类型推导</span>
+        <span class="token keyword">let</span> <span class="token punctuation">(</span>task<span class="token punctuation">,</span> _<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token namespace">task<span class="token punctuation">::</span></span><span class="token function">joinable</span><span class="token punctuation">(</span><span class="token keyword">async</span> <span class="token punctuation">{</span>
+            <span class="token comment">// 执行一次 yield_now，该函数定义于 tokio/src/task/yield_now.rs</span>
+            <span class="token keyword">crate</span><span class="token module-declaration namespace"><span class="token punctuation">::</span>task<span class="token punctuation">::</span></span><span class="token function">yield_now</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token keyword">await</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token comment">// 使用 rt 调度 task</span>
+        rt<span class="token punctuation">.</span><span class="token function">schedule</span><span class="token punctuation">(</span>task<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token comment">// 加入任务队列后，队列中有且仅有该任务，弹出并准备执行，此时计数为 1。</span>
+        <span class="token comment">// 执行 crate::task::yield_now().await 后，</span>
+        <span class="token macro property">assert_eq!</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">,</span> rt<span class="token punctuation">.</span><span class="token function">tick</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// yield_now 的实现</span>
+<span class="token macro property">cfg_rt!</span> <span class="token punctuation">{</span>
+    <span class="token comment">/// Yields execution back to the Tokio runtime.</span>
+    <span class="token comment">///</span>
+    <span class="token comment">/// A task yields by awaiting on `yield_now()`, and may resume when that</span>
+    <span class="token comment">/// future completes (with no output.) The current task will be re-added as</span>
+    <span class="token comment">/// a pending task at the _back_ of the pending queue. Any other pending</span>
+    <span class="token comment">/// tasks will be scheduled. No other waking is required for the task to</span>
+    <span class="token comment">/// continue.</span>
+    <span class="token comment">///</span>
+    <span class="token comment">/// See also the usage example in the [task module](index.html#yield_now).</span>
+    <span class="token attribute attr-name">#[must_use = <span class="token string">"yield_now does nothing unless polled/`await`-ed"</span>]</span>
+    <span class="token keyword">pub</span> <span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">yield_now</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">/// Yield implementation</span>
+        <span class="token keyword">struct</span> <span class="token type-definition class-name">YieldNow</span> <span class="token punctuation">{</span>
+            yielded<span class="token punctuation">:</span> <span class="token keyword">bool</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">impl</span> <span class="token class-name">Future</span> <span class="token keyword">for</span> <span class="token class-name">YieldNow</span> <span class="token punctuation">{</span>
+            <span class="token keyword">type</span> <span class="token class-name">Output</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+            <span class="token keyword">fn</span> <span class="token function-definition function">poll</span><span class="token punctuation">(</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">:</span> <span class="token class-name">Pin</span><span class="token operator">&lt;</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">,</span> cx<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token class-name">Context</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'_</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Poll</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span> <span class="token punctuation">{</span>
+                <span class="token keyword">if</span> <span class="token keyword">self</span><span class="token punctuation">.</span>yielded <span class="token punctuation">{</span>
+                    <span class="token comment">// 第二次执行，直接返回 Ready</span>
+                    <span class="token keyword">return</span> <span class="token class-name">Poll</span><span class="token punctuation">::</span><span class="token class-name">Ready</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+                <span class="token punctuation">}</span>
+
+                <span class="token comment">// 第一次执行时，将 yielded 置为 true，并将当前 task 再次加入任务队列</span>
+                <span class="token keyword">self</span><span class="token punctuation">.</span>yielded <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+                cx<span class="token punctuation">.</span><span class="token function">waker</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">wake_by_ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+                <span class="token class-name">Poll</span><span class="token punctuation">::</span><span class="token class-name">Pending</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token class-name">YieldNow</span> <span class="token punctuation">{</span> yielded<span class="token punctuation">:</span> <span class="token boolean">false</span> <span class="token punctuation">}</span><span class="token punctuation">.</span><span class="token keyword">await</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">fn</span> <span class="token function-definition function">with</span><span class="token punctuation">(</span>f<span class="token punctuation">:</span> <span class="token keyword">impl</span> <span class="token class-name">FnOnce</span><span class="token punctuation">(</span><span class="token class-name">Runtime</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">struct</span> <span class="token type-definition class-name">Reset</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">impl</span> <span class="token class-name">Drop</span> <span class="token keyword">for</span> <span class="token class-name">Reset</span> <span class="token punctuation">{</span>
+        <span class="token keyword">fn</span> <span class="token function-definition function">drop</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token comment">// 退出时将 CURRENT 绑定的引用计数释放</span>
+            <span class="token keyword">let</span> _rt <span class="token operator">=</span> <span class="token constant">CURRENT</span><span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">take</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// RAII</span>
+    <span class="token keyword">let</span> _reset <span class="token operator">=</span> <span class="token class-name">Reset</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 构造 RunTime</span>
+    <span class="token keyword">let</span> rt <span class="token operator">=</span> <span class="token class-name">Runtime</span><span class="token punctuation">(</span><span class="token class-name">Arc</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token class-name">Inner</span> <span class="token punctuation">{</span>
+        released<span class="token punctuation">:</span> <span class="token namespace">task<span class="token punctuation">::</span></span><span class="token class-name">TransferStack</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        core<span class="token punctuation">:</span> <span class="token class-name">TryLock</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token class-name">Core</span> <span class="token punctuation">{</span>
+            queue<span class="token punctuation">:</span> <span class="token class-name">VecDeque</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            tasks<span class="token punctuation">:</span> <span class="token class-name">LinkedList</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+    <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 使用 CURRENT 绑定当前使用的 runtime 实例的一个引用计数</span>
+    <span class="token operator">*</span><span class="token constant">CURRENT</span><span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token class-name">Some</span><span class="token punctuation">(</span>rt<span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">f</span><span class="token punctuation">(</span>rt<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token attribute attr-name">#[derive(Clone)]</span>
+<span class="token keyword">struct</span> <span class="token type-definition class-name">Runtime</span><span class="token punctuation">(</span><span class="token class-name">Arc</span><span class="token operator">&lt;</span><span class="token class-name">Inner</span><span class="token operator">></span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token type-definition class-name">Inner</span> <span class="token punctuation">{</span>
+    released<span class="token punctuation">:</span> <span class="token namespace">task<span class="token punctuation">::</span></span><span class="token class-name">TransferStack</span><span class="token operator">&lt;</span><span class="token class-name">Runtime</span><span class="token operator">></span><span class="token punctuation">,</span>
+    core<span class="token punctuation">:</span> <span class="token class-name">TryLock</span><span class="token operator">&lt;</span><span class="token class-name">Core</span><span class="token operator">></span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">struct</span> <span class="token type-definition class-name">Core</span> <span class="token punctuation">{</span>
+    queue<span class="token punctuation">:</span> <span class="token class-name">VecDeque</span><span class="token operator">&lt;</span><span class="token namespace">task<span class="token punctuation">::</span></span><span class="token class-name">Notified</span><span class="token operator">&lt;</span><span class="token class-name">Runtime</span><span class="token operator">>></span><span class="token punctuation">,</span>
+    tasks<span class="token punctuation">:</span> <span class="token class-name">LinkedList</span><span class="token operator">&lt;</span><span class="token class-name">Task</span><span class="token operator">&lt;</span><span class="token class-name">Runtime</span><span class="token operator">></span><span class="token punctuation">,</span> <span class="token operator">&lt;</span><span class="token class-name">Task</span><span class="token operator">&lt;</span><span class="token class-name">Runtime</span><span class="token operator">></span> <span class="token keyword">as</span> <span class="token class-name">Link</span><span class="token operator">></span><span class="token punctuation">::</span><span class="token class-name">Target</span><span class="token operator">></span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">static</span> <span class="token constant">CURRENT</span><span class="token punctuation">:</span> <span class="token class-name">TryLock</span><span class="token operator">&lt;</span><span class="token class-name">Option</span><span class="token operator">&lt;</span><span class="token class-name">Runtime</span><span class="token operator">>></span> <span class="token operator">=</span> <span class="token class-name">TryLock</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token class-name">None</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">Runtime</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">tick</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">usize</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">tick_max</span><span class="token punctuation">(</span><span class="token keyword">usize</span><span class="token punctuation">::</span><span class="token function">max_value</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 任务队列循环</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">tick_max</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> max<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">usize</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> n <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">while</span> <span class="token operator">!</span><span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">is_empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> n <span class="token operator">&lt;</span> max <span class="token punctuation">{</span>
+            <span class="token comment">// 获取任务并执行</span>
+            <span class="token comment">// 第一次获取到 `schedule` 中定义的任务，然后执行了 yield_now，将自身任务加入任务队列</span>
+            <span class="token comment">// 第二次则再次获取到同一个任务，退出</span>
+            <span class="token keyword">let</span> task <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">next_task</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            n <span class="token operator">+=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+            task<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span><span class="token punctuation">.</span><span class="token function">maintenance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        n
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">is_empty</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">bool</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span><span class="token punctuation">.</span>core<span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>queue<span class="token punctuation">.</span><span class="token function">is_empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">next_task</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token namespace">task<span class="token punctuation">::</span></span><span class="token class-name">Notified</span><span class="token operator">&lt;</span><span class="token class-name">Runtime</span><span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span><span class="token punctuation">.</span>core<span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>queue<span class="token punctuation">.</span><span class="token function">pop_front</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">shutdown</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> core <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span><span class="token punctuation">.</span>core<span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">for</span> task <span class="token keyword">in</span> core<span class="token punctuation">.</span>tasks<span class="token punctuation">.</span><span class="token function">iter</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            task<span class="token punctuation">.</span><span class="token function">shutdown</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">while</span> <span class="token keyword">let</span> <span class="token class-name">Some</span><span class="token punctuation">(</span>task<span class="token punctuation">)</span> <span class="token operator">=</span> core<span class="token punctuation">.</span>queue<span class="token punctuation">.</span><span class="token function">pop_back</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            task<span class="token punctuation">.</span><span class="token function">shutdown</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token function">drop</span><span class="token punctuation">(</span>core<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">while</span> <span class="token operator">!</span><span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span><span class="token punctuation">.</span>core<span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>tasks<span class="token punctuation">.</span><span class="token function">is_empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span><span class="token punctuation">.</span><span class="token function">maintenance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">Inner</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">maintenance</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>mem<span class="token punctuation">::</span></span><span class="token class-name">ManuallyDrop</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">for</span> task <span class="token keyword">in</span> <span class="token keyword">self</span><span class="token punctuation">.</span>released<span class="token punctuation">.</span><span class="token function">drain</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">let</span> task <span class="token operator">=</span> <span class="token class-name">ManuallyDrop</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span>task<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+            <span class="token comment">// safety: see worker.rs</span>
+            <span class="token keyword">unsafe</span> <span class="token punctuation">{</span>
+                <span class="token keyword">let</span> ptr <span class="token operator">=</span> task<span class="token punctuation">.</span><span class="token function">header</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">into</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+                <span class="token keyword">self</span><span class="token punctuation">.</span>core<span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>tasks<span class="token punctuation">.</span><span class="token function">remove</span><span class="token punctuation">(</span>ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">Schedule</span> <span class="token keyword">for</span> <span class="token class-name">Runtime</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">bind</span><span class="token punctuation">(</span>task<span class="token punctuation">:</span> <span class="token class-name">Task</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Runtime</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> rt <span class="token operator">=</span> <span class="token constant">CURRENT</span><span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">as_ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        rt<span class="token number">.0</span><span class="token punctuation">.</span>core<span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>tasks<span class="token punctuation">.</span><span class="token function">push_front</span><span class="token punctuation">(</span>task<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        rt
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">release</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> task<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">Task</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Option</span><span class="token operator">&lt;</span><span class="token class-name">Task</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">>></span> <span class="token punctuation">{</span>
+        <span class="token comment">// safety: copying worker.rs</span>
+        <span class="token keyword">let</span> task <span class="token operator">=</span> <span class="token keyword">unsafe</span> <span class="token punctuation">{</span> <span class="token class-name">Task</span><span class="token punctuation">::</span><span class="token function">from_raw</span><span class="token punctuation">(</span>task<span class="token punctuation">.</span><span class="token function">header</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">into</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span><span class="token punctuation">.</span>released<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>task<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token class-name">None</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">schedule</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> task<span class="token punctuation">:</span> <span class="token namespace">task<span class="token punctuation">::</span></span><span class="token class-name">Notified</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// 将 task 加入任务队列</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token number">0</span><span class="token punctuation">.</span>core<span class="token punctuation">.</span><span class="token function">try_lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>queue<span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>task<span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 </code></pre>
