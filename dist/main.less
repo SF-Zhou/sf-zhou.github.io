@@ -1,0 +1,198 @@
+html {
+  font-size: 1.0em;
+  @media screen and (min-width: 800px) {
+    font-size: 1.1em;
+  }
+}
+
+body {
+  margin: 0 1em;
+}
+
+.app {
+  font-family: "PT Sans", Helvetica, Arial, STFangSong, Vernada, Tahoma, STXihei, "Microsoft YaHei", "Songti SC", SimSun, Heiti, sans-serif;
+  max-width: 40rem;
+  min-height: 100vh;
+  line-height: 1.6;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  a {
+    text-decoration: none;
+    color: black;
+  }
+  a:hover {
+    color: darkslategray;
+    transition: 300ms
+  }
+  .markdown {
+    flex: 1;
+  }
+  .title {
+    padding-top: 2rem;
+    h1 {
+      margin-top: 0;
+      text-align: center;
+      font-size: 1.5rem;
+    }
+  }
+  .info {
+    font-family: "Courier New", SimSun;
+    text-align: center;
+    .date,
+    .author {
+      display: inline-block;
+      margin: 0 0.25rem;
+    }
+  }
+  .footer {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.8rem;
+    line-height: 1.2;
+    text-align: center
+  }
+  .card {
+    border: 1px solid #d1dbe5;
+    border-radius: 4px;
+    background-color: #fff;
+    overflow: hidden;
+    box-shadow: 0 2px 4px 0 rgba(0, 0, 0, .12), 0 0 6px 0 rgba(0, 0, 0, .04);
+    margin-bottom: 2rem;
+    p {
+      text-indent: 0;
+      display: inline-block;
+      margin-top: 0;
+      margin-bottom: 0;
+    }
+  }
+  .abstract {
+    padding: 20px;
+    .article_title {
+      font-size: 1.2rem;
+      font-weight: bold;
+    }
+    .article_base {
+      display: inline-block;
+      font-family: Courier New, Consolas, Times New Roman;
+      vertical-align: top;
+      margin-right: .5rem;
+    }
+  }
+  .tags {
+    display: inline-block;
+    .tag {
+      font-size: 1rem;
+      margin-right: .5rem;
+      border-color: #e4e8f1;
+      background-color: #e4e8f1;
+      display: inline-block;
+      padding: 0 5px;
+      height: 24px;
+      line-height: 22px;
+      color: #48576a;
+      border-radius: 4px;
+      box-sizing: border-box;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .selected {
+      background-color: #DAE7FE;
+    }
+  }
+}
+
+.markdown {
+  h2 {
+    text-align: center;
+    font-size: 1.1rem;
+  }
+  h3 {
+    font-size: 1.0rem;
+  }
+  p {
+    text-indent: 2rem;
+  }
+  eqn {
+    .katex-display {
+      padding-top: 0.5rem;
+      padding-bottom: 0.5rem;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+  }
+  strong {
+    font-weight: bold;
+  }
+  ol,
+  ul {
+    padding-left: 3rem;
+    p {
+      display: inline-block;
+      text-indent: 0;
+      margin-left: 0;
+      padding-left: 0;
+    }
+  }
+  blockquote,
+  ol,
+  ul {
+    ol,
+    ul {
+      padding-left: 2rem;
+    }
+  }
+  blockquote {
+    margin-left: 0;
+    margin-right: 0;
+    color: darkslategray;
+    font-style: italic;
+  }
+  img {
+    margin: 0 auto;
+    display: block;
+    max-width: 100%;
+    border-radius: 4px;
+    border: 1px solid #d1dbe5;
+    box-shadow: 0 2px 4px 0 rgba(0, 0, 0, .12), 0 0 6px 0 rgba(0, 0, 0, .04);
+  }
+  figure {
+    margin-inline-start: 0;
+    margin-inline-end: 0;
+    figcaption {
+      text-align: center;
+      font-size: 0.8rem;
+    }
+  }
+  p, ol, ul {
+    code {
+      padding: 0.1rem 0.2rem;
+      background-color: rgba(0, 0, 0, .04);
+      font-family: "PT Sans", Helvetica, Arial, STFangSong, Vernada, Tahoma, STXihei, "Microsoft YaHei", "Songti SC", SimSun, Heiti, sans-serif;
+      border-radius: 4px;
+    }
+  }
+  pre {
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 0.5rem 0.8rem;
+    border-radius: 4px;
+    border: 1px solid #d1dbe5;
+    box-shadow: 0 2px 4px 0 rgba(0, 0, 0, .12), 0 0 6px 0 rgba(0, 0, 0, .04);
+    code {
+      font-size: 0.8rem;
+    }
+  }
+  table {
+    margin-left: auto;
+    margin-right: auto;
+    border-collapse: collapse;
+    border: 2px solid black;
+    th,
+    td {
+      border: 1px solid black;
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
+  }
+}

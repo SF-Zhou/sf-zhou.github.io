@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>C++ 缺少常量修饰符引发的 Bug | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> C++ 缺少常量修饰符引发的 Bug </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2020.07.02 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>时运不济，命途多舛，最近 Bug 有点多。大概是这样的：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstring></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+
+<span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">void</span> <span class="token function">Update</span><span class="token punctuation">(</span><span class="token keyword">const</span> std<span class="token operator">::</span>shared_ptr<span class="token operator">&lt;</span>std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>std<span class="token operator">::</span>string<span class="token operator">>></span> <span class="token operator">&amp;</span>value<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    paths_ <span class="token operator">=</span> value<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token function">InPaths</span><span class="token punctuation">(</span><span class="token keyword">const</span> std<span class="token operator">::</span>string <span class="token operator">&amp;</span>input<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> paths <span class="token operator">=</span> paths_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">auto</span> <span class="token operator">&amp;</span>path <span class="token operator">:</span> paths<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>input<span class="token punctuation">.</span><span class="token function">length</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&lt;</span> path<span class="token punctuation">.</span><span class="token function">length</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">continue</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token keyword">int</span> same <span class="token operator">=</span> <span class="token function">strncmp</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>input<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>path<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">,</span> path<span class="token punctuation">.</span><span class="token function">length</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>same <span class="token operator">==</span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span>
+          <span class="token punctuation">(</span>input<span class="token punctuation">.</span><span class="token function">length</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> path<span class="token punctuation">.</span><span class="token function">length</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">||</span> input<span class="token punctuation">[</span>path<span class="token punctuation">.</span><span class="token function">length</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">]</span> <span class="token operator">==</span> <span class="token string">'/'</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  std<span class="token operator">::</span>atomic_shared_ptr<span class="token operator">&lt;</span>std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>std<span class="token operator">::</span>string<span class="token operator">>></span> paths_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>这里会判断输入的 <code>input</code> 是不是在 <code>paths_</code> 表示的路径下面。代码在多线程环境下执行，<code>paths</code> 为原子共享指针（参考 folly 实现），运行过程中会调用 <code>Update</code> 动态更新。在 gcc 4.8.2 C++11 环境下会 core dump。</p>
+<p>在循环 <code>for (auto &amp;path : paths)</code>  中加上常量修饰符 <code>const</code> 可以修复该 Bug。有兴趣可以再看看代码，想想是哪里的问题，下面将公布答案。</p>
+<h3 id="bug-分析"><a href="#bug-%E5%88%86%E6%9E%90">Bug 分析</a></h3>
+<p><code>path.length()</code> 本身是 <code>const</code> 的方法，<code>path</code> 是否是 <code>const</code> 并不受影响，所以只剩下 <code>&amp;path[0]</code> 比较可疑了。查看对应的 <code>std::string</code> 源码，会发现 <code>operator[]</code> 比 <code>operator[] const</code> 多调用一个 <code>_M_leak</code> 方法，最后会执行 <code>_M_mutate</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">_CharT</span><span class="token punctuation">,</span> <span class="token keyword">typename</span> <span class="token class-name">_Traits</span><span class="token punctuation">,</span> <span class="token keyword">typename</span> <span class="token class-name">_Alloc</span><span class="token operator">></span>
+<span class="token keyword">void</span> <span class="token class-name">basic_string</span><span class="token operator">&lt;</span>_CharT<span class="token punctuation">,</span> _Traits<span class="token punctuation">,</span> _Alloc<span class="token operator">></span><span class="token operator">::</span><span class="token function">_M_mutate</span><span class="token punctuation">(</span>size_type __pos<span class="token punctuation">,</span>
+                                                      size_type __len1<span class="token punctuation">,</span>
+                                                      size_type __len2<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> size_type __old_size <span class="token operator">=</span> <span class="token keyword">this</span><span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> size_type __new_size <span class="token operator">=</span> __old_size <span class="token operator">+</span> __len2 <span class="token operator">-</span> __len1<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> size_type __how_much <span class="token operator">=</span> __old_size <span class="token operator">-</span> __pos <span class="token operator">-</span> __len1<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>__new_size <span class="token operator">></span> <span class="token keyword">this</span><span class="token operator">-></span><span class="token function">capacity</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">||</span> <span class="token function">_M_rep</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">_M_is_shared</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Must reallocate.</span>
+    <span class="token keyword">const</span> allocator_type __a <span class="token operator">=</span> <span class="token function">get_allocator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    _Rep <span class="token operator">*</span>__r <span class="token operator">=</span> _Rep<span class="token operator">::</span><span class="token function">_S_create</span><span class="token punctuation">(</span>__new_size<span class="token punctuation">,</span> <span class="token keyword">this</span><span class="token operator">-></span><span class="token function">capacity</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> __a<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>__pos<span class="token punctuation">)</span>
+      <span class="token function">_M_copy</span><span class="token punctuation">(</span>__r<span class="token operator">-></span><span class="token function">_M_refdata</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_M_data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> __pos<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>__how_much<span class="token punctuation">)</span>
+      <span class="token function">_M_copy</span><span class="token punctuation">(</span>__r<span class="token operator">-></span><span class="token function">_M_refdata</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> __pos <span class="token operator">+</span> __len2<span class="token punctuation">,</span> <span class="token function">_M_data</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> __pos <span class="token operator">+</span> __len1<span class="token punctuation">,</span>
+              __how_much<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token function">_M_rep</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">_M_dispose</span><span class="token punctuation">(</span>__a<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">_M_data</span><span class="token punctuation">(</span>__r<span class="token operator">-></span><span class="token function">_M_refdata</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>__how_much <span class="token operator">&amp;&amp;</span> __len1 <span class="token operator">!=</span> __len2<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Work in-place.</span>
+    <span class="token function">_M_move</span><span class="token punctuation">(</span><span class="token function">_M_data</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> __pos <span class="token operator">+</span> __len2<span class="token punctuation">,</span> <span class="token function">_M_data</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> __pos <span class="token operator">+</span> __len1<span class="token punctuation">,</span> __how_much<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token function">_M_rep</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">_M_set_length_and_sharable</span><span class="token punctuation">(</span>__new_size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>嗯会有修改操作。查询得知 gcc 4.8 的 <code>std::string</code> 是 copy-on-write 的，在修改时才会去执行复制，多线程环境下就挂了。按照 C++11 的规范已经不允许这种 COW 了，gcc 5 以上的版本就不会存在这样的问题，但 gcc 4.8 没有完全按照标准规范实现。</p>
+<p>验证 COW 也很简单，<a href="https://godbolt.org/z/iDxXiu">点击在线执行</a>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  std<span class="token operator">::</span>string a <span class="token operator">=</span> <span class="token string">"Hello World"</span><span class="token punctuation">;</span>
+  std<span class="token operator">::</span>string b <span class="token operator">=</span> a<span class="token punctuation">;</span>                    <span class="token comment">// does not do a deep copy</span>
+  <span class="token operator">*</span><span class="token keyword">const_cast</span><span class="token operator">&lt;</span><span class="token keyword">char</span> <span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>b<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token string">'W'</span><span class="token punctuation">;</span>  <span class="token comment">// modify string a in fact</span>
+
+  <span class="token function">puts</span><span class="token punctuation">(</span>a <span class="token operator">==</span> b <span class="token operator">?</span> <span class="token string">"copy on write"</span> <span class="token operator">:</span> <span class="token string">"C++11 std::string"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>复现 COW 导致的 core dump：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;chrono></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  std<span class="token operator">::</span>string a <span class="token operator">=</span> <span class="token string">"hello world"</span><span class="token punctuation">;</span>
+  std<span class="token operator">::</span>string b <span class="token operator">=</span> a<span class="token punctuation">;</span>
+  std<span class="token operator">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">bool</span><span class="token operator">></span> f<span class="token punctuation">{</span><span class="token boolean">false</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">constexpr</span> <span class="token keyword">uint32_t</span> N <span class="token operator">=</span> <span class="token number">8</span><span class="token punctuation">;</span>
+  std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>std<span class="token operator">::</span>thread<span class="token operator">></span> threads<span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> N<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    threads<span class="token punctuation">.</span><span class="token function">emplace_back</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token operator">&amp;</span><span class="token punctuation">]</span> <span class="token punctuation">{</span>
+      <span class="token keyword">while</span> <span class="token punctuation">(</span>f<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token boolean">false</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token punctuation">}</span>
+
+      <span class="token keyword">auto</span> p <span class="token operator">=</span> <span class="token operator">&amp;</span>b<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">;</span>  <span class="token comment">// `b.data()` is ok</span>
+      <span class="token function">printf</span><span class="token punctuation">(</span><span class="token string">"%p\n"</span><span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span>p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  std<span class="token operator">::</span>this_thread<span class="token operator">::</span><span class="token function">sleep_for</span><span class="token punctuation">(</span>std<span class="token operator">::</span>chrono<span class="token operator">::</span><span class="token function">milliseconds</span><span class="token punctuation">(</span><span class="token number">10</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  f <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">auto</span> <span class="token operator">&amp;</span>thread <span class="token operator">:</span> threads<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    thread<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>除了增加 <code>const</code>，也可以将 <code>&amp;path[0]</code> 替换为 <code>path.data()</code>，后者也是 <code>const</code> 方法。C++ 标准库中 <code>const</code> 方法通常是线程安全的，能加上 <code>const</code> 就都加上吧。</p>
+<h3 id="references"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://stackoverflow.com/questions/12199710/legality-of-cow-stdstring-implementation-in-c11">&quot;Legality of COW std::string implementation in C++11&quot;, <em>Stack Overflow</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2021 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>
