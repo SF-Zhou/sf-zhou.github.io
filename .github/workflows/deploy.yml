@@ -19,14 +19,14 @@ jobs:
     - name: 🚀Deploy
       uses: JamesIves/github-pages-deploy-action@4.1.1
       with:
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
-        BRANCH: master
-        FOLDER: public
+        token: ${{ secrets.TOKEN }}
+        branch: master
+        folder: public
 
     - name: 🚀Deploy
       uses: JamesIves/github-pages-deploy-action@4.1.1
       with:
-        REPOSITORY_NAME: SF-Zhou/SF-Zhou
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
-        BRANCH: master
-        FOLDER: profile
+        repository-name: SF-Zhou/SF-Zhou
+        token: ${{ secrets.TOKEN }}
+        branch: master
+        folder: profile
