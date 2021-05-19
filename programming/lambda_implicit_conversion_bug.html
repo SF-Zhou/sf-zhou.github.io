@@ -136,6 +136,21 @@
   <span class="token function">Func</span><span class="token punctuation">(</span><span class="token string">""</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 输出 A</span>
 <span class="token punctuation">}</span>
 </code></pre>
+<h3 id="one-more"><a href="#one-more">One More</a></h3>
+<p>构造了一个内存池，使用 Thread Local 缓存加快相同类型的分配速度，在分配内存后会调用对应的构造函数，类似：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
+<span class="token keyword">static</span> std<span class="token operator">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token function">pop</span><span class="token punctuation">(</span>Args <span class="token operator">&amp;&amp;</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>args<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">void</span><span class="token operator">*</span> item <span class="token operator">=</span> <span class="token function">cache</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">pop</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">new</span> <span class="token punctuation">(</span>item<span class="token punctuation">)</span> <span class="token function">T</span><span class="token punctuation">(</span>std<span class="token operator">::</span>forward<span class="token operator">&lt;</span>Args<span class="token operator">></span><span class="token punctuation">(</span>args<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> std<span class="token operator">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token punctuation">(</span><span class="token keyword">reinterpret_cast</span><span class="token operator">&lt;</span>T<span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>item<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>当 <code>T</code> 类型为 <code>std::array&lt;char, N&gt;</code> 或者 <code>std::aligned_storage&lt;N&gt;::type</code> 时，N 较大的时候会有严重的性能问题。经排查，是默认构造函数的原因。这两种类型均为 POD，调用带括号的构造函数 <code>new T()</code> 时会使用 0 进行初始化。这里最终将 <code>T</code> 类型改为下方的 <code>Memory</code> 后修复。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">Memory</span> <span class="token punctuation">{</span>
+  <span class="token function">Memory</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>  <span class="token comment">// 显式地声明构造函数，不执行 POD 类型的初始化</span>
+  std<span class="token operator">::</span>array<span class="token operator">&lt;</span><span class="token keyword">char</span><span class="token punctuation">,</span> N<span class="token operator">></span> data<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
 <h3 id="references"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/language/lambda">&quot;Lambda expressions&quot;, <em>Wikipedia</em></a></li>
