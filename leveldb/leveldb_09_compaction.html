@@ -25,7 +25,7 @@
       <div class="markdown">
         <p><em>祝大家中秋快乐！</em></p>
 <p>LevelDB 源码分析系列也步入尾声，本篇将分析 LevelDB 中至关重要的 Compaction 过程，依然从代码的角度出发。建议大家同时阅读<a href="https://leveldb-handbook.readthedocs.io/zh/latest/compaction.html">参考文献 1</a> 了解 Compaction 的作用和过程的描述。</p>
-<h3 id="1.-触发-compaction"><a href="#1.-%E8%A7%A6%E5%8F%91-compaction">1. 触发 Compaction</a></h3>
+<h3 id="1.-触发-compaction" tabindex="-1"><a href="#1.-%E8%A7%A6%E5%8F%91-compaction">1. 触发 Compaction</a></h3>
 <p><a href="/leveldb/leveldb_05_sorted_table.html">本系列第三篇</a>中描述了内存数据库转为 Sorted Table 的过程，其中会执行 <code>DBImpl::BackgroundCompaction</code> 这一后台任务：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">BackgroundCompaction</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   mutex_<span class="token punctuation">.</span><span class="token function">AssertHeld</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -178,7 +178,7 @@ f<span class="token operator">-></span>allowed_seeks <span class="token operator
 <span class="token punctuation">}</span>
 </code></pre>
 <p>对于数据大小触发的 Compaction，会选取 <code>compact_pointer_</code> 后的第一个文件作为 Compaction 对象，即本层上一次 Compaction 区间之后的文件；而查询次数触发的 Compaction 其本身对应一个文件。对于 0 层文件，因为之间存在 Overlap，需要将存在重叠的文件都加入 Compaction 集合里。至此本层的文件选择完毕。</p>
-<h3 id="2.-扩大-compaction-文件集合"><a href="#2.-%E6%89%A9%E5%A4%A7-compaction-%E6%96%87%E4%BB%B6%E9%9B%86%E5%90%88">2. 扩大 Compaction 文件集合</a></h3>
+<h3 id="2.-扩大-compaction-文件集合" tabindex="-1"><a href="#2.-%E6%89%A9%E5%A4%A7-compaction-%E6%96%87%E4%BB%B6%E9%9B%86%E5%90%88">2. 扩大 Compaction 文件集合</a></h3>
 <p><code>VersionSet::PickCompaction</code> 随后执行 <code>SetupOtherInputs</code> 以扩大 Compaction 文件集合：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Finds the largest key in a vector of files. Returns true if files it not</span>
 <span class="token comment">// empty.</span>
@@ -327,7 +327,7 @@ FileMetaData<span class="token operator">*</span> <span class="token function">F
 <span class="token punctuation">}</span>
 </code></pre>
 <p>首先在 Level+1 层将所有存在重叠的文件加入 Compaction 文件集合里，更新 Compaction 的区间 <code>[all_start, all_limit]</code>。再回过头来使用新区间获得 Level 层重叠的文件 <code>expanded0</code>，如果新的数据大小在阈值以内且不会改变 Level+1 层选择的文件，那么则将 Level 层的文件集合更新为 <code>expanded0</code>。最后将当前 Level 的 <code>compact_pointer_</code> 设为当前 Compaction 的最大键。至此扩大 Compaction 文件集合结束，<code>VersionSet::PickCompaction</code> 也返回了 Compaction 对象。</p>
-<h3 id="3.-执行-compaction"><a href="#3.-%E6%89%A7%E8%A1%8C-compaction">3. 执行 Compaction</a></h3>
+<h3 id="3.-执行-compaction" tabindex="-1"><a href="#3.-%E6%89%A7%E8%A1%8C-compaction">3. 执行 Compaction</a></h3>
 <p>回到 <code>DBImpl::BackgroundCompaction</code>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">DBImpl</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">CompactionState</span></span> <span class="token punctuation">{</span>
   <span class="token comment">// Files produced by compaction</span>
@@ -687,7 +687,7 @@ Status <span class="token class-name">DBImpl</span><span class="token operator">
 <span class="token punctuation">}</span>
 </code></pre>
 <p>执行 <code>InstallCompactionResults</code> 时将 Compaction 的文件集合加入到 <code>VersionEdit</code> 的删除列表中，并将新生成的文件加入到新文件列表里，随后执行 <code>versions_-&gt;LogAndApply</code> 更新版本。最后再执行一些清理操作，Compaction 过程就结束了。</p>
-<h3 id="题外话"><a href="#%E9%A2%98%E5%A4%96%E8%AF%9D">题外话</a></h3>
+<h3 id="题外话" tabindex="-1"><a href="#%E9%A2%98%E5%A4%96%E8%AF%9D">题外话</a></h3>
 <p>看 <code>VersionSet::AddBoundaryInputs</code> 部分的代码时，VS Code 上显示提交于 4 年前，而大部分的 LevelDB 代码提交于 8 年前。这引起了我的警觉：这个 Bug 竟然影响了 4 年。随即用 VS Code 的 <a href="https://marketplace.visualstudio.com/items?itemName=waderyan.gitblame">Git Blame 插件</a>查看修复该 Bug 对应的 <a href="https://github.com/google/leveldb/commit/20fb601aa9f68ff0aa147df22524b7d01758552b">Commit</a> 及对应的 <a href="https://github.com/google/leveldb/pull/339">Pull Request</a>，发现了不得了的事情：这个提交是 16 年初的，但 19 年 4 月才合并进去。</p>
 <p>该 Bug 最早报告于 2015 年的 <a href="https://github.com/google/leveldb/issues/320">Issue 320</a>，当时 <a href="https://github.com/richcole">richcole</a> 就给出了 <a href="https://github.com/google/leveldb/issues/320#issuecomment-160186125">Bug 的分析</a>，并在 16 年初提交了该 Bug 的修复，但一直无人理会。直到 19 年 3 月 <a href="https://github.com/vonnyfly">vonnyfly</a> <a href="https://github.com/google/leveldb/pull/339#issuecomment-471896373">发现了这个严重问题</a>，这才引起了官方的重视，之后在大家的协作下终于将修复 patch 合并到主分支。</p>
 <p>而基于 LevelDB 开发的 RocksDB 则在该问题上做出了快速响应。16 年 <a href="https://github.com/facebook/rocksdb/issues/993">Issue 993</a> 中有人询问 RocksDB 是否同样受到该 Bug 影响，RocksDB 的主要贡献者 <a href="https://github.com/igorcanadi">igorcanadi</a> 在 12 小时内及时回复，<a href="https://github.com/facebook/rocksdb/issues/993#issuecomment-184830547">表示 RocksDB 不受该 Bug 影响</a>：</p>
@@ -695,7 +695,7 @@ Status <span class="token class-name">DBImpl</span><span class="token operator">
 <p>I just read the issue more throughly. RocksDB doesn't have the same bug. Looks like we actually found and fixed that bug years ago. I don't know why we didn't contribute back to LevelDB :(</p>
 </blockquote>
 <p>笔者只是通过 GitHub 的 Issue 和 PR 恢复了该事件的发展过程，不对此作出任何评价。不过这个严重的 Bug 应该仍然影响着很多项目，毕竟小概率触发比 100% 触发更可怕，希望能引起大家的重视，检查下自己使用的 LevelDB 是不是 <a href="https://github.com/google/leveldb/releases/tag/1.22">Release 1.22</a> 之前的版本。</p>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://leveldb-handbook.readthedocs.io/zh/latest/compaction.html">&quot;Compaction&quot;, <em>leveldb-handbook</em></a></li>
 <li><a href="https://github.com/google/leveldb/pull/339">&quot;Fix snapshot compaction bug&quot;, <em>leveldb#339</em></a></li>

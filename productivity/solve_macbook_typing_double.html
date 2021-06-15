@@ -26,7 +26,7 @@
         <p>手上的 MacBook Pro 是 2016 年年底买的，至今一年都没到。前一段时间就出现了 b 键有时候按一下出来两个字符的问题。最近几天 n 键也出现了相同的问题。这个事件还是有概率会发生，打字的时候让人非常不爽。</p>
 <p>我在网上查了一下，出现类似问题的不止我一个人。看起来是新出的蝴蝶键盘品控的问题。有人说拿去送修了，修完了还是有这个问题。所以我就一直忍着，忍着忍着忍着忍不了了😂哪有打字，打到一半，发现多了个 n，再回来删除的道理！</p>
 <p>所以，今天要解决这个问题！</p>
-<h3 id="1.-思路"><a href="#1.-%E6%80%9D%E8%B7%AF">1. 思路</a></h3>
+<h3 id="1.-思路" tabindex="-1"><a href="#1.-%E6%80%9D%E8%B7%AF">1. 思路</a></h3>
 <ol>
 <li>硬件方案
 <ol>
@@ -40,7 +40,7 @@
 <p>如果要解决这个问题，需要实现的功能就是：分析当前的 <code>KeyDown</code> 事件，与上一次该键的 <code>KeyUp</code> 时间间隔。如果异常的短，说明是键盘导致的双击事件，则忽略该 <code>KeyDown</code> 信号。</p>
 <p>有了思路之后，再考虑如何实现该功能。macOS 上有一大批键盘相关的软件，包括收费的 <a href="https://www.keyboardmaestro.com/">Keyboard Maestro</a>，开源的 <a href="https://github.com/tekezo/Karabiner-Elements">Karabiner-Elements</a>，还有针对自定义快捷键的 <a href="http://www.hammerspoon.org/">Hammerspoon</a>。笔者都尝试了一遍之后，发现并不容易在这些软件上实现需求。</p>
 <p>只能靠自己写了。幸运的是，我是个软件工程师 :D</p>
-<h3 id="2.-实现"><a href="#2.-%E5%AE%9E%E7%8E%B0">2. 实现</a></h3>
+<h3 id="2.-实现" tabindex="-1"><a href="#2.-%E5%AE%9E%E7%8E%B0">2. 实现</a></h3>
 <p>首先，搜索相关的方案。需求为拦截全局的键盘信号，搜索词为 &quot;macOS global keyboard event&quot;。</p>
 <p>看了一些搜索结果之后，发现了一段不错的代码：<a href="https://gist.github.com/quietcricket/8313195">Global keyboard hook for OSX</a>，作者为 <a href="https://gist.github.com/quietcricket">quietcricket</a>，四年前上传的。代码实现的功能为调换 a 键和 z 键。按照代码中提示的编译命令编译，成功。</p>
 <p>执行，提示 Accessibility 问题，一般涉及到全局键盘的软件都会需要 Accessibility 授权。在设置中找到 <code>Security &amp; Privacy</code> → <code>Accessibility</code>。笔者是在 iTerm2 中执行编译后的 binary 的，所以打开 iTerm2 的授权。再次执行，OK。测试，全局的 a 键和 z 键确实被调换了，包括快捷键。</p>
@@ -149,7 +149,7 @@ CGEventRef <span class="token function">myCGEventCallback</span><span class="tok
 <pre class="language-bash"><code class="language-bash">g++ -O2 -Wall -o kill_double_typing kill_double_typing.cpp -framework ApplicationServices
 </code></pre>
 <p>编译后得到可执行文件，可以使用 nohup 命令，将其设为后台执行。做得更复杂一点的，可以设置为自动启动，就自己搜索啦。</p>
-<h3 id="3.-总结"><a href="#3.-%E6%80%BB%E7%BB%93">3. 总结</a></h3>
+<h3 id="3.-总结" tabindex="-1"><a href="#3.-%E6%80%BB%E7%BB%93">3. 总结</a></h3>
 <p>目前只是一个非常初级的版本，还有很多可以调优的地方，笔者会慢慢改进这个小程序的。</p>
 <p>软件的方式是很有局限性的，最好的方案，当然是提高苹果的品控啦，不过我说是没用的😂。</p>
 

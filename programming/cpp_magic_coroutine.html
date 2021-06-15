@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>协程，简而言之就是用户态线程。C++ 官方协程已经被提上日程，乐观估计 2020 年能发布，然后 2025 年能用上。但当下的性能问题亟待解决，没有官方实现也可以自己造轮子。除了切换到 Go、使用语言级支持的协程外，也可以在 C++ 内使用基于汇编实现的协程，比如微信开源的 <a href="https://github.com/Tencent/libco">libco</a>。本文将从简单的汇编开始，逐步分析 x86-64 环境下协程的实现原理。</p>
-<h3 id="1.-栈帧-stack-frames"><a href="#1.-%E6%A0%88%E5%B8%A7-stack-frames">1. 栈帧 Stack Frames</a></h3>
+<h3 id="1.-栈帧-stack-frames" tabindex="-1"><a href="#1.-%E6%A0%88%E5%B8%A7-stack-frames">1. 栈帧 Stack Frames</a></h3>
 <p>在 C++ 的执行环境下，通常会在调用函数时为其分配栈帧使其有独立的内存空间放置临时变量。一般使用 <code>RBP</code> 寄存器（x86 则是 <code>EBP</code> 寄存器）存储栈帧的底部位置，然后使用 <code>RBP</code> 寄存器和偏移量定位临时变量。举个例子：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token function">func</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> a<span class="token punctuation">,</span> b<span class="token punctuation">,</span> c<span class="token punctuation">;</span>
@@ -126,7 +126,7 @@ run:
 </code></pre>
 <p>上述代码需要 C++11 支持，<a href="https://godbolt.org/z/dc7Kj3">可以点击此处在线编译执行</a>。这里手写了一个汇编函数 <code>run</code>，其功能为跳转到第一个参数指向的地址处，即 <code>func</code> 函数。由于返回地址仍然是 <code>main</code> 函数的位置，故不需要其他额外的修改操作。</p>
 <p>而这就是实现协程切换的核心魔法了。</p>
-<h3 id="2.-协程切换-swap-coroutines"><a href="#2.-%E5%8D%8F%E7%A8%8B%E5%88%87%E6%8D%A2-swap-coroutines">2. 协程切换 Swap Coroutines</a></h3>
+<h3 id="2.-协程切换-swap-coroutines" tabindex="-1"><a href="#2.-%E5%8D%8F%E7%A8%8B%E5%88%87%E6%8D%A2-swap-coroutines">2. 协程切换 Swap Coroutines</a></h3>
 <p>在协程的执行过程中，一般会在遇到 IO 等待事件时主动出让执行权；而当 IO 事件完成、获得执行权时，再恢复出让前的状态，继续执行。举个例子：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token function">func</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Wait!"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
@@ -212,7 +212,7 @@ swap_context:
   jmpq <span class="token operator">*</span><span class="token operator">%</span><span class="token register variable">rax</span>            <span class="token comment">; 跳回 RAX 保存的返回地址，完成切换</span>
 </code></pre>
 <p><code>swap_context</code> 函数有两个参数，无返回值，两个参数使用 <code>RDI</code> 和 <code>RSI</code> 传递。先执行保存，再执行恢复，最后利用返回地址跳到应该前往的位置，完成协程的启动和切换，奇技淫巧矣。有兴趣可以自己用 GDB/LLDB 调试运行看看。</p>
-<h3 id="3.-事件循环-event-loop"><a href="#3.-%E4%BA%8B%E4%BB%B6%E5%BE%AA%E7%8E%AF-event-loop">3. 事件循环 Event Loop</a></h3>
+<h3 id="3.-事件循环-event-loop" tabindex="-1"><a href="#3.-%E4%BA%8B%E4%BB%B6%E5%BE%AA%E7%8E%AF-event-loop">3. 事件循环 Event Loop</a></h3>
 <p>正常工作的协程是不会无缘无故出让自己的执行权的，只有在等待 IO、无法继续执行下去时才会出让，例如 <code>usleep(1000)</code>。这时候闲着也是闲着，把执行权让出去、等 IO 完成再继续执行，系统才能获得最大的执行效率。由于协程无法做到主动抢占式执行，就需要有一个事件循环在协程等待的事件完成时唤醒协程，恰好主协程就特别适合做这件事情。</p>
 <p>以 <code>usleep</code> 为例，当子协程执行 <code>usleep</code> 时，可以将其加入定时器中，并执行 <code>yield</code> 出让执行权；事件循环则不断地重复，检查定时器中有没有等待结束的协程，如有则出让自己的执行权将其唤醒、继续子协程的任务，如此循环往复。</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
@@ -329,7 +329,7 @@ std<span class="token operator">::</span>priority_queue<span class="token operat
 </code></pre>
 <p><a href="https://onlinegdb.com/B12Go3nvS">可以点击此处在线编译执行</a>。这里使用优先队列记录定时的任务，在事件循环中每 1ms 检查一次有没有超时的任务，有则将其唤醒执行。一共创建了两个协程，通过不断地切换执行权，在单线程的环境中实现“并行”。</p>
 <p>工业级协程库的原理与上文所述的类似，不过其一般会 hook 大量系统 IO 函数，如 <code>read</code> / <code>write</code> / <code>send</code> / <code>recv</code>，使其在 IO 等待过程中主动出让执行权，在事件循环中使用类似 <code>Epoll</code> 或 <code>Kqueue</code> 管理等待的事件。工业级协程库也会提供更丰富的基础组件，这方面可以参考 <a href="https://github.com/Tencent/libco">libco</a> 和 <a href="https://github.com/yyzybb537/libgo">libgo</a> 的实现。</p>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/language/coroutines">&quot;Coroutines (C++20)&quot;, <em>C++ References</em></a></li>
 <li><a href="https://github.com/Tencent/libco">&quot;libco&quot;, <em>GitHub/Tencent</em></a></li>

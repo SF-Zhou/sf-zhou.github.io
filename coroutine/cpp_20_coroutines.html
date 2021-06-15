@@ -373,7 +373,7 @@ final suspend, return never
 </code></pre>
 <p>这里在 <code>awaiter.await_suspend(handle)</code> 中新建了一个 <code>std::jthread</code>，计划在线程中睡眠 +1s 后恢复协程。而后协程挂起，随后 <code>main</code> 函数结束，全局变量析构，等待线程 <code>join()</code> 。于是 1s 后线程等待结束并恢复线程。注意 <code>awaiter</code> 对象在协程恢复后自动析构了。</p>
 <p>这几个简单的例子就可以激发大量想象力了。无栈协程加上编译器加持，以前用魔法才能完成的事情现在可以在官方认证下轻松完成。当然目前标准中只提供了协程的基础能力，剩下调度器/执行器、IO 多路复用等都需要使用者自行实现，期待开源社区出现完整易用的异步框架，目前观察到 GitHub 上已经有 <a href="https://github.com/facebook/folly/tree/master/folly/experimental/coro">folly/coro</a> 和 <a href="https://github.com/owt5008137/libcopp">libcopp</a> 在进行相关工作了。</p>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/language/coroutines">&quot;Coroutines (C++20)&quot;, <em>C++ Reference</em></a></li>
 <li><a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/n4775.pdf">&quot;Working Draft, C++ Extensions for Coroutines&quot;, <em>Open Standards</em></a></li>

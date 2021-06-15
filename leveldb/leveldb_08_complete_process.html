@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>本系列之前的数篇博文从面向对象的角度分析了 LevelDB 中的核心组件，理解了每个类的作用。本篇将从面向过程的角度，分析 LevelDB 创建、打开和读写的完整流程。</p>
-<h3 id="1.-新建数据库并写入"><a href="#1.-%E6%96%B0%E5%BB%BA%E6%95%B0%E6%8D%AE%E5%BA%93%E5%B9%B6%E5%86%99%E5%85%A5">1. 新建数据库并写入</a></h3>
+<h3 id="1.-新建数据库并写入" tabindex="-1"><a href="#1.-%E6%96%B0%E5%BB%BA%E6%95%B0%E6%8D%AE%E5%BA%93%E5%B9%B6%E5%86%99%E5%85%A5">1. 新建数据库并写入</a></h3>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
 
@@ -472,7 +472,7 @@ prev_log_number_ <span class="token operator">=</span> prev_log_number<span clas
 0000020 <span class="token number">65</span> 5d
 </code></pre>
 <p>一样的 7 字节 Header，Record 长度为 <code>0x1b=27</code>，内容为 <code>WriteBatch</code> 编码结果。参考<a href="/leveldb/leveldb_03_write_batch_and_log.html">本系列第三篇博文</a>，内容的前 8 字节为序列号，这里是 1；其后的 4 字节为键值对数量，这里也是 1；再后面就是附带长度编码的键值对，分别是 <code>[Key]</code> 和 <code>[Value]</code>。最后代码结束，删除了 <code>db</code> 对象，也就得到了前文叙述的文件状态。</p>
-<h3 id="2.-打开数据库并读取"><a href="#2.-%E6%89%93%E5%BC%80%E6%95%B0%E6%8D%AE%E5%BA%93%E5%B9%B6%E8%AF%BB%E5%8F%96">2. 打开数据库并读取</a></h3>
+<h3 id="2.-打开数据库并读取" tabindex="-1"><a href="#2.-%E6%89%93%E5%BC%80%E6%95%B0%E6%8D%AE%E5%BA%93%E5%B9%B6%E8%AF%BB%E5%8F%96">2. 打开数据库并读取</a></h3>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
@@ -759,7 +759,7 @@ total <span class="token number">40</span>
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>DBImpl::Get</code> 首先会尝试从内存数据中读取数据，如果找不到则会使用 <code>Version::Get</code> 读取，其过程参见<a href="/leveldb/leveldb_07_version.html">上一篇博文</a>。至此读取的流程也分析完毕。</p>
-<h3 id="总结"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
+<h3 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
 <ol>
 <li>LevelDB 每次打开数据库时都会创建新的 MANIFEST 文件（默认情况下 <code>Options::reuse_logs=false</code>）；</li>
 <li>存储在日志中的键值对，会在下一次打开数据库时转为 <code>.ldb</code> 文件。</li>

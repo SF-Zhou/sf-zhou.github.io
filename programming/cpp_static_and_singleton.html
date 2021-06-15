@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>C++ 中的静态变量是个有趣的精灵，可以通过它实现很多魔法。精灵强大，同时也危险，本文简单介绍一下静态变量的使用和特性，以及基于静态变量的单例模式实现。</p>
-<h3 id="1.-static-vs.-global"><a href="#1.-static-vs.-global">1. Static VS. Global</a></h3>
+<h3 id="1.-static-vs.-global" tabindex="-1"><a href="#1.-static-vs.-global">1. Static VS. Global</a></h3>
 <p>静态变量中的静态 <code>static</code> 是一种存储类别说明符，其和变量的作用域共同控制变量中两个独立的属性： Storage Duration 和 Linkage（不确定怎么翻译）。下面摘录自<a href="https://en.cppreference.com/w/cpp/language/storage_duration">文献 1</a>：</p>
 <blockquote>
 <p>The storage class specifiers are a part of the <em>decl-specifier-seq</em> of a name's <a href="https://en.cppreference.com/w/cpp/language/declarations">declaration syntax</a>. Together with the <a href="https://en.cppreference.com/w/cpp/language/scope">scope</a> of the name, they control two independent properties of the name: its <em>storage duration</em> and its <em>linkage</em>.</p>
@@ -70,7 +70,7 @@ y at 0x10a73d012
 </code></pre>
 <p><code>a.h</code> 中的 <code>x</code> 使用 <code>static</code> 修饰，其仅仅在源码文件内部链接，所以 <code>main.cpp</code> 和 <code>a.cpp</code> 内部均有一份独立的 <code>x</code>，故其会初始化两次；而在 <code>a.cpp</code> 中定义的全局变量 <code>y</code>，会使用外部链接，且使用 <code>extern</code>  声明后，可以在任意一个 <code>cpp</code> 文件中访问。</p>
 <p>理解 C++ 编译的过程的话，<code>internal</code> 和 <code>external</code> 的区别就很容易理解了。简单来说全局变量会导出到符号表中，而静态全局变量不会。所以静态全局变量一般直接在 <code>cpp</code> 文件中定义和使用。特别的，如果在匿名命名空间中定义全局变量，其默认是 <code>internal</code> 的 Linkage，或者说就是静态全局变量。关于 Linkage 更详细的信息可以参考<a href="https://en.cppreference.com/w/cpp/language/storage_duration">文献 1</a>。</p>
-<h3 id="2.-static-initialization"><a href="#2.-static-initialization">2. Static Initialization</a></h3>
+<h3 id="2.-static-initialization" tabindex="-1"><a href="#2.-static-initialization">2. Static Initialization</a></h3>
 <p>静态变量初始化中的静态指的是 Storage Duration，同样从<a href="https://en.cppreference.com/w/cpp/language/storage_duration">文献1</a>摘录一段：</p>
 <blockquote>
 <p><em><strong>static</strong></em> storage duration. The storage for the object is allocated when the program begins and deallocated when the program ends. Only one instance of the object exists. All objects declared at namespace scope (including global namespace) have this storage duration, plus those declared with <code>static</code> or <code>extern</code>. See <a href="https://en.cppreference.com/w/cpp/language/initialization#Non-local_variables">Non-local variables</a> and <a href="https://en.cppreference.com/w/cpp/language/storage_duration#Static_local_variables">Static local variables</a> for details on initialization of objects with this storage duration.</p>
@@ -91,7 +91,7 @@ y at 0x10a73d012
 <li>如果对析构的顺序有严格要求，并且不强制要求析构，可以选择不析构；</li>
 <li>如果对析构的顺序有严格要求，并且强制要求析构，可以使用 <a href="https://en.wikibooks.org/wiki/More_C%2B%2B_Idioms/Nifty_Counter">Nifty Counter</a> 引用计数。</li>
 </ol>
-<h3 id="3.-singleton-pattern"><a href="#3.-singleton-pattern">3. Singleton Pattern</a></h3>
+<h3 id="3.-singleton-pattern" tabindex="-1"><a href="#3.-singleton-pattern">3. Singleton Pattern</a></h3>
 <p>有了静态变量这个神器后，C++ 里实现单例模式就变得非常简单了：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
 <span class="token keyword">class</span> <span class="token class-name">Singleton</span> <span class="token punctuation">{</span>
@@ -115,7 +115,7 @@ y at 0x10a73d012
   <span class="token comment">// Use A::Instance()</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/language/storage_duration">&quot;Storage class specifiers&quot;, <em>C++ Reference</em></a></li>
 <li><a href="https://en.cppreference.com/w/cpp/named_req/PODType">&quot;C++ named requirements: <em>PODType</em>&quot;, <em>C++ Reference</em></a></li>

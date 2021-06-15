@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>作为<a href="/#/Paxos">本系列</a>的最后一篇博文，本篇会争取把之前挖的坑一一填上，包括读取、CatchUp 和 Recovery 的流程，以及 WaitingMsg 的使用。</p>
-<h3 id="1.-读取流程"><a href="#1.-%E8%AF%BB%E5%8F%96%E6%B5%81%E7%A8%8B">1. 读取流程</a></h3>
+<h3 id="1.-读取流程" tabindex="-1"><a href="#1.-%E8%AF%BB%E5%8F%96%E6%B5%81%E7%A8%8B">1. 读取流程</a></h3>
 <p>首先可以看下 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/example/ServiceImpl.cpp#L35"><code>example/ServiceImpl.cpp</code></a> 中对读取的处理：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> clsServiceImpl<span class="token operator">::</span><span class="token function">SelectCard</span><span class="token punctuation">(</span>grpc<span class="token operator">::</span>ServerContext <span class="token operator">&amp;</span>oContext<span class="token punctuation">,</span> <span class="token keyword">const</span> example<span class="token operator">::</span>CardRequest <span class="token operator">&amp;</span>oRequest<span class="token punctuation">,</span>
                                example<span class="token operator">::</span>CardResponse <span class="token operator">&amp;</span>oResponse<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -168,7 +168,7 @@
 </code></pre>
 <p>逻辑非常隐含，初始化 Record 后，标记 <code>CheckedEmpty</code> 直接发送出去；接收到的节点反序列化时将 <code>CheckedEmpty</code> 的 Cmd 的 <code>src.PromisedNum</code> 设为 -1，使得 <code>bRemoteUpdated</code> 始终成立，始终回包；<code>bLocalUpdated</code> 为 <code>false</code> 所以不会落盘；最后发起请求的节点获得多数派为空的回复后，确定本地和全局进度一致。对应的失败处理留给读者自己分析。</p>
 <p>严格来说这样写代码并不好，逻辑隐藏地太深了。当然以此实现的不落盘读取还是很精妙的。</p>
-<h3 id="2.-catchup-流程"><a href="#2.-catchup-%E6%B5%81%E7%A8%8B">2. CatchUp 流程</a></h3>
+<h3 id="2.-catchup-流程" tabindex="-1"><a href="#2.-catchup-%E6%B5%81%E7%A8%8B">2. CatchUp 流程</a></h3>
 <p>CatchUp 包括 <code>EntityCatchUp</code> 和 <code>CheckForCatchUp</code>，前者负责将 <code>CommittedEntry</code> 追赶到 <code>MaxChosenEntry</code>，后者负责将 <code>MaxContChosenEntry</code> 追赶到 <code>MaxChosenEntry</code>。在之前的<a href="/paxos/paxos_store_05_details.html">「五、实现细节」</a>有对应的函数细节分析，这里看一下实际运行时的状态。考虑以下情况：</p>
 <ol>
 <li>A 机网络中断；</li>
@@ -323,7 +323,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>B / C 机收到这些 Entry 落后的请求后，将自身的 PLog 记录回包，A 机收到后正常更新即可追赶到全局最新的进度。</p>
-<h3 id="3.-recover-流程"><a href="#3.-recover-%E6%B5%81%E7%A8%8B">3. Recover 流程</a></h3>
+<h3 id="3.-recover-流程" tabindex="-1"><a href="#3.-recover-%E6%B5%81%E7%A8%8B">3. Recover 流程</a></h3>
 <p>当 Entry Record 中的 Value 成功提交到 DB 之后，其对应的 PLog 就可以“安全”删除了。PLog 删除的代码在开源版中并没有提供，询问了 PaxosStore 的开发者之后，确认 PLog 定期扫描删除已经提交的 Record 以减轻存储压力。考虑以下情况：</p>
 <ol>
 <li>A 机挂掉；</li>
@@ -574,7 +574,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>在恢复数据的过程中，需要为该 <code>iEntityID</code> 加锁加 Flag 以拒绝其他读写服务，样例里使用的是协程锁，并且在 Entity Meta 中设置了 <code>kDBFlagCheckGetAll=1</code> 的 Flag。</p>
-<h3 id="4.-waitingmsg"><a href="#4.-waitingmsg">4. WaitingMsg</a></h3>
+<h3 id="4.-waitingmsg" tabindex="-1"><a href="#4.-waitingmsg">4. WaitingMsg</a></h3>
 <p>在 <code>EntryInfo</code> 里有一项 <code>WaitingMsg</code> 属性，当需要等待 <code>PLog</code> 读取或写入时，会将当前的 <code>Cmd</code> 存入该列表中暂存起来：</p>
 <pre class="language-cpp"><code class="language-cpp">ptInfo<span class="token operator">-></span>apWaitingMsg<span class="token punctuation">[</span>iAcceptorID<span class="token punctuation">]</span> <span class="token operator">=</span> poPaxosCmd<span class="token punctuation">;</span>
 </code></pre>

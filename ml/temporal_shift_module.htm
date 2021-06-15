@@ -23,11 +23,11 @@
         </a>
       </div>
       <div class="markdown">
-        <h3 id="abstract"><a href="#abstract">Abstract</a></h3>
+        <h3 id="abstract" tabindex="-1"><a href="#abstract">Abstract</a></h3>
 <blockquote>
 <p>The explosive growth in online video streaming gives rise to challenges on efficiently extracting the spatial-temporal information to perform video understanding. Conventional 2D CNNs are computationally cheap but cannot capture long-term temporal relationships; 3D CNN based methods can achieve good performance but are computationally intensive, making it expensive to deploy. In this paper, we propose a generic and effective Temporal Shift Module (TSM) that enjoys both high efficiency and high performance. Specifically, it can achieve the performance of 3D CNN but maintain 2D complexity. The central idea of TSM is to shift part of the channels along the temporal dimension, which facilitates information exchange among neighboring frames. TSM can be inserted into 2D CNNs to achieve temporal modeling at the cost of zero FLOPs and zero parameters. On the Something-Something-V1 dataset which focuses on temporal modeling, we achieved better results than I3D family and ECO family using 6X and 2.7X fewer FLOPs respectively. Measured on P100 GPU, our single model achieved 1.8% higher accuracy at 8X lower latency and 12X higher throughput compared to I3D. Remarkably, our framework ranks the first on both Something-Something V1 and V2 leaderboards upon this paper's submission.</p>
 </blockquote>
-<h3 id="method"><a href="#method">Method</a></h3>
+<h3 id="method" tabindex="-1"><a href="#method">Method</a></h3>
 <figure tabindex="1"><a href="../images/b83f9c336aaa0b506fe717d33cfc3901.svg"><img src="../images/b83f9c336aaa0b506fe717d33cfc3901.svg" alt=""></a></figure>
 <figure tabindex="2"><a href="../images/4294b03be95a75baf429d0464441fda6.svg"><img src="../images/4294b03be95a75baf429d0464441fda6.svg" alt=""></a></figure>
 <p>Unofficial implementation: <a href="https://github.com/Pika7ma/Temporal-Shift-Module">Pika7ma/Temporal-Shift-Module</a></p>
@@ -54,7 +54,7 @@
         <span class="token keyword">raise</span> ValueError<span class="token punctuation">(</span><span class="token string">'Unknown TSM version: {}'</span><span class="token punctuation">.</span><span class="token builtin">format</span><span class="token punctuation">(</span>version<span class="token punctuation">)</span><span class="token punctuation">)</span>
     <span class="token keyword">return</span> torch<span class="token punctuation">.</span>cat<span class="token punctuation">(</span><span class="token punctuation">(</span>pre_tensor<span class="token punctuation">,</span> post_tensor<span class="token punctuation">,</span> peri_tensor<span class="token punctuation">)</span><span class="token punctuation">,</span> dim<span class="token operator">=</span><span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">.</span>view<span class="token punctuation">(</span>size<span class="token punctuation">)</span>
 </code></pre>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://arxiv.org/pdf/1811.08383">Lin, Ji, Chuang Gan, and Song Han. &quot;Temporal Shift Module for Efficient Video Understanding.&quot; <em>arXiv preprint arXiv:1811.08383</em> (2018).</a></li>
 <li><a href="https://github.com/Pika7ma/Temporal-Shift-Module">Pika7ma. &quot;Temporal-Shift-Module.&quot; GitHub.</a></li>

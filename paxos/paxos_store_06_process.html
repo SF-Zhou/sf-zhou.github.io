@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>本篇继续来看 PaxosStore 中 Paxos 流程的细节。</p>
-<h3 id="1.-paxos-流程"><a href="#1.-paxos-%E6%B5%81%E7%A8%8B">1. Paxos 流程</a></h3>
+<h3 id="1.-paxos-流程" tabindex="-1"><a href="#1.-paxos-%E6%B5%81%E7%A8%8B">1. Paxos 流程</a></h3>
 <p>PaxosStore 中一次普通的 Paxos 协议过程如下图所示：</p>
 <figure tabindex="1"><a href="../images/ff2cd1a1c77f43848425b96df20946f8.svg"><img src="../images/ff2cd1a1c77f43848425b96df20946f8.svg" alt=""></a><figcaption>Paxos 协议过程</figcaption></figure>
 <p>假设现在有 A / B / C 三个节点的集群，由 A 发起 Paxos 过程，首先会调用 <code>RunPaxos</code>：</p>
@@ -1005,7 +1005,7 @@
 </code></pre>
 <p>如果是本地有更新，会先进行 PLog 持久化，再去和其他节点同步状态。例如 A 节点给 B 和 C 发送 Prepare 后，B 先 Promise，进入 <code>EntryStatePromiseRemote</code> 的状态，会先进行 PLog 持久化，再给 A 发送回复。A 收到 B 的 Promised 后，获得多数派支持进入 <code>EntryStateMajorityPromise</code> 状态，同样会先进行 PLog 持久化，给 B 回复 Accept 请求。此时如果收到 C 的 Promised，A 本地是不需要进行 PLog 持久化的，会直接给 C 回复最新的状态。</p>
 <p>上面走完一轮就完成了一半的 Paxos 过程。下面发送 Accept、接受并回复 Accepted 和上面的过程是类似的。PaxosStore 中通过消息队列和 RPC 将整个流程彻底异步化，提高了并发性能。可以看到，总的 Latency 至少包括 2 次 RPC RTT。对于 3 个节点的集群，共计 8 次 fsync，单节点平均执行 2.67 次 fsync，Latency 里至少包含 5 次 fsync 的时间。对于高并发系统这样的性能表现仍然是不够的，所以 PaxosStore 中额外使用了预授权优化提高性能。</p>
-<h3 id="2.-预授权优化"><a href="#2.-%E9%A2%84%E6%8E%88%E6%9D%83%E4%BC%98%E5%8C%96">2. 预授权优化</a></h3>
+<h3 id="2.-预授权优化" tabindex="-1"><a href="#2.-%E9%A2%84%E6%8E%88%E6%9D%83%E4%BC%98%E5%8C%96">2. 预授权优化</a></h3>
 <p>回忆一下 Paxos 流程：第一阶段 Proposer 发起 Prepare 请求，Acceptor 接受后回复 Promised；Proposer 获得多数派支持后，进入第二阶段发送 Accept 请求，Acceptor 接受后回复 Accepted，多数派通过后值被 Chosen。</p>
 <p>PaxosStore 通过下面两个简单的操作实现一阶段提交：</p>
 <ol>
@@ -1014,7 +1014,7 @@
 </ol>
 <p>简单来想，就是 Acceptor 在 Accept Entry 的请求时，已经 Promise 了 Entry + 1 且 PreparedNum &lt; N 的请求。另一个角度看，只有上一轮成功发起 Paxos 流程的唯一节点会发送 PreparedNum &lt; N 的请求，可以在不违反 Paxos 协议的前提下直接发送 Accept 请求。</p>
 <p>理解了这个操作后就会感受到这个优化的精妙。经过优化后整个 Paxos 过程的 Latency 降低到 1 次 RPC RTT，对于 3 节点集群，单节点平均执行 1.33 次 fsync。</p>
-<h3 id="3.-总结"><a href="#3.-%E6%80%BB%E7%BB%93">3. 总结</a></h3>
+<h3 id="3.-总结" tabindex="-1"><a href="#3.-%E6%80%BB%E7%BB%93">3. 总结</a></h3>
 <p>PaxosStore 整个项目还是比较艰深的，从一月开始断断续续一遍读一边总结，之后应该也会慢慢查漏补缺更新这些博文。写博文的时候自己也在加深理解，同时也会体会到 PaxosStore 项目中的些许精妙。</p>
 <p>PS：如果你对 Paxos、分布式存储系统、基础架构等有兴趣，我或许可以帮你内推到开发 PaxosStore 的小组，坐标广州微信技术架构部。</p>
 

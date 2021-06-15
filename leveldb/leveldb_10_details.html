@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>本篇为 LevelDB 源码分析的最后一篇博文，将会分析 LevelDB 中同步、原子量、单元测试和构建系统的一些细节。</p>
-<h3 id="1.-同步-synchronization"><a href="#1.-%E5%90%8C%E6%AD%A5-synchronization">1. 同步 Synchronization</a></h3>
+<h3 id="1.-同步-synchronization" tabindex="-1"><a href="#1.-%E5%90%8C%E6%AD%A5-synchronization">1. 同步 Synchronization</a></h3>
 <p>LevelDB 中有大量并发访问的场景，也就需要同步的支持。LevelDB 使用的仍然是 C++ 标准库中的互斥量和条件变量，做了简单的封装 <a href="https://github.com/google/leveldb/blob/master/port/port_stdcxx.h"><code>port/port_stdcxx.h</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;condition_variable></span>  <span class="token comment">// NOLINT</span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;mutex></span>  <span class="token comment">// NOLINT</span></span>
@@ -235,7 +235,7 @@ WriteBatch<span class="token operator">*</span> <span class="token class-name">D
 <li>4 号线程唤醒、获得锁，正常执行。</li>
 </ol>
 <p>上述合并操作依赖写入时的释放锁操作，这使得其他线程有机会加入队列、然后等待，在下一次获得锁时合并队列中的其他写入请求。</p>
-<h3 id="2.-原子量-atomic"><a href="#2.-%E5%8E%9F%E5%AD%90%E9%87%8F-atomic">2. 原子量 Atomic</a></h3>
+<h3 id="2.-原子量-atomic" tabindex="-1"><a href="#2.-%E5%8E%9F%E5%AD%90%E9%87%8F-atomic">2. 原子量 Atomic</a></h3>
 <p>由于并发访问，LevelDB 中也大量使用了原子量，且使用了两种不同的内存模型。一种是 Relaxed Ordering，其只保证原子性、不保证并发时的执行顺序，一般在计数功能中使用，例如内存池中的内存使用量：</p>
 <pre class="language-cpp"><code class="language-cpp">size_t <span class="token function">MemoryUsage</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
   <span class="token keyword">return</span> memory_usage_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -305,7 +305,7 @@ WriteBatch<span class="token operator">*</span> <span class="token class-name">D
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="3.-单元测试"><a href="#3.-%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95">3. 单元测试</a></h3>
+<h3 id="3.-单元测试" tabindex="-1"><a href="#3.-%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95">3. 单元测试</a></h3>
 <p>LevelDB 中的单元测试并没有使用自家的 <a href="https://github.com/google/googletest">Google Test</a>，而是自己实现了一套简单的测试工具，位于 <a href="https://github.com/google/leveldb/blob/master/util/testharness.h"><code>util/testharness.h</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// An instance of Tester is allocated to hold temporary state during</span>
 <span class="token comment">// the execution of an assertion.</span>
@@ -452,7 +452,7 @@ std<span class="token operator">::</span>vector<span class="token operator">&lt;
   <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="4.-构建系统"><a href="#4.-%E6%9E%84%E5%BB%BA%E7%B3%BB%E7%BB%9F">4. 构建系统</a></h3>
+<h3 id="4.-构建系统" tabindex="-1"><a href="#4.-%E6%9E%84%E5%BB%BA%E7%B3%BB%E7%BB%9F">4. 构建系统</a></h3>
 <p>LevelDB 使用 CMake 作为其构建系统，搭建了跨平台、可配置的编译系统。例如使用 CMake 变量 <code>WIN32</code> 实现不同环境的编译：</p>
 <pre class="language-cmake"><code class="language-cmake"><span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token variable">WIN32</span><span class="token punctuation">)</span>
   <span class="token keyword">set</span><span class="token punctuation">(</span>LEVELDB_PLATFORM_NAME LEVELDB_PLATFORM_WINDOWS<span class="token punctuation">)</span>
@@ -521,7 +521,7 @@ int main() { return 0; }
       -Werror -Wthread-safety<span class="token punctuation">)</span>
 <span class="token keyword">endif</span><span class="token punctuation">(</span>HAVE_CLANG_THREAD_SAFETY<span class="token punctuation">)</span>
 </code></pre>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://clang.llvm.org/docs/ThreadSafetyAnalysis.html">&quot;Thread Safety Analysis&quot;, <em>Clang Documentation</em></a></li>
 <li><a href="https://en.cppreference.com/w/cpp/thread/mutex">&quot;std::mutex&quot;, <em>C++ Reference</em></a></li>

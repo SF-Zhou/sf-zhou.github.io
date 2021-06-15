@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>本系列的上一篇里分析了 PaxosStore 中的协议日志的实现，本篇将深入协议过程中的一些细节，这些实现细节集中在 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/EntityWorker.cpp"><code>src/EntityWorker.cpp</code></a> 这个庞然大物里。</p>
-<h3 id="1.-entitycatchup"><a href="#1.-entitycatchup">1. EntityCatchUp</a></h3>
+<h3 id="1.-entitycatchup" tabindex="-1"><a href="#1.-entitycatchup">1. EntityCatchUp</a></h3>
 <p>在对某个 Entity 执行读写前，需要保证该 Entity 在本地的所有 Entry 都已经提交到 DB 了，这样读写才会有意义。简而言之就是 <code>CommittedEntry</code> = <code>MaxChosenEntry</code>。</p>
 <p>借此机会，过一遍样例的流程。从 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/example/CardTool.cpp"><code>example/CardTool.cpp</code></a> 这个 Client 开始看：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token keyword">int</span> argc<span class="token punctuation">,</span> <span class="token keyword">char</span> <span class="token operator">*</span><span class="token operator">*</span>argv<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -597,7 +597,7 @@ grpc<span class="token operator">::</span>Status <span class="token function">Ru
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>DoWithRecoverCmd</code> 里最核心的调用就是 <code>CheckForCatchUp</code> 了，用以检查并实施 CatchUp。该函数在 <code>EntityWorker</code> 中频繁出现，涉及的逻辑非常复杂，下一节详述。</p>
-<h3 id="2.-checkforcatchup"><a href="#2.-checkforcatchup">2. CheckForCatchUp</a></h3>
+<h3 id="2.-checkforcatchup" tabindex="-1"><a href="#2.-checkforcatchup">2. CheckForCatchUp</a></h3>
 <p><code>CheckForCatchUp</code> 会有两种行为，一种是 <code>MaxPLogEntry</code> == <code>INVALID_ENTRY</code>，即还没有从 PLog 中加载记录，则调用 <code>RangeLoadFromPLog</code> 加载 PLog；另一种是 <code>MaxContChosenEntry</code> &lt; <code>MaxChosenEntry</code>，本地的进度晚于全局的进度，则调用 <code>LimitedCatchUp</code> 做限制性恢复。</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 创建 CatchUp 的 Entry，调用 LimitedCatchUp</span>
 <span class="token comment">// CheckForCatchUp may elimate current EntryInfo_t.</span>
@@ -806,7 +806,7 @@ grpc<span class="token operator">::</span>Status <span class="token function">Ru
   <span class="token keyword">return</span> iCatchUpCnt<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="3.-rangeloadfromplog"><a href="#3.-rangeloadfromplog">3. RangeLoadFromPLog</a></h3>
+<h3 id="3.-rangeloadfromplog" tabindex="-1"><a href="#3.-rangeloadfromplog">3. RangeLoadFromPLog</a></h3>
 <p>在 <code>CheckForCatchUp</code> 和 <code>DoWithPaxosCmd</code> 中会调用 <code>RangeLoadFromPLog</code>，用来批量的恢复 PLog 中的 Record 记录到内存中。通过构造一条 <code>RecoverCmd</code> 启动该流程：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> clsEntityWorker<span class="token operator">::</span><span class="token function">RangeLoadFromPLog</span><span class="token punctuation">(</span>EntityInfo_t <span class="token operator">*</span>ptEntityInfo<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">CheckIfEntryNumLimited</span><span class="token punctuation">(</span>ptEntityInfo<span class="token operator">-></span>iEntityID<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -1175,7 +1175,7 @@ grpc<span class="token operator">::</span>Status <span class="token function">Ru
 <span class="token punctuation">}</span>
 </code></pre>
 <p>总的来说，<code>RangeLoadFromPLog</code> 会异步的启动恢复流程，经过 <code>FillRecoverCmd</code> 读取 Record 记录，再回到 <code>RangeRecoverFromPLog</code> 恢复成 <code>EntryInfo</code>、更新进度信息。</p>
-<h3 id="4.-dowithtimeout-+-activateentry"><a href="#4.-dowithtimeout-%2B-activateentry">4. DoWithTimeout + ActivateEntry</a></h3>
+<h3 id="4.-dowithtimeout-+-activateentry" tabindex="-1"><a href="#4.-dowithtimeout-%2B-activateentry">4. DoWithTimeout + ActivateEntry</a></h3>
 <p><code>EntityWorker</code> 的 Loop 循环中也需要处理各类超时情况，包括 Entry 的超时和 Cmd 的超时：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 处理超时的 Entry</span>
 <span class="token keyword">int</span> clsEntityWorker<span class="token operator">::</span><span class="token function">DoWithTimeout</span><span class="token punctuation">(</span>EntryInfo_t <span class="token operator">*</span>ptInfo<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -1344,7 +1344,7 @@ grpc<span class="token operator">::</span>Status <span class="token function">Ru
   <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="5.-总结"><a href="#5.-%E6%80%BB%E7%BB%93">5. 总结</a></h3>
+<h3 id="5.-总结" tabindex="-1"><a href="#5.-%E6%80%BB%E7%BB%93">5. 总结</a></h3>
 <p>PaxosStore 的代码大多是异步的，一个长的处理流程会拆成多个小块，梳理起来确实会有些复杂。本篇把这些细碎的逻辑拎出来阅读，下一步将会把这些小流程串起来，看看完整的 Paxos / CatchUp 流程。</p>
 
       </div>

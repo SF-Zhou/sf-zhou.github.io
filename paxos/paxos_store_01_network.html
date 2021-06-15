@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>PaxosStore 是由微信开源的分布式存储系统，基于 Paxos 协议实现存储的强一致。代码开源于 2017 年，同步发表的还有 VLDB 会议上的论文 &quot;<a href="http://www.vldb.org/pvldb/vol10/p1730-lin.pdf">PaxosStore: High-availability Storage Made Practical in WeChat</a>&quot;。PaxosStore 广泛应用于微信各项存储服务中，代码久经考验。所以开出一个新系列<a href="/#/Paxos">「PaxosStore 源码分析」</a>，希望从这个工业化 Paxos 协议实现中学习一些新东西。作为系列的第一篇，本文会介绍 PaxosStore 代码的整体结构和网络通信的实现。</p>
-<h3 id="1.-paxosstore-源码概览"><a href="#1.-paxosstore-%E6%BA%90%E7%A0%81%E6%A6%82%E8%A7%88">1. PaxosStore 源码概览</a></h3>
+<h3 id="1.-paxosstore-源码概览" tabindex="-1"><a href="#1.-paxosstore-%E6%BA%90%E7%A0%81%E6%A6%82%E8%A7%88">1. PaxosStore 源码概览</a></h3>
 <p><a href="https://github.com/Tencent/paxosstore">PaxosStore 项目</a>中开源了两个 Paxos 实现，分别是 Certain 和 PaxosKV。前者是较为通用的 PLog + DB 的实现，可以接入各类数据库；后者基于 PaxosLog-as-Value 的思想，是针对 KV 系统单独做的场景优化。两个实现是完全独立的，本系列会着重分析 Certain 的源码。Certain 库中代码总计约 18000 行，其目录如下所示：</p>
 <pre class="language-markup"><code class="language-markup">certain
 ├── example  # 样例
@@ -35,7 +35,7 @@
 ├── third    # 第三方库
 └── utils    # 基础工具
 </code></pre>
-<h3 id="2.-网络通信"><a href="#2.-%E7%BD%91%E7%BB%9C%E9%80%9A%E4%BF%A1">2. 网络通信</a></h3>
+<h3 id="2.-网络通信" tabindex="-1"><a href="#2.-%E7%BD%91%E7%BB%9C%E9%80%9A%E4%BF%A1">2. 网络通信</a></h3>
 <p>网络通信部分与 Paxos 协议的实现无关，相当于基础库，该部分的代码容易上手阅读，由此入坑。先看 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/network/InetAddr.h"><code>network/InetAddr.h</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">InetAddr_t</span> <span class="token punctuation">{</span>
   <span class="token keyword">struct</span> <span class="token class-name">sockaddr_in</span> tAddr<span class="token punctuation">;</span>
@@ -1189,9 +1189,9 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 </code></pre>
 <p>后调用 <code>TakeByMultiThread</code> 则可以取出校验后可用的连接、读写数据实现网络通信了。</p>
-<h3 id="3.-总结"><a href="#3.-%E6%80%BB%E7%BB%93">3. 总结</a></h3>
+<h3 id="3.-总结" tabindex="-1"><a href="#3.-%E6%80%BB%E7%BB%93">3. 总结</a></h3>
 <p>Paxos 协议执行过程中包含大量的消息收发，网络通信的性能就十分重要。PaxosStore 中使用了 Epoll 和边缘触发获得高性能，并实现了一定程度的封装提高易用性。下一篇将继续分析 PaxosStore 模块间消息的传递。</p>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://github.com/Tencent/paxosstore">&quot;Tencent/PaxosStore&quot;, <em>GitHub</em></a></li>
 <li><a href="http://www.vldb.org/pvldb/vol10/p1730-lin.pdf">&quot;PaxosStore: High-availability Storage Made Practical in WeChat&quot;, <em>Jianjun Zheng</em></a></li>

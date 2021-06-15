@@ -26,7 +26,7 @@
         <blockquote>
 <p><a href="https://github.com/google/leveldb">LevelDB</a> is a fast key-value storage library written at Google that provides an ordered mapping from string keys to string values.</p>
 </blockquote>
-<h3 id="2019.01.06"><a href="#2019.01.06">2019.01.06</a></h3>
+<h3 id="2019.01.06" tabindex="-1"><a href="#2019.01.06">2019.01.06</a></h3>
 <p>Steps:</p>
 <pre class="language-bash"><code class="language-bash"><span class="token function">git</span> clone https://github.com/google/leveldb.git
 <span class="token builtin class-name">cd</span> leveldb
@@ -117,7 +117,7 @@ Total Test time (real) = 119.34 sec
 <span class="token comment"># A huge task :D</span>
 <span class="token comment"># Continue tomorrow</span>
 </code></pre>
-<h3 id="2019.01.07"><a href="#2019.01.07">2019.01.07</a></h3>
+<h3 id="2019.01.07" tabindex="-1"><a href="#2019.01.07">2019.01.07</a></h3>
 <p>Welcome back! Continue this huge task.</p>
 <pre class="language-bash"><code class="language-bash">tree include/
 <span class="token comment">#> include</span>
@@ -268,7 +268,7 @@ LEVELDB_EXPORT <span class="token keyword">void</span> <span class="token functi
 <span class="token comment">// ...</span>
 </code></pre>
 <p><code>c.h</code> defines these APIs with good readability and appropriate comments. I'm here today :D</p>
-<h3 id="2019.01.08"><a href="#2019.01.08">2019.01.08</a></h3>
+<h3 id="2019.01.08" tabindex="-1"><a href="#2019.01.08">2019.01.08</a></h3>
 <p>Continue. Today let's check the content of main <code>C++</code> header file: <code>include/leveldb/db.h</code>. Analyzing the dependencies of this header file and I found the dependency chain to be like:</p>
 <pre class="language-markup"><code class="language-markup">slice.h -> status.h -> iterator.h -> db.h
 option.h -> db.h
@@ -451,7 +451,7 @@ std<span class="token operator">::</span>string <span class="token class-name">S
 <span class="token comment">// ...</span>
 </code></pre>
 <p>Use a switch statement to transfer <code>code</code> to string. <code>C</code> style string is used in this function, perhaps for better performance. OK, continue tomorrow. :D</p>
-<h3 id="2019.01.10"><a href="#2019.01.10">2019.01.10</a></h3>
+<h3 id="2019.01.10" tabindex="-1"><a href="#2019.01.10">2019.01.10</a></h3>
 <p>😂 I was debuging last night. Let's continue <code>include/leveldb/iterator.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// ...</span>
 <span class="token keyword">class</span> <span class="token class-name">LEVELDB_EXPORT</span> Iterator <span class="token punctuation">{</span>
@@ -626,7 +626,7 @@ Iterator<span class="token operator">*</span> <span class="token function">NewEr
 <p>The purpose of an anonymous namespace is to give things internal linkage. Functions declared outside of a class and not in an anonymous namespace (or declared <code>static</code>) will not have internal linkage. -- Drainedsoul</p>
 </blockquote>
 <p>OK. Continue tomorrow.</p>
-<h3 id="2019.01.11"><a href="#2019.01.11">2019.01.11</a></h3>
+<h3 id="2019.01.11" tabindex="-1"><a href="#2019.01.11">2019.01.11</a></h3>
 <p><code>include/leveldb/option.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// ...</span>
 <span class="token comment">// SF: forward declaration</span>
@@ -851,7 +851,7 @@ Iterator<span class="token operator">*</span> <span class="token function">NewEr
 <span class="token punctuation">}</span>
 </code></pre>
 <p>Class <code>Options</code> saved all related options to a database file. Pure struct type without complex function.</p>
-<h3 id="2019.01.14"><a href="#2019.01.14">2019.01.14</a></h3>
+<h3 id="2019.01.14" tabindex="-1"><a href="#2019.01.14">2019.01.14</a></h3>
 <p>A happy weekend :D. Let's continue this huge task. Focus on the main header file: <code>include/leveldb/db.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// ...</span>
 <span class="token keyword">namespace</span> leveldb <span class="token punctuation">{</span>
@@ -1036,7 +1036,7 @@ Iterator<span class="token operator">*</span> <span class="token function">NewEr
 <span class="token punctuation">}</span>
 </code></pre>
 <p>The <code>DBImpl</code> class is the real implementation of <code>DB</code> and it hides detail design.</p>
-<h3 id="2019.01.15"><a href="#2019.01.15">2019.01.15</a></h3>
+<h3 id="2019.01.15" tabindex="-1"><a href="#2019.01.15">2019.01.15</a></h3>
 <p>Today let's analyze what happended when we ran the code follow:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
@@ -1230,7 +1230,7 @@ Status <span class="token class-name">DBImpl</span><span class="token operator">
   <span class="token keyword">return</span> s<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="2019.01.17"><a href="#2019.01.17">2019.01.17</a></h3>
+<h3 id="2019.01.17" tabindex="-1"><a href="#2019.01.17">2019.01.17</a></h3>
 <p>OK let's contine. Recall the <code>DBImpl::Get</code> function:</p>
 <pre class="language-cpp"><code class="language-cpp">Status <span class="token class-name">DBImpl</span><span class="token operator">::</span><span class="token function">Get</span><span class="token punctuation">(</span><span class="token keyword">const</span> ReadOptions<span class="token operator">&amp;</span> options<span class="token punctuation">,</span>
                    <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span>
@@ -1326,7 +1326,7 @@ int main() { std::string str; return 0; }
 </code></pre>
 <p><code>HAVE_CXX17_HAS_INCLUDE</code> is true if <code>__has_include</code> is available. A <code>__has_include</code> result of 1 only means that a header or source file with the specified name exists (<a href="https://en.cppreference.com/w/cpp/preprocessor/include">link</a>). <code>check_cxx_source_compiles</code> is a CMake function and can check that the source supplied in <code>code</code> can be compiled as a C++ source file and linked as an executable (<a href="https://cmake.org/cmake/help/latest/module/CheckCXXSourceCompiles.html">link</a>). In my mac <code>HAVE_CXX17_HAS_INCLUDE</code> is true.</p>
 <p>To be continued.</p>
-<h3 id="2019.01.22"><a href="#2019.01.22">2019.01.22</a></h3>
+<h3 id="2019.01.22" tabindex="-1"><a href="#2019.01.22">2019.01.22</a></h3>
 <p>I'm back and continue reading <code>port/port_stdcxx.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">if</span> <span class="token expression"><span class="token function">__has_include</span><span class="token punctuation">(</span></span><span class="token string">"port/port_config.h"</span><span class="token expression"><span class="token punctuation">)</span></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"port/port_config.h"</span></span>
@@ -1553,7 +1553,7 @@ int main() { std::string str; return 0; }
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span></span>
 </code></pre>
 <p>Analyze <code>AtomicPointer</code> based on C++11 atomic first. It implements with diffenrent memory orders (<a href="https://en.cppreference.com/w/cpp/atomic/memory_order#Relaxed_ordering">link to CppReference</a>). For <code>AtomicPointer</code> built using platform-specific <code>MemoryBarrier()</code>, <code>Acquire_Load</code> and <code>Release_Store</code> use <code>MemoryBarrier</code> to maintain the read/write synchronization.</p>
-<h3 id="2019.01.27"><a href="#2019.01.27">2019.01.27</a></h3>
+<h3 id="2019.01.27" tabindex="-1"><a href="#2019.01.27">2019.01.27</a></h3>
 <p>Continue reading <code>port/port_stdcxx.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// ...</span>
 <span class="token keyword">static</span> <span class="token keyword">const</span> <span class="token keyword">bool</span> kLittleEndian <span class="token operator">=</span> <span class="token operator">!</span>LEVELDB_IS_BIG_ENDIAN<span class="token punctuation">;</span>
@@ -1741,7 +1741,7 @@ int main() { std::string str; return 0; }
 <span class="token punctuation">}</span>
 </code></pre>
 <p>Use <code>inline</code> to accelerate <code>GetVarint32Ptr</code> in small value cases.</p>
-<h3 id="2019.01.28"><a href="#2019.01.28">2019.01.28</a></h3>
+<h3 id="2019.01.28" tabindex="-1"><a href="#2019.01.28">2019.01.28</a></h3>
 <p>Continue. Check <code>util/logging.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">namespace</span> leveldb <span class="token punctuation">{</span>
 
@@ -1823,7 +1823,7 @@ std<span class="token operator">::</span>string <span class="token function">Esc
 <span class="token comment">// ...</span>
 </code></pre>
 <p>The code is precise and simple.</p>
-<h3 id="2019.01.29"><a href="#2019.01.29">2019.01.29</a></h3>
+<h3 id="2019.01.29" tabindex="-1"><a href="#2019.01.29">2019.01.29</a></h3>
 <p>View <code>db/dbformat.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Grouping of constants.  We may want to make some of these</span>
 <span class="token comment">// parameters set via options.</span>
@@ -2010,7 +2010,7 @@ std<span class="token operator">::</span>string <span class="token function">Esc
 <span class="token punctuation">}</span>
 </code></pre>
 <p>Implementation of <code>InternalKeyComparator</code>. It is not clear what function <code>FindShortestSeparator</code> and <code>FindShortSuccessor</code> do now.</p>
-<h3 id="2019.02.07"><a href="#2019.02.07">2019.02.07</a></h3>
+<h3 id="2019.02.07" tabindex="-1"><a href="#2019.02.07">2019.02.07</a></h3>
 <p>View <code>include/leveldb/filter_policy.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">LEVELDB_EXPORT</span> FilterPolicy <span class="token punctuation">{</span>
  <span class="token keyword">public</span><span class="token operator">:</span>
@@ -2170,7 +2170,7 @@ LEVELDB_EXPORT <span class="token keyword">const</span> FilterPolicy<span class=
 <span class="token punctuation">}</span>
 </code></pre>
 <p>This is simple string hash. <code>FilterPolicy</code> is just a <code>Policy</code> and not responsible for filter storage.</p>
-<h3 id="2019.02.10"><a href="#2019.02.10">2019.02.10</a></h3>
+<h3 id="2019.02.10" tabindex="-1"><a href="#2019.02.10">2019.02.10</a></h3>
 <p>I'm on train G118 now. Continue <code>db/dbformat.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Filter policy wrapper that converts from internal keys to user keys</span>
 <span class="token keyword">class</span> <span class="token class-name">InternalFilterPolicy</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">FilterPolicy</span></span> <span class="token punctuation">{</span>
@@ -2308,7 +2308,7 @@ std<span class="token operator">::</span>string <span class="token class-name">I
   end_ <span class="token operator">=</span> dst<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="2019.02.16"><a href="#2019.02.16">2019.02.16</a></h3>
+<h3 id="2019.02.16" tabindex="-1"><a href="#2019.02.16">2019.02.16</a></h3>
 <p>View <code>include/leveldb/cache.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">LEVELDB_EXPORT</span> Cache<span class="token punctuation">;</span>
 
@@ -2522,7 +2522,7 @@ Cache<span class="token operator">::</span>Handle<span class="token operator">*<
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
 <p>A closed hash table implementation.</p>
-<h3 id="2019.02.17"><a href="#2019.02.17">2019.02.17</a></h3>
+<h3 id="2019.02.17" tabindex="-1"><a href="#2019.02.17">2019.02.17</a></h3>
 <p>Continue with <code>util/cache.cc</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// A single shard of sharded cache.</span>
 <span class="token keyword">class</span> <span class="token class-name">LRUCache</span> <span class="token punctuation">{</span>
@@ -2711,7 +2711,7 @@ Cache<span class="token operator">::</span>Handle<span class="token operator">*<
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>LRUCache</code> means <code>Least Recently Used</code>. Here it is implemented by a circular doubly linked list.</p>
-<h3 id="2019.02.20"><a href="#2019.02.20">2019.02.20</a></h3>
+<h3 id="2019.02.20" tabindex="-1"><a href="#2019.02.20">2019.02.20</a></h3>
 <p>View <code>util/no_destructor.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Wraps an instance whose destructor is never called.</span>
 <span class="token comment">//</span>
@@ -2785,7 +2785,7 @@ Cache<span class="token operator">::</span>Handle<span class="token operator">*<
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>NoDestructor</code> is used in <code>singleton</code> design pattern.</p>
-<h3 id="2019.02.22"><a href="#2019.02.22">2019.02.22</a></h3>
+<h3 id="2019.02.22" tabindex="-1"><a href="#2019.02.22">2019.02.22</a></h3>
 <p>View <code>util/random.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// A very simple random number generator.  Not especially good at</span>
 <span class="token comment">// generating truly random bits, but good enough for our needs in this</span>
@@ -2969,7 +2969,7 @@ Cache<span class="token operator">::</span>Handle<span class="token operator">*<
 <span class="token punctuation">}</span>  <span class="token comment">// namespace leveldb</span>
 </code></pre>
 <p><code>Arena</code> is a memory pool. It can manage the allocation of small memory  usage and do auto-release in destructor.</p>
-<h3 id="2019.02.23"><a href="#2019.02.23">2019.02.23</a></h3>
+<h3 id="2019.02.23" tabindex="-1"><a href="#2019.02.23">2019.02.23</a></h3>
 <p>View <code>db/skiplist.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Thread safety</span>
 <span class="token comment">// -------------</span>
@@ -3356,7 +3356,7 @@ Cache<span class="token operator">::</span>Handle<span class="token operator">*<
 </code></pre>
 <p>A exquisite implementation of <code>SkipList</code>, a list with <code>next(level)</code> operator. The <a href="/algorithm/hierarchical_navigable_small_world.htm">Hierarchical NSW</a> algorithm uses the same idea.</p>
 <figure tabindex="1"><a href="../images/06ed90a2ff127bd125ca29346b2ee7e5.svg"><img src="../images/06ed90a2ff127bd125ca29346b2ee7e5.svg" alt=""></a><figcaption>SkipList</figcaption></figure>
-<h3 id="2019.02.24"><a href="#2019.02.24">2019.02.24</a></h3>
+<h3 id="2019.02.24" tabindex="-1"><a href="#2019.02.24">2019.02.24</a></h3>
 <p>View <code>include/leveldb/env.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// An Env is an interface used by the leveldb implementation to access</span>
 <span class="token comment">// operating system functionality like the filesystem etc.  Callers</span>
@@ -3760,7 +3760,7 @@ Status <span class="token function">ReadFileToString</span><span class="token pu
 <span class="token class-name">EnvWrapper</span><span class="token operator">::</span><span class="token operator">~</span><span class="token function">EnvWrapper</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="2019.02.25"><a href="#2019.02.25">2019.02.25</a></h3>
+<h3 id="2019.02.25" tabindex="-1"><a href="#2019.02.25">2019.02.25</a></h3>
 <p>View <code>db/memtable.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
@@ -3975,7 +3975,7 @@ Iterator<span class="token operator">*</span> <span class="token class-name">Mem
 <span class="token punctuation">}</span>
 </code></pre>
 <p>In <code>Add</code> function, <code>key</code> and <code>value</code> are encoded into <code>buf</code>, then it is insert into skiplist <code>table_</code>.</p>
-<h3 id="2019.02.27"><a href="#2019.02.27">2019.02.27</a></h3>
+<h3 id="2019.02.27" tabindex="-1"><a href="#2019.02.27">2019.02.27</a></h3>
 <p>View <code>db/version_edit.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">VersionSet</span><span class="token punctuation">;</span>
 
@@ -4218,7 +4218,7 @@ Status <span class="token class-name">VersionEdit</span><span class="token opera
   <span class="token keyword">return</span> result<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="2019.06.03"><a href="#2019.06.03">2019.06.03</a></h3>
+<h3 id="2019.06.03" tabindex="-1"><a href="#2019.06.03">2019.06.03</a></h3>
 <p>View <code>db/filename.h</code> &amp; <code>db/filename.cc</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// db/filename.h</span>
 <span class="token keyword">enum</span> <span class="token class-name">FileType</span> <span class="token punctuation">{</span>
@@ -4368,7 +4368,7 @@ Status <span class="token function">SetCurrentFile</span><span class="token punc
 <span class="token punctuation">}</span>  <span class="token comment">// namespace leveldb</span>
 </code></pre>
 <p><code>SetCurrentFile</code> write <code>manifest</code> info into <code>CURRENT</code> file.</p>
-<h3 id="2019.07.05"><a href="#2019.07.05">2019.07.05</a></h3>
+<h3 id="2019.07.05" tabindex="-1"><a href="#2019.07.05">2019.07.05</a></h3>
 <p>View <code>util/histogram.h</code> and <code>util/histogram.cc</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">Histogram</span> <span class="token punctuation">{</span>
  <span class="token keyword">public</span><span class="token operator">:</span>
@@ -4507,7 +4507,7 @@ std<span class="token operator">::</span>string <span class="token class-name">H
 <span class="token punctuation">}</span>
 </code></pre>
 <p>This <code>histogram</code> is only used in benchmarks.</p>
-<h3 id="2019.07.07"><a href="#2019.07.07">2019.07.07</a></h3>
+<h3 id="2019.07.07" tabindex="-1"><a href="#2019.07.07">2019.07.07</a></h3>
 <p>View <code>util/testharness.h</code>:</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// An instance of Tester is allocated to hold temporary state during</span>
 <span class="token comment">// the execution of an assertion.</span>

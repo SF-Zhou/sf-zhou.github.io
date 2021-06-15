@@ -25,7 +25,7 @@
       <div class="markdown">
         <p>Tokio 的核心是一套 M:N 的协程 Runtime，下层通过 Rust 协程和 Mio 驱动，支撑上层的 HTTP / RPC 应用。本篇开始分析 Runtime，代码版本 <a href="https://github.com/tokio-rs/tokio/tree/tokio-1.5.0">v1.5.0</a>。</p>
 <figure tabindex="1"><a href="../images/5e364463cf50f41fec2e028df84f6a4a.svg"><img src="../images/5e364463cf50f41fec2e028df84f6a4a.svg" alt=""></a><figcaption>Tokio 架构图 from <a href="http://tokio.rs">tokio.rs</a></figcaption></figure>
-<h3 id="1.-概览"><a href="#1.-%E6%A6%82%E8%A7%88">1. 概览</a></h3>
+<h3 id="1.-概览" tabindex="-1"><a href="#1.-%E6%A6%82%E8%A7%88">1. 概览</a></h3>
 <p>在阅读核心代码前，先介绍一下异步编程中的核心关键字：</p>
 <p><strong>Asynchrony</strong>：异步指事件的发生与主程序流及处理此类事件的方式无关。这些事件可能是像信号这样的外部事件，或者是由程序引发的动作，会和程序的执行同时发生，而程序不会阻塞地等待结果。简而言之，事件发生在非调用方的线程中。同步与异步关注的是事件是否是在本线程中处理。</p>
 <p><strong>Non-blocking</strong>：非阻塞指执行的操作不会阻塞程序的继续执行。阻塞与非阻塞关注的是调用方等待结果时的状态。阻塞非阻塞和同步异步是正交的，即存在同步阻塞、同步非阻塞、异步阻塞、异步非阻塞。</p>
@@ -88,7 +88,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>如果之前接触过协程和网络编程，肯定会赞叹上方 Echo Server 的高效和简洁。</p>
-<h3 id="2.-tokio/runtime/task"><a href="#2.-tokio%2Fruntime%2Ftask">2. <code>tokio/runtime/task</code></a></h3>
+<h3 id="2.-tokio/runtime/task" tabindex="-1"><a href="#2.-tokio%2Fruntime%2Ftask">2. <code>tokio/runtime/task</code></a></h3>
 <p>Tokio 的 Runtime 提供以下能力：</p>
 <blockquote>
 <ul>
@@ -905,7 +905,7 @@
     <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://tokio.rs/blog/2020-12-tokio-1-0">&quot;Announcing Tokio 1.0&quot;, <em>tokio.rs</em></a></li>
 <li><a href="https://en.wikipedia.org/wiki/Asynchrony_(computer_programming)">&quot;Asynchrony (computer programming)&quot;, <em>Wikipedia</em></a></li>

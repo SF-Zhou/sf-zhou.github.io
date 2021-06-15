@@ -23,7 +23,7 @@
         </a>
       </div>
       <div class="markdown">
-        <h3 id="1.-内存屏障"><a href="#1.-%E5%86%85%E5%AD%98%E5%B1%8F%E9%9A%9C">1. 内存屏障</a></h3>
+        <h3 id="1.-内存屏障" tabindex="-1"><a href="#1.-%E5%86%85%E5%AD%98%E5%B1%8F%E9%9A%9C">1. 内存屏障</a></h3>
 <p>从维基百科中摘录的定义：</p>
 <blockquote>
 <p>A <strong>memory barrier</strong>, also known as a <strong>membar</strong>, <strong>memory fence</strong> or <strong>fence instruction</strong>, is a type of <a href="https://en.wikipedia.org/wiki/Barrier_(computer_science)">barrier</a> <a href="https://en.wikipedia.org/wiki/Instruction_(computer_science)">instruction</a> that causes a <a href="https://en.wikipedia.org/wiki/Central_processing_unit">central processing unit</a> (CPU) or <a href="https://en.wikipedia.org/wiki/Compiler">compiler</a> to enforce an <a href="https://en.wikipedia.org/wiki/Memory_ordering">ordering</a> constraint on <a href="https://en.wikipedia.org/wiki/Random-access_memory">memory</a> operations issued before and after the barrier instruction.</p>
@@ -58,7 +58,7 @@ mov <span class="token register variable">r2</span>, <span class="token operator
 <span class="token comment">; r1 = r2 = 0 is not allowed</span>
 </code></pre>
 <p>除了 <code>mfence</code> 外，<code>lock add</code>、<code>xchg</code> 等指令也可以实现内存屏障的功能，不过一般情况下并不推荐在代码中直接使用这些汇编指令。</p>
-<h3 id="2.-内存模型"><a href="#2.-%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B">2. 内存模型</a></h3>
+<h3 id="2.-内存模型" tabindex="-1"><a href="#2.-%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B">2. 内存模型</a></h3>
 <p>高级编程环境一般有自己的高级内存模型并定义了内存可见性语义，其内存模型是建立在硬件内存模型之上的一层抽象，见参考文献 3。高级编程环境一般会提供内存序、互斥量、信号量等同步原语，通过编译器翻译到硬件层的汇编指令，这种情况下一般不需要显式地使用内存屏障指令。</p>
 <p>以 C++ 为例，C++ 11 之后提供了原子量和六种内存序来解决多线程下的内存一致性问题。建议先耐心地看完参考文献 5 中 <code>std::memory_order</code> 的描述。下面是笔者的一些理解：</p>
 <ol>
@@ -126,7 +126,7 @@ mov <span class="token register variable">r2</span>, <span class="token operator
 <li>对 <code>x.store</code> 使用 <code>std::memory_order_seq_cst</code>；</li>
 <li>在 <code>x.store</code> 和 <code>y.load</code> 之间增加 <code>std::atomic_thread_fence(std::memory_order_seq_cst)</code>。</li>
 </ol>
-<h3 id="3.-应用举例"><a href="#3.-%E5%BA%94%E7%94%A8%E4%B8%BE%E4%BE%8B">3. 应用举例</a></h3>
+<h3 id="3.-应用举例" tabindex="-1"><a href="#3.-%E5%BA%94%E7%94%A8%E4%B8%BE%E4%BE%8B">3. 应用举例</a></h3>
 <p>使用原子量实现一个基于 Ring-Buffer 的 MPSC 无锁队列：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cstdint></span></span>
@@ -236,7 +236,7 @@ mov <span class="token register variable">r2</span>, <span class="token operator
 <p>该队列有一个隐含的假设，即对指针长度的数据读写是原子的，在 x86 上该假设是满足的。通过 CAS 可以实现多线程的 Push，Pop 部分也可以改为 CAS 实现 MPMC 队列。</p>
 <p>接下来分析 C++ 层面是否可以优化 <code>std::memory_order</code>。<code>fetch_add</code> 和 <code>compare_exchange_strong</code> 操作均需要被接下来的读取立即读到，所以这里需要用默认的 <code>std::memory_order_seq_cst</code>；<code>tail_.load</code> 和 <code>head_.load</code> 立即读到上次的修改会更好，所以也使用 <code>std::memory_order_seq_cst</code>；这样保持使用默认参数即可。</p>
 <p>在 x86 平台上，原子量的 <code>load</code> 操作使用非 <code>std::memory_order_relaxed</code> 的编译结果是一致的；<code>fetch_add</code> 和 CAS 自带内存屏障也没有优化的必要和可能，这样看使用默认参数就已经足够好了。</p>
-<h3 id="4.-非对称内存屏障"><a href="#4.-%E9%9D%9E%E5%AF%B9%E7%A7%B0%E5%86%85%E5%AD%98%E5%B1%8F%E9%9A%9C">4. 非对称内存屏障</a></h3>
+<h3 id="4.-非对称内存屏障" tabindex="-1"><a href="#4.-%E9%9D%9E%E5%AF%B9%E7%A7%B0%E5%86%85%E5%AD%98%E5%B1%8F%E9%9A%9C">4. 非对称内存屏障</a></h3>
 <p>某些并发算法中会存在简单路径和复杂路径，并且需要内存屏障完成同步。如果全部使用 <code>std::memory_order_seq_cst</code>，会导致简单路径时间成本过高。这时候就可以用上非对称内存屏障，在简单路径中快速执行，将同步的复杂度转移到复杂路径中。以 x86 平台为例，简单路径中可只保证编译器指令不重排，复杂路径中可使用 <code>mprotect</code> 强制所有线程内存一致，可参考 <a href="https://github.com/facebook/folly/blob/master/folly/synchronization/AsymmetricMemoryBarrier.cpp"><code>folly</code> 的实现</a>。这里举个例子（<a href="https://wandbox.org/permlink/rjXzHCCEDl1fPblZ">在线执行</a>）：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;bits/stdc++.h></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;sys/mman.h></span></span>
@@ -332,7 +332,7 @@ mov <span class="token register variable">r2</span>, <span class="token operator
 <span class="token punctuation">}</span>
 </code></pre>
 <p>显然这里 <code>HeavyBarrier</code> 的成本是比较高的，所以使用上需要慎重，类似 Hazard Pointer 这种简单路径非常频繁就比较适合。好消息是 Linux 4.x 之后提供了 <code>membarrier</code> 系统调用效率更高，可以替代掉这里的 <code>HeavyBarrier</code>。该函数的文档中也有关于非对称内存屏障的说明，见参考文献 10。</p>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.wikipedia.org/wiki/Memory_barrier">&quot;Memory Barrier&quot;, <em>Wikipedia</em></a></li>
 <li><a href="https://software.intel.com/content/www/us/en/develop/download/intel-64-and-ia-32-architectures-sdm-volume-3a-system-programming-guide-part-1.html">&quot;Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 3A: System Programming Guide, Part 1&quot;, <em>Intel</em></a></li>

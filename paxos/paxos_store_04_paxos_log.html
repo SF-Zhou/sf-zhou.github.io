@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p><a href="/#/Paxos">本系列</a>的<a href="/paxos/paxos_store_03_consensus.html">上一篇</a>里分析了 PaxosStore 中共识协议的实现，本篇将聚焦 Paxos 协议中 PaxosLog 的实现。博文标题为了对齐一下，强行翻译为协议日志，不必太在意 :D</p>
-<h3 id="1.-术语解释"><a href="#1.-%E6%9C%AF%E8%AF%AD%E8%A7%A3%E9%87%8A">1. 术语解释</a></h3>
+<h3 id="1.-术语解释" tabindex="-1"><a href="#1.-%E6%9C%AF%E8%AF%AD%E8%A7%A3%E9%87%8A">1. 术语解释</a></h3>
 <p>PaxosStore 中引入了一些术语，这里笔者会按照自己的理解解释一下。首先是 <strong>Entry</strong>，英文翻译为条目，可以理解为一次 Paxos 过程。Entry 包含一个严格单调递增的编号 <code>iEntry</code> 和一个 Paxos 状态机 <code>poMachine</code>，日常存储于内存中，代码定义于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/EntryInfoMng.h"><code>src/EntryInfoMng.h</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">EntryInfo_t</span> <span class="token punctuation">{</span>
   EntityInfo_t <span class="token operator">*</span>ptEntityInfo<span class="token punctuation">;</span>
@@ -83,7 +83,7 @@
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
 <p>内存中的 Entry 持久化时会存储为 <strong>EntryRecord</strong>，<a href="/paxos/paxos_store_03_consensus.html#3.-%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0">后者在上一篇中提到过</a>。将所有 <strong>EntryRecord</strong> 按顺序存储起来，就可以按需恢复出 <strong>Entity</strong> 的状态。PaxosStore 中将这些 <strong>EntryRecord</strong> 称为 <strong>PLog</strong>，存储 <strong>PLog</strong> 的数据库称为 <strong>PLogDB</strong>。</p>
-<h3 id="2.-日志读写"><a href="#2.-%E6%97%A5%E5%BF%97%E8%AF%BB%E5%86%99">2. 日志读写</a></h3>
+<h3 id="2.-日志读写" tabindex="-1"><a href="#2.-%E6%97%A5%E5%BF%97%E8%AF%BB%E5%86%99">2. 日志读写</a></h3>
 <p>PaxosStore 中使用 <code>PLogWorker</code> 来处理 <strong>PLog</strong> 的读写，流程基本是请求方将请求塞入队列、<code>PLogWorker</code> 从队列中获取请求、执行读写操作、最后将回复塞入队列。代码见 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/PLogWorker.cpp"><code>src/PLogWorker.cpp</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 将 Req 塞到队列里</span>
 <span class="token keyword">int</span> clsPLogWorker<span class="token operator">::</span><span class="token function">EnterPLogReqQueue</span><span class="token punctuation">(</span>clsCmdBase <span class="token operator">*</span>poCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -740,7 +740,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>实现很简单。<strong>PLogDB</strong> 中存储了键值对 <code>&lt;(EntityID, EntryID), EntryRecord&gt;</code>，以及 Entity 的 PLog Meta 信息 <code>MaxPLogEntry</code>。</p>
-<h3 id="3.-恢复流程"><a href="#3.-%E6%81%A2%E5%A4%8D%E6%B5%81%E7%A8%8B">3. 恢复流程</a></h3>
+<h3 id="3.-恢复流程" tabindex="-1"><a href="#3.-%E6%81%A2%E5%A4%8D%E6%B5%81%E7%A8%8B">3. 恢复流程</a></h3>
 <p>PLogDB 中存储的信息可以用来恢复本机的实际 DB 数据，也可以用来恢复集群其他机器的数据。以后者为例，当本机发现其他机器的 Entity 信息较旧时，会触发 PLog 数据的读取：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 处理请求的 PaxosCmd</span>
 <span class="token keyword">int</span> clsEntityWorker<span class="token operator">::</span><span class="token function">DoWithPaxosCmd</span><span class="token punctuation">(</span>clsPaxosCmd <span class="token operator">*</span>poPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -775,7 +775,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>PLogWorker</code> 线程中会依次执行 <code>CoEpollTick</code> -&gt; <code>PLogRoutine</code> -&gt; <code>DoWithPaxosCmd</code> -&gt; <code>DoWithPLogRequest</code> -&gt; <code>PLogDB::GetRecord</code> -&gt; <code>IO::GoAndDeleteIfFailed</code>，将会从 PLogDB 中读取对应的 EntryRecord 并将其发送给对方机器。</p>
-<h3 id="4.-总结"><a href="#4.-%E6%80%BB%E7%BB%93">4. 总结</a></h3>
+<h3 id="4.-总结" tabindex="-1"><a href="#4.-%E6%80%BB%E7%BB%93">4. 总结</a></h3>
 <p>Paxos 过程中，节点需要持久化自己做出的承诺，否则将有可能在重启后违背自己的承诺。同时存储自身状态也有利于自身和其他节点做数据恢复。下一篇将继续分析 PaxosStore 协议过程中的一些细节。</p>
 
       </div>

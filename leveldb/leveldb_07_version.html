@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>本系列的<a href="/leveldb/leveldb_06_sorted_table.html">上一篇</a>介绍了 Sorted Table 的构建和读取过程。当 Sorted Table 不断构建出来时，需要使用适当的方式来组织、管理生成的 <code>.ldb</code> 文件。并且 LevelDB 支持快照，这需要 LevelDB 具有版本管理能力。本篇将分析 LevelDB 版本管理相关的代码。</p>
-<h3 id="1.-版本概述"><a href="#1.-%E7%89%88%E6%9C%AC%E6%A6%82%E8%BF%B0">1. 版本概述</a></h3>
+<h3 id="1.-版本概述" tabindex="-1"><a href="#1.-%E7%89%88%E6%9C%AC%E6%A6%82%E8%BF%B0">1. 版本概述</a></h3>
 <p>LevelDB 中的版本管理是针对 Sorted Table 文件的变化的。当有新的内存数据库转为 Sorted Table，或者发生 Compaction 导致有 Sorted Table 增删，都会触发版本的更新。版本管理可以类比 git：</p>
 <ol>
 <li>初始的时候是一个空的 repo（没有 Sorted Table 文件）；</li>
@@ -33,7 +33,7 @@
 <li>根据初始状态和所有 commit 记录可以推断出所有版本（VersionSet）；</li>
 <li>使用 HEAD 指向当前使用的版本（CURRENT 文件）。</li>
 </ol>
-<h3 id="2.-版本-version"><a href="#2.-%E7%89%88%E6%9C%AC-version">2. 版本 Version</a></h3>
+<h3 id="2.-版本-version" tabindex="-1"><a href="#2.-%E7%89%88%E6%9C%AC-version">2. 版本 Version</a></h3>
 <p>首先来看没有未知依赖的 <a href="https://github.com/google/leveldb/blob/master/db/version_edit.h"><code>db/version_edit.h</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">FileMetaData</span> <span class="token punctuation">{</span>
   <span class="token function">FileMetaData</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">refs</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">allowed_seeks</span><span class="token punctuation">(</span><span class="token number">1</span> <span class="token operator">&lt;&lt;</span> <span class="token number">30</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">file_size</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
@@ -518,7 +518,7 @@ Status <span class="token class-name">Version</span><span class="token operator"
 </code></pre>
 <p>匿名空间中声明了枚举类 <code>SaverState</code>，为查找操作的四种状态：未找到，找到，删除和中断。<code>Saver</code> 负责记录输入的比较器和 <code>user_key</code>，以及输出的 <code>SaverState</code> 和查找得到的 <code>value</code>。<code>SaveValue</code> 作为查找操作的回调函数，将会在 Seek 操作完成后执行，其参数为 <code>SaverState</code> 及键值对。通过判断 <code>user_key</code> 是否一致，对 <code>SaverState</code> 进行更新。</p>
 <p>再来看 <code>Version::Get</code>，其调用的 <code>Version::ForEachOverlapping</code> 会根据 <code>smallest_key</code> 和 <code>largest_key</code> 筛选出要查找的文件，再通过回调函数调用 <code>table_cache_-&gt;Get</code> 进行查找，如果找到合法的结果则调用回调函数 <code>SaveValue</code>，如果回调得到的结果是 <code>kFound</code>，就可以提前返回了。Level 0 的文件由于可能存在重叠，所以每个文件都需要进行判断；而 Level 1 及以上的文件可以使用 <code>FindFile</code> 二分查找了。</p>
-<h3 id="3.-版本集-versionset"><a href="#3.-%E7%89%88%E6%9C%AC%E9%9B%86-versionset">3. 版本集 VersionSet</a></h3>
+<h3 id="3.-版本集-versionset" tabindex="-1"><a href="#3.-%E7%89%88%E6%9C%AC%E9%9B%86-versionset">3. 版本集 VersionSet</a></h3>
 <p>首先来看 <code>VersionSet::Builder</code> 的实现：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// A helper class so we can efficiently apply a whole sequence</span>
 <span class="token comment">// of edits to a particular state without creating intermediate</span>
@@ -1206,7 +1206,7 @@ Status <span class="token class-name">Version</span><span class="token operator"
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="总结"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
+<h3 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
 <p>本篇分析了版本管理相关的代码，包括 <code>VersionEdit</code>、<code>Version</code> 和 <code>VersionSet</code> 的实现。<code>VersionSet</code> 还有一大部分代码是与 Compaction 相关的，将会在下篇中继续分析。</p>
 
       </div>

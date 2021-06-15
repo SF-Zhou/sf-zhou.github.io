@@ -23,7 +23,7 @@
         </a>
       </div>
       <div class="markdown">
-        <h3 id="1.-iterator-invalidation"><a href="#1.-iterator-invalidation">1. Iterator Invalidation</a></h3>
+        <h3 id="1.-iterator-invalidation" tabindex="-1"><a href="#1.-iterator-invalidation">1. Iterator Invalidation</a></h3>
 <table>
 <thead>
 <tr>
@@ -55,14 +55,14 @@
 </tr>
 </tbody>
 </table>
-<h3 id="2.-thread-safety"><a href="#2.-thread-safety">2. Thread Safety</a></h3>
+<h3 id="2.-thread-safety" tabindex="-1"><a href="#2.-thread-safety">2. Thread Safety</a></h3>
 <ol>
 <li>All container functions can be called concurrently by different threads on different containers.</li>
 <li>All const member functions can be called concurrently by different threads on the same container.</li>
 <li>Different elements in the same container can be modified concurrently by different threads, except for the elements of <code>std::vector&lt;bool&gt;</code>.</li>
 <li>Iterator operations read, but do not modify the underlying container, and may be executed concurrently with operations on other iterators on the same container, with the const member functions, or reads from the elements. Container operations that invalidate any iterators modify the container and cannot be executed concurrently with any operations on existing iterators even if those iterators are not invalidated</li>
 </ol>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/container">&quot;Containers Library&quot;, <em>C++ Reference</em></a></li>
 </ol>

@@ -23,7 +23,7 @@
         </a>
       </div>
       <div class="markdown">
-        <h3 id="1.-context-switching"><a href="#1.-context-switching">1. Context Switching</a></h3>
+        <h3 id="1.-context-switching" tabindex="-1"><a href="#1.-context-switching">1. Context Switching</a></h3>
 <p>bthread 中使用 <a href="https://github.com/twlostow/libcontext">libcontext</a> 实现协程间的切换，原理类似<a href="/programming/cpp_magic_coroutine.html">汇编魔法实现 C++ 协程</a>中的方法。看一个单元测试中的例子（<a href="https://godbolt.org/z/sf7vhK">在线执行</a>）：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdio.h></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdlib.h></span></span>
@@ -364,7 +364,7 @@ ContextualStack<span class="token operator">*</span> stk <span class="token oper
 <span class="token keyword">int</span><span class="token operator">*</span> NormalStackClass<span class="token operator">::</span>stack_size_flag <span class="token operator">=</span> <span class="token operator">&amp;</span>FLAGS_stack_size_normal<span class="token punctuation">;</span>
 <span class="token keyword">int</span><span class="token operator">*</span> LargeStackClass<span class="token operator">::</span>stack_size_flag <span class="token operator">=</span> <span class="token operator">&amp;</span>FLAGS_stack_size_large<span class="token punctuation">;</span>
 </code></pre>
-<h3 id="2.-work-stealing"><a href="#2.-work-stealing">2. Work Stealing</a></h3>
+<h3 id="2.-work-stealing" tabindex="-1"><a href="#2.-work-stealing">2. Work Stealing</a></h3>
 <p>核心思路是当本线程内没有待执行的任务时，从其他线程的任务队列中窃取任务执行。首先来看 work stealing 时使用的无锁队列 <a href="https://github.com/apache/incubator-brpc/blob/0.9.7/src/bthread/work_stealing_queue.h">src/bthread/work_stealing_queue.h</a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
 <span class="token keyword">class</span> <span class="token class-name">WorkStealingQueue</span> <span class="token punctuation">{</span>
@@ -838,7 +838,7 @@ BUTIL_FORCE_INLINE <span class="token keyword">int</span>
     <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="3.-futex-&amp;-butex"><a href="#3.-futex-%26-butex">3. Futex &amp; Butex</a></h3>
+<h3 id="3.-futex-&amp;-butex" tabindex="-1"><a href="#3.-futex-%26-butex">3. Futex &amp; Butex</a></h3>
 <p>Linux 中提供了快速的用户态锁 futex，bRPC 中进行了简单的封装：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// sys_futex.h</span>
 <span class="token keyword">inline</span> <span class="token keyword">int</span> <span class="token function">futex_wait_private</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span>addr1<span class="token punctuation">,</span> <span class="token keyword">int</span> expected<span class="token punctuation">,</span>
@@ -1133,7 +1133,7 @@ BUTIL_FORCE_INLINE <span class="token keyword">int</span>
   <span class="token keyword">return</span> <span class="token number">1</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="ps：一些题外话"><a href="#ps%EF%BC%9A%E4%B8%80%E4%BA%9B%E9%A2%98%E5%A4%96%E8%AF%9D">PS：一些题外话</a></h3>
+<h3 id="ps：一些题外话" tabindex="-1"><a href="#ps%EF%BC%9A%E4%B8%80%E4%BA%9B%E9%A2%98%E5%A4%96%E8%AF%9D">PS：一些题外话</a></h3>
 <p>没错，<a href="/#/Tokio">Tokio 源码分析</a>被“鸽”置了。去年下半年组里项目非常忙，导致周末也不想学习。好在项目赶在年前上线了，年初的答辩也挺顺利，今年就有更多时间自我提升了。开 bRPC 的新坑是因为该项目里有不少先进经验可以应用到自己的工作上，Tokio 会排在 bRPC 之后补上。</p>
 
       </div>

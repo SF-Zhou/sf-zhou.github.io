@@ -25,7 +25,7 @@
       <div class="markdown">
         <p>网络应用的核心是处理字节流，本篇关注 Tokio 处理字节流的基础库 <a href="https://github.com/tokio-rs/bytes">bytes</a>，阅读的代码版本为 <a href="https://github.com/tokio-rs/bytes/tree/v0.6.0">v0.6.0</a>。</p>
 <figure tabindex="1"><a href="../images/5e364463cf50f41fec2e028df84f6a4a.svg"><img src="../images/5e364463cf50f41fec2e028df84f6a4a.svg" alt=""></a><figcaption>Tokio 架构图 from <a href="http://tokio.rs">tokio.rs</a></figcaption></figure>
-<h3 id="1.-概览"><a href="#1.-%E6%A6%82%E8%A7%88">1. 概览</a></h3>
+<h3 id="1.-概览" tabindex="-1"><a href="#1.-%E6%A6%82%E8%A7%88">1. 概览</a></h3>
 <p>Bytes 封装了对字节流的常用操作，核心特性是使用引用计数实现内存安全的 <code>string_view</code>。<code>src</code> 目录下的文件结构为：</p>
 <pre class="language-markup"><code class="language-markup">src
 ├── buf                  # buffer 实现
@@ -74,7 +74,7 @@
     <span class="token macro property">assert_eq!</span><span class="token punctuation">(</span>b<span class="token punctuation">,</span> <span class="token string">b"lo world"</span><span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="2.-buf"><a href="#2.-buf">2. Buf</a></h3>
+<h3 id="2.-buf" tabindex="-1"><a href="#2.-buf">2. Buf</a></h3>
 <p><code>Buf</code> 类似 LevelDB 中的 <code>Slice</code>，其 trait 定义在<a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/buf_impl.rs"><code>src/buf/buf_impl.rs</code></a> 中，依赖 <a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/reader.rs"><code>reader.rs</code></a> / <a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/take.rs"><code>take.rs</code></a> / <a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/chain.rs"><code>chain.rs</code></a>，依次看依赖的文件：</p>
 <pre class="language-rust"><code class="language-rust"><span class="token comment">// reader.rs</span>
 
@@ -306,7 +306,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>Buf</code> 也有可写的版本 <code>BufMut</code>，实现上大同小异，不再赘述。</p>
-<h3 id="3.-bytes"><a href="#3.-bytes">3. Bytes</a></h3>
+<h3 id="3.-bytes" tabindex="-1"><a href="#3.-bytes">3. Bytes</a></h3>
 <p><code>Bytes</code>，一种低开销的可复制、可切片的连续内存块。通过引用计数保证原始内存块的生命周期，通过 <code>&lt;ptr, len&gt;</code> 声明当前指向的位置和大小。一个 <code>Bytes</code> 对象的内存布局如下：</p>
 <pre class="language-rust"><code class="language-rust"><span class="token comment">/// A cheaply cloneable and sliceable chunk of contiguous memory.</span>
 <span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Bytes</span> <span class="token punctuation">{</span>

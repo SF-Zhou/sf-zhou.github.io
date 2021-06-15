@@ -65,7 +65,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>使用 <code>const std::function&lt;int(void)&gt; &amp;</code> 是避免对象复制，但恰恰是这样的操作引发了这个极其隐藏的 Bug。有兴趣可以再看看代码，想想是哪里的问题，下面将公布答案。</p>
-<h3 id="bug-分析"><a href="#bug-%E5%88%86%E6%9E%90">Bug 分析</a></h3>
+<h3 id="bug-分析" tabindex="-1"><a href="#bug-%E5%88%86%E6%9E%90">Bug 分析</a></h3>
 <p>C++ 中的 Lambda 表达式并非是 <code>std::function</code> 类型，它的类型是独一无二的，可以通过 <code>typeid</code> 打印查看：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;typeinfo></span></span>
@@ -103,7 +103,7 @@
   op<span class="token punctuation">.</span><span class="token function">func</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="隐式转换再踩坑"><a href="#%E9%9A%90%E5%BC%8F%E8%BD%AC%E6%8D%A2%E5%86%8D%E8%B8%A9%E5%9D%91">隐式转换再踩坑</a></h3>
+<h3 id="隐式转换再踩坑" tabindex="-1"><a href="#%E9%9A%90%E5%BC%8F%E8%BD%AC%E6%8D%A2%E5%86%8D%E8%B8%A9%E5%9D%91">隐式转换再踩坑</a></h3>
 <p>如下，结论就是别玩火。</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
@@ -124,7 +124,7 @@
   <span class="token function">assert</span><span class="token punctuation">(</span>b <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="再来一个"><a href="#%E5%86%8D%E6%9D%A5%E4%B8%80%E4%B8%AA">再来一个</a></h3>
+<h3 id="再来一个" tabindex="-1"><a href="#%E5%86%8D%E6%9D%A5%E4%B8%80%E4%B8%AA">再来一个</a></h3>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
 
@@ -136,7 +136,7 @@
   <span class="token function">Func</span><span class="token punctuation">(</span><span class="token string">""</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 输出 A</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="one-more"><a href="#one-more">One More</a></h3>
+<h3 id="one-more" tabindex="-1"><a href="#one-more">One More</a></h3>
 <p>构造了一个内存池，使用 Thread Local 缓存加快相同类型的分配速度，在分配内存后会调用对应的构造函数，类似：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
 <span class="token keyword">static</span> std<span class="token operator">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token function">pop</span><span class="token punctuation">(</span>Args <span class="token operator">&amp;&amp;</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>args<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -151,7 +151,7 @@
   std<span class="token operator">::</span>array<span class="token operator">&lt;</span><span class="token keyword">char</span><span class="token punctuation">,</span> N<span class="token operator">></span> data<span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/language/lambda">&quot;Lambda expressions&quot;, <em>Wikipedia</em></a></li>
 <li><a href="https://www.zhihu.com/question/48165767">&quot;C++11中能否显式声明一个lambda类型的变量，而不用auto?&quot;, <em>知乎</em></a></li>

@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>断断续续大半年，<a href="https://github.com/google/leveldb">LevelDB 的源代码</a>快看完了。期间经常会发出由衷的感叹：Google 的代码写得真好。为了督促自己尽快看完，同时也为了真正地从 LevelDB 源码里汲取养分，所以开出一个新系列「LevelDB 源码分析」，希望能整理输出一些干货。作为系列的第一篇，本文会介绍 LevelDB 中的基本数据结构，包括 <code>Slice</code>、<code>Hash</code>、<code>LRUCache</code>。</p>
-<h3 id="1.-字符串封装-slice"><a href="#1.-%E5%AD%97%E7%AC%A6%E4%B8%B2%E5%B0%81%E8%A3%85-slice">1. 字符串封装 Slice</a></h3>
+<h3 id="1.-字符串封装-slice" tabindex="-1"><a href="#1.-%E5%AD%97%E7%AC%A6%E4%B8%B2%E5%B0%81%E8%A3%85-slice">1. 字符串封装 Slice</a></h3>
 <p>Slice 定义于 <a href="https://github.com/google/leveldb/blob/master/include/leveldb/slice.h"><code>include/leveldb/slice.h</code></a>，源码不过百行：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;assert.h></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stddef.h></span></span>
@@ -129,7 +129,7 @@
 <p><strong>修改</strong>：支持 <code>clear</code> 操作字符串清空，也支持 <code>remove_prefix</code> 将指定长度的前缀去除。注意 <code>data_</code> 的类型为 <code>const char *</code>，对应的字符串内容是不可修改的，<code>Slice</code> 只能修改字符串的起始位置。</p>
 <p><strong>比较</strong>：<code>Slice::compare</code> 实现了非常严谨的字符串比较，返回 0/1/-1。注意为了提高性能，<code>operator==</code> 并没有直接调用 <code>Slice::compare</code>。</p>
 <p>值得注意的是，<code>Slice</code> 本身并没有任何内存管理，仅仅是 C 风格字符串及其长度的封装。</p>
-<h3 id="2.-哈希函数-hash"><a href="#2.-%E5%93%88%E5%B8%8C%E5%87%BD%E6%95%B0-hash">2. 哈希函数 Hash</a></h3>
+<h3 id="2.-哈希函数-hash" tabindex="-1"><a href="#2.-%E5%93%88%E5%B8%8C%E5%87%BD%E6%95%B0-hash">2. 哈希函数 Hash</a></h3>
 <p>哈希函数定义于 <a href="https://github.com/google/leveldb/blob/master/util/hash.cc"><code>util/hash.[h/cc]</code></a>，源代码如下：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"util/hash.h"</span></span>
 
@@ -186,7 +186,7 @@
 <p>每次按照四字节长度读取字节流中的数据 <code>w</code>，并使用普通的哈希函数计算哈希值。计算过程中使用 <code>uint32_t</code> 的自然溢出特性。四字节读取则为了加速，最终可能剩下 3/2/1 个多余的字节，使用 <code>switch</code> 语句补充计算，以实现最好的性能。</p>
 <p>这里 <code>FALLTHROUGH_INTENDED</code> 宏并无实际作用，仅仅作为一种“我确定我这里想跳过”的标志。<code>do {} while(0)</code> 对代码无影响，这种写法也会出现在一些多行的宏定义里（见<a href="https://stackoverflow.com/questions/257418/do-while-0-what-is-it-good-for">链接</a>）。</p>
 <p>LevelDB 中哈希表和布隆过滤器会使用到该哈希函数。</p>
-<h3 id="3.-缓存-lrucache"><a href="#3.-%E7%BC%93%E5%AD%98-lrucache">3. 缓存 LRUCache</a></h3>
+<h3 id="3.-缓存-lrucache" tabindex="-1"><a href="#3.-%E7%BC%93%E5%AD%98-lrucache">3. 缓存 LRUCache</a></h3>
 <p>LevelDB 中使用的是 Least Recently Used Cache，即最近最少使用缓存。缓存接口定义于 <a href="https://github.com/google/leveldb/blob/master/include/leveldb/cache.h"><code>include/leveldb/cache.h</code></a>，去除掉注释后接口如下（其实建议自己看看源代码的注释）：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
 
@@ -606,7 +606,7 @@ Cache<span class="token operator">::</span>Handle<span class="token operator">*<
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
 <p><code>LevelDB</code> 默认将 <code>LRUCache</code> 分为 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mn>2</mn><mn>4</mn></msup></mrow><annotation encoding="application/x-tex">2^4</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141079999999999em;vertical-align:0em;"></span><span class="mord"><span class="mord">2</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141079999999999em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span></span></span></span></span></span></span></span></eq> 块，取哈希值的高 4 位作为分片的位置（取低 4 位的话分片基本就白做了）。分片可以提高查询和插入的速度，减少锁的压力，是提高缓存性能的常用方法。</p>
-<h3 id="总结"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
+<h3 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
 <p>本文简单介绍了 <code>LevelDB</code> 中的 <code>Slice</code>、<code>Hash</code> 和 <code>LRUCache</code> 的实现。慢慢会觉得代码中的每个细节都是有意义的，不可忽略。<code>LevelDB</code> 源代码不超过 3 万行，非常推荐学习 C++ 的同学阅读。建议可以先读 <code>util</code> 部分，这里是通用的数据结构，没有太多依赖。</p>
 <p>下一篇会继续介绍 <code>LevelDB</code> 中的其他数据结构，包括布隆过滤器、内存池和跳表。</p>
 

@@ -23,7 +23,7 @@
         </a>
       </div>
       <div class="markdown">
-        <h3 id="1.-object-pool"><a href="#1.-object-pool">1. Object Pool</a></h3>
+        <h3 id="1.-object-pool" tabindex="-1"><a href="#1.-object-pool">1. Object Pool</a></h3>
 <p>代码中频繁使用的结构体大部分是等长的。根据该原理，bRPC 中设计了一个对象池，简化定长对象的分配和回收策略，尽可能地在 Thread Local 环境中进行内存操作。申请对象时按照如下的规则 BAIDU_OBJECT_POOL_GET：</p>
 <ol>
 <li>本线程回收列表中是否有对象，有则直接返回</li>
@@ -269,7 +269,7 @@ BAIDU_THREAD_LOCAL
 <span class="token punctuation">}</span>
 </code></pre>
 <p>回收对象时不进行析构和删除，仅将其指针加入本线程的缓存列表中，积累后一定阈值后有锁地加入全局缓存中。注意申请对象时是申请整段内存，返回的对象并不具有其对应内存的所有权，必须调用内存池提供的 <code>return_object</code> 接口进行回收。默认实现中所有申请的对象都不会进行<strong>析构</strong>和<strong>删除</strong>，意味着内存占用是不会回落的，类似 <code>std::vector</code>。</p>
-<h3 id="2.-resource-pool"><a href="#2.-resource-pool">2. Resource Pool</a></h3>
+<h3 id="2.-resource-pool" tabindex="-1"><a href="#2.-resource-pool">2. Resource Pool</a></h3>
 <p>资源池的设计与上文中的对象池类似，不同的是引入了 <code>ResourceId</code> 的概念，表示该资源在对象池中的偏移量：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// resource_pool_inl.h</span>
 <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span> <span class="token keyword">struct</span> <span class="token class-name">ResourceId</span> <span class="token punctuation">{</span>
@@ -396,7 +396,7 @@ BAIDU_THREAD_LOCAL
   <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="3.-io-buf"><a href="#3.-io-buf">3. IO Buf</a></h3>
+<h3 id="3.-io-buf" tabindex="-1"><a href="#3.-io-buf">3. IO Buf</a></h3>
 <p>bRPC 中使用 <code>IOBuf</code> 处理字节流相关的数据，它是一种非连续零拷贝缓冲，提供类似 <code>std::string</code> 的接口。该数据结构和笔者之前分析的 <a href="/tokio/tokio_02_bytes.html">Tokio Bytes</a> 也很像，均使用引用计数实现零拷贝。</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// iobuf.h</span>
 <span class="token comment">// IOBuf is a non-continuous buffer that can be cut and combined w/o copying</span>
@@ -628,7 +628,7 @@ BAIDU_THREAD_LOCAL
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>IOBuf</code> 提供了丰富的字节流处理能力，整体代码也非常长，超过 3k 行。这里省略其他处理细节的分析了，有兴趣可以自行阅读。</p>
-<h3 id="4.-socket"><a href="#4.-socket">4. Socket</a></h3>
+<h3 id="4.-socket" tabindex="-1"><a href="#4.-socket">4. Socket</a></h3>
 <p>bRPC 中使用 <code>Socket</code> 来管理连接，并且使用了 64 位的 <code>SocketId</code> 来指代 <code>Socket</code> 对象方便在多线程下环境下使用连接。使用 Socket 时会用到以下数据结构：</p>
 <ol>
 <li><code>Socket</code> 对象本身；</li>
@@ -928,7 +928,7 @@ BUTIL_FORCE_INLINE <span class="token keyword">int32_t</span> <span class="token
   <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/memory_management.md">&quot;bRPC Memory Management&quot;, <em>incubator-brpc</em></a></li>
 <li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/iobuf.md">&quot;bRPC IOBuf&quot;, <em>incubator-brpc</em></a></li>

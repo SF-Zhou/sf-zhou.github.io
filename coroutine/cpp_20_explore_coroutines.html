@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>距上一次<a href="/coroutine/cpp_20_coroutines.html">初探 C++20 协程</a>近一年了，对 C++20 的无栈协程方案有了一些新的认识，写在这里。</p>
-<h3 id="1.-方案回顾"><a href="#1.-%E6%96%B9%E6%A1%88%E5%9B%9E%E9%A1%BE">1. 方案回顾</a></h3>
+<h3 id="1.-方案回顾" tabindex="-1"><a href="#1.-%E6%96%B9%E6%A1%88%E5%9B%9E%E9%A1%BE">1. 方案回顾</a></h3>
 <p>C++20 的协程方案中有三个核心的对象：</p>
 <ol>
 <li><code>promise object</code>，由用户实现，用于在协程内部提交结果或者抛出异常；</li>
@@ -90,7 +90,7 @@ task <span class="token function">resuming_on_new_thread</span><span class="toke
   <span class="token function">resuming_on_new_thread</span><span class="token punctuation">(</span>out<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="2.-无栈协程"><a href="#2.-%E6%97%A0%E6%A0%88%E5%8D%8F%E7%A8%8B">2. 无栈协程</a></h3>
+<h3 id="2.-无栈协程" tabindex="-1"><a href="#2.-%E6%97%A0%E6%A0%88%E5%8D%8F%E7%A8%8B">2. 无栈协程</a></h3>
 <p>C++20 协程使用了无栈协程的方案，那么实际执行时协程究竟运行在何处呢？对于这个问题，可以先回忆下栈在程序执行过程中的作用。</p>
 <p>当调用某个函数时，调用方会先将当前执行的位置以及函数参数压栈，然后跳转到被调函数的起点，被调函数会根据自身局部变量的使用情况申请栈空间并执行对应的初始化，被调函数执行完成后自行回收栈空间，并跳转回原先调用的位置，栈也恢复了调用前的状态。栈中存储了<strong>恢复位置和局部变量</strong>。根据先进后出、单调增长的特性，每个函数可以根据<strong>栈顶置针和偏移量</strong>确定自身局部变量在栈上的位置。</p>
 <p>对有栈协程来说，可以直接申请内存空间并修改栈顶指针实现自定义的栈，可以通过保存所有 called saved 寄存器的方式存储当前的执行状态，包括栈顶置针和恢复位置。当需要切换协程时，恢复寄存器也就恢复了挂起前的执行状态，局部变量依然可以根据栈顶置针和偏移量来确定位置。其优势是完全兼容原先的函数调用约定，劣势是需要根据最坏情况申请足够的栈空间，并且切换协程时会强行切换栈继而破坏 return stack buffer 的跳转预测，在空间时间效率上比不过无栈协程。</p>
@@ -156,7 +156,7 @@ task <span class="token function">resuming_on_new_thread</span><span class="toke
 <span class="token punctuation">}</span>
 </code></pre>
 <p>无栈协程中的局部变量存储不再与栈相关，整个函数相当于被可挂起点切分为多个小函数，恢复时只需要在当前栈上调用下一个小函数。这意味着无栈协程需要一段独立的堆内存空间存储自身的局部变量以及运行状态，并且需要一套新的局部变量定位方式，而这些都是由编译器生成的代码来完成的。无栈协程的优势是可以按需申请栈空间，协程切换时仍然是传统函数调用、返回流程，CPU 的跳转预测优化仍然有效。</p>
-<h3 id="3.-内存分配"><a href="#3.-%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D">3. 内存分配</a></h3>
+<h3 id="3.-内存分配" tabindex="-1"><a href="#3.-%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D">3. 内存分配</a></h3>
 <p>仔细观察协程函数调用的过程，你会发现每一次协程函数的调用都会触发一次堆内存分配（<a href="https://en.cppreference.com/w/cpp/language/coroutines#Heap_allocation">极少数场景下会被编译器优化掉</a>），这对某些高性能低延迟的系统来说是需要进一步优化的。C++20 的协程方案也提供了自定义内存分配释放的接口，可以在 <code>promise_type</code> 中重载 <code>operator new</code> 和 <code>operator delete</code>，类似下方的例子（<a href="https://godbolt.org/z/Kbd9EE4Gb">在线执行</a>）：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;coroutine></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
@@ -225,7 +225,7 @@ delete 64 0x7fa45b505880
 */</span>
 </code></pre>
 <p>同一个协程函数每次调用时需要申请的堆内存大小是一致的，可以根据这一点设计出高效的内存池。</p>
-<h3 id="4.-嵌套调用"><a href="#4.-%E5%B5%8C%E5%A5%97%E8%B0%83%E7%94%A8">4. 嵌套调用</a></h3>
+<h3 id="4.-嵌套调用" tabindex="-1"><a href="#4.-%E5%B5%8C%E5%A5%97%E8%B0%83%E7%94%A8">4. 嵌套调用</a></h3>
 <p>理想中的协程应用应该是类似这样的：</p>
 <pre class="language-cpp"><code class="language-cpp">Promise<span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span> <span class="token function">A</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> <span class="token punctuation">}</span>
 Promise<span class="token operator">&lt;</span><span class="token keyword">uint32_t</span><span class="token operator">></span> <span class="token function">B</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> <span class="token punctuation">}</span>
@@ -350,7 +350,7 @@ Promise <span class="token function">CoroutineFunc</span><span class="token punc
     <span class="token punctuation">}</span><span class="token punctuation">)</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/language/coroutines">&quot;Coroutines (C++20)&quot;, <em>C++ Reference</em></a></li>
 <li><a href="https://www.zhihu.com/question/65647171/answer/233495694">&quot;async/await异步模型是否优于stackful coroutine模型？&quot;, <em>圆珠笔的回答 - 知乎</em></a></li>

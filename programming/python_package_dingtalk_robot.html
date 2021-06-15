@@ -37,7 +37,7 @@
 <li>配置 CI；</li>
 <li>配置 CD。</li>
 </ol>
-<h3 id="1.-编写功能代码"><a href="#1.-%E7%BC%96%E5%86%99%E5%8A%9F%E8%83%BD%E4%BB%A3%E7%A0%81">1. 编写功能代码</a></h3>
+<h3 id="1.-编写功能代码" tabindex="-1"><a href="#1.-%E7%BC%96%E5%86%99%E5%8A%9F%E8%83%BD%E4%BB%A3%E7%A0%81">1. 编写功能代码</a></h3>
 <p>根据钉钉自定义机器人的文档，可以通过向如下的链接发送 POST 请求来实现发送消息的功能。</p>
 <pre class="language-markup"><code class="language-markup">https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxx
 </code></pre>
@@ -85,7 +85,7 @@
 <p>注意到代码中自定义了一个 <code>Error</code> 类。钉钉自定义机器人的 HTTP 接口有状态返回码，如果返回值异常则抛出这样一个 <code>Error</code>。</p>
 <p>另外需要注意 <code>requests</code> 可能也会抛出网络相关的异常类，使用包的过程中同样需要做好异常处理。</p>
 <p>至此本步骤完成。</p>
-<h3 id="2.-编写单元测试"><a href="#2.-%E7%BC%96%E5%86%99%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95">2. 编写单元测试</a></h3>
+<h3 id="2.-编写单元测试" tabindex="-1"><a href="#2.-%E7%BC%96%E5%86%99%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95">2. 编写单元测试</a></h3>
 <p>单元测试，是针对程序模块来进行正确性检验的测试工作。Python 自带了单元测试框架 <code>unittest</code>，<a href="https://docs.python.org/3/library/unittest.html">点击此处可以查看 <code>unittest</code> 的官方文档</a>。</p>
 <p>单元测试简单来说，就是在正常使用一个类或者一个函数的功能，并在测试中对比预期结果与运行结果是否一致。如果不一致则说明代码出了问题。</p>
 <p>在同上的文件夹中，新建单元测试文件 <code>test_dingtalk_robot.py</code>。按照 <code>unittest</code> 的文档，编写如下的测试代码：</p>
@@ -131,7 +131,7 @@ test_dingtalk_robot.py ..
 ================== 2 passed in 0.52 seconds ==================
 </code></pre>
 <p>可以看到两个测试均通过，本步骤完成。</p>
-<h3 id="3.-构建-python-包"><a href="#3.-%E6%9E%84%E5%BB%BA-python-%E5%8C%85">3. 构建 Python 包</a></h3>
+<h3 id="3.-构建-python-包" tabindex="-1"><a href="#3.-%E6%9E%84%E5%BB%BA-python-%E5%8C%85">3. 构建 Python 包</a></h3>
 <p>接下来可以打包上述的 <code>dingtalk_robot</code> 工具了。Python 的打包还是比较简单的，编写一个 <code>setup.py</code>，写入相关信息即可。<a href="https://packaging.python.org/tutorials/distributing-packages/">点击此处可以查看打包的详细文档</a>。</p>
 <p>按照文档，继续新建一个 <code>setup.py</code> 文件，写入如下代码：</p>
 <pre class="language-python"><code class="language-python"><span class="token triple-quoted-string string">"""
@@ -226,7 +226,7 @@ removing 'dingtalk_robot-0.0.1' (and everything under it)
 <figure tabindex="1"><a href="../images/2d5631a9cbc8980f7982958b30a94693.jpg"><img src="../images/2d5631a9cbc8980f7982958b30a94693.jpg" alt=""></a></figure>
 <p>可以看到这里包含了源代码文件，还有一些 INFO 文件。将该文件发布出去，其他人也可以轻松地安装并使用 <code>dingtalk_robot</code> 了。</p>
 <p>至此本步骤完成。</p>
-<h3 id="4.-上传-python-包到-pypi"><a href="#4.-%E4%B8%8A%E4%BC%A0-python-%E5%8C%85%E5%88%B0-pypi">4. 上传 Python 包到 <a href="https://pypi.python.org/pypi/">PyPI</a></a></h3>
+<h3 id="4.-上传-python-包到-pypi" tabindex="-1"><a href="#4.-%E4%B8%8A%E4%BC%A0-python-%E5%8C%85%E5%88%B0-pypi">4. 上传 Python 包到 <a href="https://pypi.python.org/pypi/">PyPI</a></a></h3>
 <p>Python Package Index，简称 PyPI，为 Python 官方的软件库。可以在 PyPI 中查看、下载所有公开的 Python 包，也可以发布自己的 Python 包供大家使用。当然，首先需要注册一个账号，<a href="https://pypi.python.org/pypi?%3Aaction=register_form">可以点击此处注册</a>。</p>
 <p>拥有账号后，就可以使用 <code>twine</code> 上传上一步骤中构建的 Python 包了。</p>
 <p>使用 <code>pip</code> 安装 <code>twine</code> 后，需要简单配置一下。在 HOME 目录下新建一个 <code>.pypirc</code> 文件，即 <code>~/.pypirc</code>，填入以下信息：</p>
@@ -250,7 +250,7 @@ Uploading dingtalk_robot-0.0.1.tar.gz
 <pre class="language-bash"><code class="language-bash">pip <span class="token function">install</span> dingtalk_robot
 </code></pre>
 <p>进而每个人都可以方便地安装和使用这个小工具了。</p>
-<h3 id="5.-配置-ci"><a href="#5.-%E9%85%8D%E7%BD%AE-ci">5. 配置 CI</a></h3>
+<h3 id="5.-配置-ci" tabindex="-1"><a href="#5.-%E9%85%8D%E7%BD%AE-ci">5. 配置 CI</a></h3>
 <p><strong>Continuous Improvement</strong>，简称 CI，也就是常说的持续集成。该步骤并不是必须的，但是配置有持续集成的项目更容易得到大家的信赖：持续集成意味着项目提供了准确的环境配置，并且通过了多项测试。</p>
 <p>目前 GitHub 上常用的 CI 平台有 <a href="https://travis-ci.org">Travis-CI</a>、<a href="https://ci.appveyor.com">AppVeyor</a> 及 <a href="https://circleci.com">Circle-CI</a>。本文以 Travis-CI 为例介绍 CI 的配置，<a href="https://docs.travis-ci.com/">点击此处可以查看 Travis-CI 的详细文档</a>。</p>
 <p>在项目文件夹中新建 Travis-CI 的配置文件 <code>.travis.yml</code>，文件内容为：</p>
@@ -285,7 +285,7 @@ The command "pycodestyle . --max-line-length=120" exited with 1.
 <figure tabindex="5"><a href="../images/ffd89d476c60372886880b748c141ac6.jpg"><img src="../images/ffd89d476c60372886880b748c141ac6.jpg" alt=""></a></figure>
 <p>将该链接加入 <code>README.md</code> 中，之后在 GitHub 的项目页面就可以看到绿色的 Build Passing 标志了。</p>
 <p>至此本步骤完成。</p>
-<h3 id="6.-配置-cd"><a href="#6.-%E9%85%8D%E7%BD%AE-cd">6. 配置 CD</a></h3>
+<h3 id="6.-配置-cd" tabindex="-1"><a href="#6.-%E9%85%8D%E7%BD%AE-cd">6. 配置 CD</a></h3>
 <p><strong>Continuous Deployment</strong>，简称 CD，持续部署。该步骤同样不是必须的，简单来说就是省事而已。</p>
 <p>当 <code>dingtalk_robot</code> 通过单元测试后，下一步肯定是及时地发布到 PyPI 上。CD 的目的就是为我们自动化地完成这件事。Travis-CI 提供了非常方便的 PyPI 发布配置，<a href="https://docs.travis-ci.com/user/deployment/pypi/">点击此处可以查看相关文档</a>。</p>
 <p>在 <code>.travis.yml</code> 底部继续加入：</p>
@@ -308,7 +308,7 @@ The command "pycodestyle . --max-line-length=120" exited with 1.
 <span class="token function">git</span> push origin master --tag
 </code></pre>
 <p>至此本步骤完成。</p>
-<h3 id="7.-总结"><a href="#7.-%E6%80%BB%E7%BB%93">7. 总结</a></h3>
+<h3 id="7.-总结" tabindex="-1"><a href="#7.-%E6%80%BB%E7%BB%93">7. 总结</a></h3>
 <p>一个完整的 Python 包构建过程就结束了。麻雀虽小五脏俱全，大项目也是这样一步一步构建出来的。随着后续的继续迭代，单元测试和 CI 持续保证质量，CD 及时将包发布到 PyPI 上，GitHub 中接收社区的反馈和贡献，这个包也就会越来越完善，越来越稳定。</p>
 <p>本文中的源代码可以在 <a href="https://github.com/SF-Zhou/DingtalkRobot"><code>SF-Zhou/DingtalkRobot</code></a> 中找到，其中的每一个 commit 对应文中的每一步。</p>
 

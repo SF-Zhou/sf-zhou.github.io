@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p><a href="/#/Paxos">本系列</a>的<a href="/paxos/paxos_store_01_network.html">上一篇</a>分析了 PaxosStore 中网络通信部分的实现，本篇将聚焦 PaxosStore 中模块间消息的传递。</p>
-<h3 id="1.-消息概览"><a href="#1.-%E6%B6%88%E6%81%AF%E6%A6%82%E8%A7%88">1. 消息概览</a></h3>
+<h3 id="1.-消息概览" tabindex="-1"><a href="#1.-%E6%B6%88%E6%81%AF%E6%A6%82%E8%A7%88">1. 消息概览</a></h3>
 <p>PaxosStore 中定义了一种名为 <code>Command</code> 的消息，模块间的通信通过 <code>Command</code> 的传递实现。消息传递的方式有两种，一种是通过消息队列传递，一种是使用 Protobuf 序列化后通过网络收发。</p>
 <p><code>Command</code> 消息的基类 <code>clsCmdBase</code> 定义于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/Command.h"><code>src/Command.h</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">IOTracker_t</span> <span class="token punctuation">{</span>
@@ -384,7 +384,7 @@
   <span class="token keyword">return</span> <span class="token function">SerializeMsgToArray</span><span class="token punctuation">(</span>oPaxosCmd<span class="token punctuation">,</span> pcBuffer<span class="token punctuation">,</span> iLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="2.-消息队列"><a href="#2.-%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97">2. 消息队列</a></h3>
+<h3 id="2.-消息队列" tabindex="-1"><a href="#2.-%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97">2. 消息队列</a></h3>
 <p>PaxosStore 中线程间消息的传递通过消息队列实现。这里消息队列由循环队列 <code>clsCircleQueue</code> 实现，定义于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/utils/CircleQueue.h">utils/CircleQueue.h</a>，通过 CAS 实现多线程下的并发写入：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">Type</span><span class="token operator">></span>
 <span class="token keyword">int</span> <span class="token class-name">clsCircleQueue</span><span class="token operator">&lt;</span>Type<span class="token operator">></span><span class="token operator">::</span><span class="token function">TakeByOneThread</span><span class="token punctuation">(</span>Type <span class="token operator">*</span>ptElt<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -628,7 +628,7 @@
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
 <p>单例的好处是全局可见，如果希望给某个组件发消息，则可以通过单例获取组件对应的队列、调用 <code>PushByMultiThread</code> 将消息推入其中即可。使用消息队列也使得组件之间逻辑解耦。</p>
-<h3 id="3.-网络收发"><a href="#3.-%E7%BD%91%E7%BB%9C%E6%94%B6%E5%8F%91">3. 网络收发</a></h3>
+<h3 id="3.-网络收发" tabindex="-1"><a href="#3.-%E7%BD%91%E7%BB%9C%E6%94%B6%E5%8F%91">3. 网络收发</a></h3>
 <p>PaxosStore 中进程间消息的传递通过 Socket 实现，包括收和发两个数据方向。收消息是将从 <code>IOChannel</code> 中读取到的字节流反序列化为 <code>Command</code> 命令、推入 <code>IOReqQueue</code> 队列中；发则是将 <code>IORsqQueue</code> 队列中的 <code>Command</code> 命令取出、序列化为字节流后通过 <code>IOChannel</code> 发送。其代码位于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/IOWorker.h"><code>src/IOWorker.h</code></a>，流程图如下所示：</p>
 <figure tabindex="1"><a href="../images/e657768e7c88cce0d0f93e38a3ad7caa.svg"><img src="../images/e657768e7c88cce0d0f93e38a3ad7caa.svg" alt=""></a><figcaption>IOWorker 收发流程图</figcaption></figure>
 <p>首先来看收消息的过程。<code>clsIOWorker</code> 继承 <code>clsIOHandlerBase</code>，当 <code>IOChannel</code> 有新数据可读时会调用 <code>clsIOWorker::HandleRead</code>：</p>
@@ -1122,9 +1122,9 @@ clsIOChannel <span class="token operator">*</span>clsIOWorker<span class="token 
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="4.-总结"><a href="#4.-%E6%80%BB%E7%BB%93">4. 总结</a></h3>
+<h3 id="4.-总结" tabindex="-1"><a href="#4.-%E6%80%BB%E7%BB%93">4. 总结</a></h3>
 <p>PaxosStore 单个 Server 进程内会启动多个 Worker 线程，线程间通过消息队列传递消息；而多个 Server 进程间则通过 Protobuf + Socket 传递消息。通信部分由于使用 Epoll 边缘触发的原因，对仍然可读可写的 fd 都做了特殊化处理。至此 PaxosStore 中消息传递的代码分析完毕，下一篇将继续分析组件间消息传递实现的 Paxos 协议过程。</p>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://github.com/Tencent/paxosstore">&quot;Tencent/PaxosStore&quot;, <em>GitHub</em></a></li>
 </ol>

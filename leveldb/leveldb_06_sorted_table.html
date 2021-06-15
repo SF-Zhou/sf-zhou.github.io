@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>本系列的<a href="/leveldb/leveldb_05_sorted_table.html">上一篇</a>介绍了 Sorted Table 的构建过程，本篇就继续分析 Sorted Table 的读取、解析过程。</p>
-<h3 id="4.-block"><a href="#4.-block">4. Block</a></h3>
+<h3 id="4.-block" tabindex="-1"><a href="#4.-block">4. Block</a></h3>
 <p>根据依赖关系，首先来看 <a href="https://github.com/google/leveldb/blob/master/table/format.cc"><code>table/format.cc</code></a> 中 <code>ReadBlock</code> 函数的实现：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">BlockContents</span> <span class="token punctuation">{</span>
   Slice data<span class="token punctuation">;</span>           <span class="token comment">// Actual contents of data</span>
@@ -405,7 +405,7 @@ Iterator<span class="token operator">*</span> <span class="token class-name">Blo
 <span class="token punctuation">}</span>
 </code></pre>
 <p>如果这里 <code>current_</code> 刚好到达复活点 <code>i</code>，<code>restart_index_</code> 仍然会保持在 <code>i - 1</code> 的，这样在执行 <code>Prev</code> 时 <code>while</code> 循环可以少做一次。Google 大佬实力可见一斑。但从语义的角度，这种做法比较容易让人困惑，我应该不会这么做（所以成不了 Google 大佬。</p>
-<h3 id="5.-迭代器链"><a href="#5.-%E8%BF%AD%E4%BB%A3%E5%99%A8%E9%93%BE">5. 迭代器链</a></h3>
+<h3 id="5.-迭代器链" tabindex="-1"><a href="#5.-%E8%BF%AD%E4%BB%A3%E5%99%A8%E9%93%BE">5. 迭代器链</a></h3>
 <p>上一节中分析了 Block 的迭代器实现，而对一个 Sorted Table 来说，还需要其他几种迭代器共同组成迭代器链，以高效地完成对 Sorted Table 的遍历和查找。首先来看 <code>IteratorWrapper</code> 的实现  <a href="https://github.com/google/leveldb/blob/master/table/iterator_wrapper.h"><code>table/iterator_wrapper</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// A internal wrapper class with an interface similar to Iterator that</span>
 <span class="token comment">// caches the valid() and key() results for an underlying iterator.</span>
@@ -819,7 +819,7 @@ Iterator<span class="token operator">*</span> <span class="token function">NewTw
   current_ <span class="token operator">=</span> largest<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<h3 id="6.-table"><a href="#6.-table">6. Table</a></h3>
+<h3 id="6.-table" tabindex="-1"><a href="#6.-table">6. Table</a></h3>
 <p>最后来看 Sorted Table 的实现 <a href="https://github.com/google/leveldb/blob/master/table/table.cc"><code>table/table.cc</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">Table</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Rep</span></span> <span class="token punctuation">{</span>
   <span class="token operator">~</span><span class="token function">Rep</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -1015,7 +1015,7 @@ Iterator<span class="token operator">*</span> <span class="token class-name">Tab
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>Table::NewIterator</code> 中会构造一个二级迭代器，第一级自然是 <code>index_block</code> 的迭代器，并且提供了第二级迭代器的创建函数 <code>Table::BlockReader</code>。该函数的第一个参数实际上为 <code>Table</code> 对象的指针，第三个参数是 <code>index_block</code> 键值对中的 <code>Value</code>，也就是对应的 Data Block Handle。如果不考虑缓存部分，代码还是很容易理解的：首先解析对应的 <code>BlockHandle</code>，据此读取 <code>block</code>，创建迭代器并且注册迭代器清理函数 <code>DeleteBlock</code>，当删除迭代器时删除对应的 <code>block</code>。当考虑缓存时，可以回忆下<a href="/leveldb/leveldb_01_data_structure.html">系列第一篇</a>介绍的 <code>LRUCache</code> 再来看代码：使用 <code>cache_id</code> 和 <code>handle.offset</code> 构建一个缓存的 <code>Key</code>，将 <code>block</code> 作为缓存的 <code>Value</code>，后者的清理函数为 <code>DeleteCachedBlock</code>；当前使用 <code>block</code> 创建迭代器增加了 <code>block</code> 的引用计数，当迭代器析构时需要调用 <code>ReleaseBlock</code> 以减少缓存的 <code>block</code> 的引用计数。这样就非常合理且高效了。</p>
-<h3 id="7.-table-cache"><a href="#7.-table-cache">7. Table Cache</a></h3>
+<h3 id="7.-table-cache" tabindex="-1"><a href="#7.-table-cache">7. Table Cache</a></h3>
 <p>LevelDB 中会使用 <code>file_number</code> 给 Sorted Table 编号。为了提高读取性能、简化使用，LevelDB 提供了 <code>TableCache</code> 用以缓存 Sorted Table 及对应的 <code>.ldb</code> 文件，定义于 <a href="https://github.com/google/leveldb/blob/master/db/table_cache.h"><code>db/table_cache.h</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">TableCache</span> <span class="token punctuation">{</span>
  <span class="token keyword">public</span><span class="token operator">:</span>
@@ -1158,7 +1158,7 @@ Status <span class="token class-name">TableCache</span><span class="token operat
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>TableCache::FindTable</code> 中会根据 <code>file_number</code> 构建缓存的 Key，首先尝试在缓存中查找，如果找不到则手动的打开文件、构造 Table。对应迭代器的实现也很简单，只需要设定好对应的清理函数 <code>DeleteEntry</code> 和 <code>UnrefEntry</code>，就可以放心使用了。每多加一层封装，就多屏蔽一分底层实现的细节，对使用者来说就更易用。</p>
-<h3 id="总结"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
+<h3 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
 <p>前后两篇完成了对 Sorted Table 代码的阅读和分析。当数据位于内存时，查找过程中随机访问的时间微乎其微；但当数据保存到硬盘后，将 Sorted Table 载入内存的 IO 时间就非常可观了。Sorted Table 使用多级迭代器来缓和这个问题，首先完整地读取了 Index Block 到内存中；进行查找时首先在 Index Block 上二分，确定 Data Block 的位置后再进行必要的 IO 读取，并且通过缓存 Data Block 的方式提升读取的性能。</p>
 <p>仔细看 LevelDB 的代码，总觉得它在合适的地方完成了合适的事情，合理且高效。向 Google 大佬低头！</p>
 

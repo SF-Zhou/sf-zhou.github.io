@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>本系列的<a href="/leveldb/leveldb_03_write_batch_and_log.html">上一篇</a>介绍了 LevelDB 写操作中构造的 <code>WriteBatch</code>，以及写操作的第一步：追加日志。本篇将继续介绍写操作的第二步：插入内存数据库。</p>
-<h3 id="3.-内存数据库-memtable"><a href="#3.-%E5%86%85%E5%AD%98%E6%95%B0%E6%8D%AE%E5%BA%93-memtable">3. 内存数据库 MemTable</a></h3>
+<h3 id="3.-内存数据库-memtable" tabindex="-1"><a href="#3.-%E5%86%85%E5%AD%98%E6%95%B0%E6%8D%AE%E5%BA%93-memtable">3. 内存数据库 MemTable</a></h3>
 <p>MemTable 即为在内存中建立的 KV 数据库，基于跳表，定义于 <a href="https://github.com/google/leveldb/blob/master/db/memtable.h"><code>db/memtable.h</code></a>：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
 
@@ -416,7 +416,7 @@
 Iterator<span class="token operator">*</span> <span class="token class-name">MemTable</span><span class="token operator">::</span><span class="token function">NewIterator</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token keyword">new</span> <span class="token function">MemTableIterator</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>table_<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
 </code></pre>
 <p><code>MemTableIterator</code> 对跳表的迭代器进行了一层封装，跳表的条目中编码了 <code>Key</code> 和 <code>Value</code>，<code>MemTableIterator</code> 中对其进行了对应的解析。至此，内存数据库的代码就分析完了。</p>
-<h3 id="总结"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
+<h3 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
 <p>上一篇和本篇分析了 LevelDB 写操作的具体过程，分析了 <code>WriteBatch</code>、<code>Log</code> 和 <code>MemTable</code> 的代码，理解了高性能写操作的原理。不过内存数据库的大小毕竟是有限的，总会需要把内存中的数据持久化到硬盘中，并且还需要提供高速的硬盘数据查询操作，这些又是怎样实现的呢？且听下回分解！</p>
 
       </div>

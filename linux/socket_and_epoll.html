@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>最近在进行 Linux 系统下 Socket 与 RPC 相关的工作，故系统化学习一下 Socket 方面的知识。主要参考文献为 《<a href="http://man7.org/tlpi/">The Linux Programming Interface</a>》，中文版为《<a href="https://www.epubit.com/bookDetails?id=N6862">Linux/UNIX 系统编程手册</a>》，可以在线购买电子版。本文重点介绍 <em>Internet domain stream socket</em>，也就是 <em>TCP socket</em>。</p>
-<h3 id="1.-tcp-socket-通信"><a href="#1.-tcp-socket-%E9%80%9A%E4%BF%A1">1. TCP Socket 通信</a></h3>
+<h3 id="1.-tcp-socket-通信" tabindex="-1"><a href="#1.-tcp-socket-%E9%80%9A%E4%BF%A1">1. TCP Socket 通信</a></h3>
 <p>TCP Socket 通信时的系统调用流程如下图所示。首先 Server 和 Client 均通过 <code>socket</code> 创建 Socket 并获得对应的文件描述符 <code>sockfd</code>；而后 Server 侧需绑定 <code>bind</code> 一个众所周知的地址，并使用 <code>listen</code> 将 <code>sockfd</code> 标记为 <em>Passive</em> 状态，最后通过 <code>accept</code> 接受 Client 的 <code>connect</code> 连接请求。Server 侧 <code>accept</code> 成功后会返回一个新的文件描述符 <code>fd</code>，对该文件描述符进行读写可以完成 Server 和 Client 的通信。</p>
 <figure tabindex="1"><a href="../images/57146ab1ee3c1cdedc5ea738f4ebfea7.svg"><img src="../images/57146ab1ee3c1cdedc5ea738f4ebfea7.svg" alt=""></a><figcaption>TCP Socket 通信系统调用 from &quot;The Linux Programming Interface&quot;</figcaption></figure>
 <p>Unix 下一切皆文件（Everything is a file），对 Socket 文件描述符 <code>fd</code> 的操作与一般文件操作无异，常用系统调用 <code>read</code> / <code>write</code> / <code>close</code> / <code>fcntl</code> 均正常使用。Socket 相关的函数声明于 <code>sys/socket.h</code> 中，有详细的注释，这里摘录部分：</p>
@@ -168,7 +168,7 @@ SERVER: Send [Hello Socket]
 CLIENT: Recv [Hello Socket]
 */</span>
 </code></pre>
-<h3 id="2.-阻塞与-io-多路复用"><a href="#2.-%E9%98%BB%E5%A1%9E%E4%B8%8E-io-%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8">2. 阻塞与 IO 多路复用</a></h3>
+<h3 id="2.-阻塞与-io-多路复用" tabindex="-1"><a href="#2.-%E9%98%BB%E5%A1%9E%E4%B8%8E-io-%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8">2. 阻塞与 IO 多路复用</a></h3>
 <p>一切皆文件，实际上是一切皆字节流，本质上是可以进行 IO 操作的内核对象。既然是流，就会有读到空或者写到满的状态，即 <code>read buffer</code> 为空或 <code>write buffer</code> 已满。</p>
 <figure tabindex="2"><a href="../images/75c22dd97ad9905403a1f494d68ea392.svg"><img src="../images/75c22dd97ad9905403a1f494d68ea392.svg" alt=""></a><figcaption>TCP Socket 通信缓存模型</figcaption></figure>
 <p>这时有两种等待方式可以选择：</p>
@@ -222,7 +222,7 @@ CLIENT: Recv [Hello Socket]
 <li>水平触发 <code>Level Triggered</code>，学委让完成作业并且还没有被批改的同学举手，老师要名单时学委自己把举手的同学名字记下来，这是相对勤奋的学委；</li>
 <li>边缘触发 <code>Edge Triggered</code>，学委让同学做完作业时，自己把名字写到名单上，老师拿名单时就直接把名单丢给老师。这样自己闲一点，但是如果老师拿了名单后忘了批改，这些同学的作业就没有机会被批改了。</li>
 </ol>
-<h3 id="3.-reactor-模式与协程"><a href="#3.-reactor-%E6%A8%A1%E5%BC%8F%E4%B8%8E%E5%8D%8F%E7%A8%8B">3. Reactor 模式与协程</a></h3>
+<h3 id="3.-reactor-模式与协程" tabindex="-1"><a href="#3.-reactor-%E6%A8%A1%E5%BC%8F%E4%B8%8E%E5%8D%8F%E7%A8%8B">3. Reactor 模式与协程</a></h3>
 <p>使用基于 <code>Epoll</code> 的 Reactor 模式，可以在单线程下“并发”地处理多个流。举个栗子🌰：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;arpa/inet.h></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;ctype.h></span></span>
@@ -406,7 +406,7 @@ std<span class="token operator">::</span>atomic<span class="token operator">&lt;
 <span class="token punctuation">}</span>
 </code></pre>
 <p>Reactor 模式的核心思想是当事件发生时（流可用），来通知对象处理该事件（IO 操作），其他时间则可以休息。这与协程的风格是近似的，不同的是协程写出来的代码和同步的代码风格一致，当流阻塞时自动放弃执行权 <code>Yield</code>，当流可用时再恢复 <code>Resume</code>。实际上很多协程库的核心就是 <code>Epoll</code>，例如微信开源的 <a href="https://github.com/Tencent/libco">libco</a>。这部分待笔者完善后继续补充。</p>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="http://man7.org/tlpi/">&quot;The Linux Programming Interface&quot;, <em>Michael Kerrisk</em></a></li>
 </ol>

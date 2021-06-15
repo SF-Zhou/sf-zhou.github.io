@@ -24,7 +24,7 @@
       </div>
       <div class="markdown">
         <p>最近在重构现有的 <code>PyTorch</code> 训练框架，目标是组件化、低耦合、高复用，提高大家的研究效率。开发过程中思考了一些关于 Config 和 Command Line Argument 的问题，并且顺手开发了几个辅助小工具。本文可以看成是这几个工具的说明文档了。</p>
-<h3 id="1.-config-file"><a href="#1.-config-file">1. Config File</a></h3>
+<h3 id="1.-config-file" tabindex="-1"><a href="#1.-config-file">1. Config File</a></h3>
 <p>训练框架里，Config File 的使用非常广泛。配置文件一般使用 YAML 和 JSON 格式，其中存储了关于实验的一些细节，比如用哪一种模型、多少的学习率以及使用哪种数据集。一般训练开始时直接将配置文件加载进来，读取为 <code>dict</code>，然后根据需要的 <code>key</code> 获得 <code>value</code> 即可，比如 <code>config[&quot;model_type&quot;]</code>。</p>
 <p>然而这种做法存在一些潜在风险：</p>
 <ol>
@@ -74,7 +74,7 @@
         self<span class="token punctuation">.</span>feature_dim<span class="token punctuation">:</span> <span class="token builtin">int</span> <span class="token operator">=</span> values<span class="token punctuation">.</span>get<span class="token punctuation">(</span><span class="token string">"feature_dim"</span><span class="token punctuation">,</span> <span class="token number">1000</span><span class="token punctuation">)</span>
 </code></pre>
 <p>进而在编写代码过程直接访问 Python 对象来获取配置项，并且附带代码提示不至于犯小错误。有兴趣的同学可以详细研究下这个小项目。</p>
-<h3 id="command-line-argument"><a href="#command-line-argument">Command Line Argument</a></h3>
+<h3 id="command-line-argument" tabindex="-1"><a href="#command-line-argument">Command Line Argument</a></h3>
 <p>Python 自带的 <code>argparse</code> 可以读取命令行参数，然而配置参数项和读取参数值时依然不够方便。以 PyTorch 官方的 ImageNet 训练项目为例：</p>
 <pre class="language-python"><code class="language-python">parser <span class="token operator">=</span> argparse<span class="token punctuation">.</span>ArgumentParser<span class="token punctuation">(</span>description<span class="token operator">=</span><span class="token string">'PyTorch ImageNet Training'</span><span class="token punctuation">)</span>
 parser<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">'data'</span><span class="token punctuation">,</span> metavar<span class="token operator">=</span><span class="token string">'DIR'</span><span class="token punctuation">,</span>
@@ -163,7 +163,7 @@ parser<span class="token punctuation">.</span>add_argument<span class="token pun
 <span class="token comment">#>   --scale SCALE    scale of image</span>
 </code></pre>
 <p>与 <code>json-schema-to-class</code> 结合后，可以得到更为 Fancy 的结果，可以打开脑洞想一下。</p>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li>JSON Schema, <a href="https://json-schema.org">https://json-schema.org</a></li>
 </ol>

@@ -26,7 +26,7 @@
         <p>如果你经常是在终端下完成工作，那么必然会经常切换目录，或者查找一些文件。如果频繁地使用 cd 命令，无疑很浪费时间。</p>
 <p>搜索这个问题，找到了一个非常好的开源工具：<a href="https://github.com/clvv/fasd">fasd</a>。</p>
 <p>fasd 通过记录用户经常使用的目录，给每个目录分配一定的权重，频繁访问的目录权重越大。而当你使用 fasd 模糊查找一个目录时，它会查询符合条件的权重最大的目录。</p>
-<h3 id="安装和配置"><a href="#%E5%AE%89%E8%A3%85%E5%92%8C%E9%85%8D%E7%BD%AE">安装和配置</a></h3>
+<h3 id="安装和配置" tabindex="-1"><a href="#%E5%AE%89%E8%A3%85%E5%92%8C%E9%85%8D%E7%BD%AE">安装和配置</a></h3>
 <p>Mac 下可以直接通过 Homebrew 安装：</p>
 <pre class="language-shell"><code class="language-shell">brew <span class="token function">install</span> fasd
 </code></pre>
@@ -44,7 +44,7 @@
 <p>添加完成后，记得重启终端，或者执行：</p>
 <pre class="language-shell"><code class="language-shell"><span class="token builtin class-name">source</span> ~/.bash_profile
 </code></pre>
-<h3 id="使用"><a href="#%E4%BD%BF%E7%94%A8">使用</a></h3>
+<h3 id="使用" tabindex="-1"><a href="#%E4%BD%BF%E7%94%A8">使用</a></h3>
 <p>比如，我的博客代码在 ~/Work/sf-zhou.github.io/ 目录，我们可以这样训练 fasd：</p>
 <pre class="language-shell"><code class="language-shell"><span class="token builtin class-name">cd</span> ~
 <span class="token builtin class-name">cd</span> Work
@@ -70,7 +70,7 @@
 <p>所以，我们可以把 <code>f -e vim</code> 加到 bashrc 文件里……</p>
 <pre class="language-shell"><code class="language-shell"><span class="token builtin class-name">alias</span> <span class="token assign-left variable">v</span><span class="token operator">=</span><span class="token string">'f -e vim'</span> <span class="token comment"># quick opening files with vim</span>
 </code></pre>
-<h3 id="配合-zsh-&amp;-oh-my-zsh"><a href="#%E9%85%8D%E5%90%88-zsh-%26-oh-my-zsh">配合 Zsh &amp; oh-my-zsh</a></h3>
+<h3 id="配合-zsh-&amp;-oh-my-zsh" tabindex="-1"><a href="#%E9%85%8D%E5%90%88-zsh-%26-oh-my-zsh">配合 Zsh &amp; oh-my-zsh</a></h3>
 <p><a href="http://www.zsh.org/">Zsh</a>，这里的 z 表示终极。换句人话，只要你对效率有追求，最后总是会换到 Zsh 的（当然，现在选择更多了，比如 <a href="https://fishshell.com/">fish</a>）。</p>
 <p><a href="http://ohmyz.sh/">oh-my-zsh</a>，简单的一句话，“Your terminal never felt this good before”。</p>
 <p>配合 Zsh 和 oh-my-zsh，fasd 会更好用。</p>
@@ -104,7 +104,7 @@
 <p>继续敲这个命令，可以使用同样的方法。在输入过程中，<code>f,</code> 表示文件，<code>d,</code> 表示目录，Tab 展开，所见即所得。有多个候选的时候还可以按 Tab 选择：</p>
 <figure tabindex="1"><a href="../images/8ff3f9e1b9f42f920aaffc76498c3716.png"><img src="../images/8ff3f9e1b9f42f920aaffc76498c3716.png" alt=""></a></figure>
 <p>熟练使用，行云流水。</p>
-<h3 id="end"><a href="#end">End</a></h3>
+<h3 id="end" tabindex="-1"><a href="#end">End</a></h3>
 <p>总之，熟练使用该工具可以让你节约很多时间，享受美好的人生。</p>
 
       </div>

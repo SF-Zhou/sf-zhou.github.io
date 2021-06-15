@@ -127,7 +127,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>双向链表的各项操作的临界区均较短，适合使用自旋锁。在使用上和普通的互斥锁一致。在实际应用场景中，有时会混合使用自旋锁和互斥锁，在自旋等待一定时间仍没有拿到锁时，将线程挂起，等待的时间可以自适应学习。</p>
-<h3 id="references"><a href="#references">References</a></h3>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.wikipedia.org/wiki/Spinlock">&quot;Spinlock&quot;, <em>Wikipedia</em></a></li>
 <li><a href="https://en.wikipedia.org/wiki/Compare-and-swap">&quot;Compare-and-swap&quot;, <em>Wikipedia</em></a></li>
