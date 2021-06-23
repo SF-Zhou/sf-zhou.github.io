@@ -2,7 +2,7 @@
 
 > A static blog based on GitHub Pages, GitHub Actions and Node.js.
 
-## Generate Steps
+## Build
 
 Node 10 or later is required.
 
