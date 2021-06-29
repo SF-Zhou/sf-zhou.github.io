@@ -30,58 +30,58 @@
 
 <span class="token keyword">struct</span> <span class="token class-name">Awaiter</span> <span class="token punctuation">{</span>
   <span class="token keyword">bool</span> <span class="token function">await_ready</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await ready or not"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await ready or not"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
     <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
   <span class="token keyword">void</span> <span class="token function">await_resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await resumed"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await resumed"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
-  <span class="token keyword">void</span> <span class="token function">await_suspend</span><span class="token punctuation">(</span>std<span class="token operator">::</span>coroutine_handle<span class="token operator">&lt;</span><span class="token operator">></span> h<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await suspended"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">await_suspend</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>coroutine_handle<span class="token operator">&lt;</span><span class="token operator">></span> h<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await suspended"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
 <span class="token keyword">struct</span> <span class="token class-name">Promise</span> <span class="token punctuation">{</span>
   <span class="token keyword">struct</span> <span class="token class-name">promise_type</span> <span class="token punctuation">{</span>
     <span class="token keyword">auto</span> <span class="token function">get_return_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"get return object"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"get return object"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
       <span class="token keyword">return</span> <span class="token function">Promise</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">auto</span> <span class="token function">initial_suspend</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"initial suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
-      <span class="token keyword">return</span> std<span class="token operator">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"initial suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+      <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">auto</span> <span class="token function">final_suspend</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"final suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
-      <span class="token keyword">return</span> std<span class="token operator">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"final suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+      <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">void</span> <span class="token function">unhandled_exception</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"unhandle exception"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
-      std<span class="token operator">::</span><span class="token function">terminate</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"unhandle exception"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span><span class="token function">terminate</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">void</span> <span class="token function">return_void</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"return void"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"return void"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
       <span class="token keyword">return</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
   <span class="token punctuation">}</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
 Promise <span class="token function">CoroutineFunc</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"before co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"before co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token keyword">co_await</span> <span class="token function">Awaiter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"after co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"after co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() start"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() start"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token function">CoroutineFunc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() exit"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() exit"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">/*
@@ -147,7 +147,7 @@ R <span class="token function">Func</span><span class="token punctuation">(</spa
 <span class="token comment">// 编译器展开</span>
 <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">R</span><span class="token punctuation">,</span> <span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
 R <span class="token function">Func</span><span class="token punctuation">(</span>Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> args<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  <span class="token keyword">using</span> promise_t <span class="token operator">=</span> <span class="token keyword">typename</span> <span class="token class-name">coroutine_traits</span><span class="token operator">&lt;</span>R<span class="token punctuation">,</span> Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token operator">></span><span class="token operator">::</span>promise_type<span class="token punctuation">;</span>
+  <span class="token keyword">using</span> promise_t <span class="token operator">=</span> <span class="token keyword">typename</span> <span class="token class-name">coroutine_traits</span><span class="token operator">&lt;</span>R<span class="token punctuation">,</span> Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token operator">></span><span class="token double-colon punctuation">::</span>promise_type<span class="token punctuation">;</span>
 
   promise_t promise<span class="token punctuation">;</span>  <span class="token comment">// 实际上分配在堆上而非栈上，这里为了方便说明简化了</span>
   <span class="token keyword">auto</span> __return__ <span class="token operator">=</span> promise<span class="token punctuation">.</span><span class="token function">get_return_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -157,20 +157,20 @@ R <span class="token function">Func</span><span class="token punctuation">(</spa
   <span class="token keyword">try</span> <span class="token punctuation">{</span>
     <span class="token comment">// auto ret = co_await Awaiter();</span>
     <span class="token keyword">auto</span> <span class="token operator">&amp;&amp;</span>value <span class="token operator">=</span> <span class="token function">Awaiter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token keyword">auto</span> <span class="token operator">&amp;&amp;</span>awaitable <span class="token operator">=</span> <span class="token function">get_awaitable</span><span class="token punctuation">(</span>promise<span class="token punctuation">,</span> <span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">decltype</span><span class="token punctuation">(</span>value<span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">(</span>value<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token keyword">auto</span> <span class="token operator">&amp;&amp;</span>awaiter <span class="token operator">=</span> <span class="token function">get_awaiter</span><span class="token punctuation">(</span><span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">decltype</span><span class="token punctuation">(</span>awaitable<span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">(</span>awaitable<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> <span class="token operator">&amp;&amp;</span>awaitable <span class="token operator">=</span> <span class="token function">get_awaitable</span><span class="token punctuation">(</span>promise<span class="token punctuation">,</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">decltype</span><span class="token punctuation">(</span>value<span class="token punctuation">)</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>value<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> <span class="token operator">&amp;&amp;</span>awaiter <span class="token operator">=</span> <span class="token function">get_awaiter</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">decltype</span><span class="token punctuation">(</span>awaitable<span class="token punctuation">)</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>awaitable<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>awaiter<span class="token punctuation">.</span><span class="token function">await_ready</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      <span class="token keyword">using</span> handle_t <span class="token operator">=</span> std<span class="token operator">::</span>coroutine_handle<span class="token operator">&lt;</span>Promise<span class="token operator">></span><span class="token punctuation">;</span>
+      <span class="token keyword">using</span> handle_t <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>coroutine_handle<span class="token operator">&lt;</span>Promise<span class="token operator">></span><span class="token punctuation">;</span>
       <span class="token keyword">using</span> await_suspend_result_t <span class="token operator">=</span>
-          <span class="token keyword">decltype</span><span class="token punctuation">(</span>awaiter<span class="token punctuation">.</span><span class="token function">await_suspend</span><span class="token punctuation">(</span>handle_t<span class="token operator">::</span><span class="token function">from_promise</span><span class="token punctuation">(</span>promise<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">decltype</span><span class="token punctuation">(</span>awaiter<span class="token punctuation">.</span><span class="token function">await_suspend</span><span class="token punctuation">(</span>handle_t<span class="token double-colon punctuation">::</span><span class="token function">from_promise</span><span class="token punctuation">(</span>promise<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token comment">// 协程挂起</span>
-      <span class="token keyword">if</span> <span class="token keyword">constexpr</span> <span class="token punctuation">(</span>std<span class="token operator">::</span>is_void_v<span class="token operator">&lt;</span>await_suspend_result_t<span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-        awaiter<span class="token punctuation">.</span><span class="token function">await_suspend</span><span class="token punctuation">(</span>handle_t<span class="token operator">::</span><span class="token function">from_promise</span><span class="token punctuation">(</span>promise<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token keyword">constexpr</span> <span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>is_void_v<span class="token operator">&lt;</span>await_suspend_result_t<span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        awaiter<span class="token punctuation">.</span><span class="token function">await_suspend</span><span class="token punctuation">(</span>handle_t<span class="token double-colon punctuation">::</span><span class="token function">from_promise</span><span class="token punctuation">(</span>promise<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
         <span class="token keyword">return</span> __return__<span class="token punctuation">;</span>  <span class="token comment">// 返还控制权给调用者/恢复者</span>
       <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
-        <span class="token keyword">static_assert</span><span class="token punctuation">(</span>std<span class="token operator">::</span>is_same_v<span class="token operator">&lt;</span>await_suspend_result_t<span class="token punctuation">,</span> <span class="token keyword">bool</span><span class="token operator">></span><span class="token punctuation">,</span>
+        <span class="token keyword">static_assert</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>is_same_v<span class="token operator">&lt;</span>await_suspend_result_t<span class="token punctuation">,</span> <span class="token keyword">bool</span><span class="token operator">></span><span class="token punctuation">,</span>
                       <span class="token string">"await_suspend() must return 'void' or 'bool'."</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-        <span class="token keyword">if</span> <span class="token punctuation">(</span>awaiter<span class="token punctuation">.</span><span class="token function">await_suspend</span><span class="token punctuation">(</span>handle_t<span class="token operator">::</span><span class="token function">from_promise</span><span class="token punctuation">(</span>promise<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>awaiter<span class="token punctuation">.</span><span class="token function">await_suspend</span><span class="token punctuation">(</span>handle_t<span class="token double-colon punctuation">::</span><span class="token function">from_promise</span><span class="token punctuation">(</span>promise<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
           <span class="token keyword">return</span> __return__<span class="token punctuation">;</span>  <span class="token comment">// 返还控制权给调用者/恢复者</span>
         <span class="token punctuation">}</span>
       <span class="token punctuation">}</span>
@@ -185,7 +185,7 @@ R <span class="token function">Func</span><span class="token punctuation">(</spa
     promise<span class="token punctuation">.</span><span class="token function">return_void</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token keyword">goto</span> final_suspend<span class="token punctuation">;</span>
   <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    promise<span class="token punctuation">.</span><span class="token function">set_exception</span><span class="token punctuation">(</span>std<span class="token operator">::</span><span class="token function">current_exception</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    promise<span class="token punctuation">.</span><span class="token function">set_exception</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">current_exception</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
 final_suspend<span class="token operator">:</span>
@@ -197,20 +197,20 @@ final_suspend<span class="token operator">:</span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
 
-std<span class="token operator">::</span>coroutine_handle<span class="token operator">&lt;</span><span class="token operator">></span> handle<span class="token punctuation">;</span>
+std<span class="token double-colon punctuation">::</span>coroutine_handle<span class="token operator">&lt;</span><span class="token operator">></span> handle<span class="token punctuation">;</span>
 
 <span class="token keyword">struct</span> <span class="token class-name">Awaiter</span> <span class="token punctuation">{</span>
   <span class="token keyword">bool</span> <span class="token function">await_ready</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await ready or not"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await ready or not"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
     <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
   <span class="token keyword">void</span> <span class="token function">await_resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await resumed"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await resumed"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
-  <span class="token keyword">void</span> <span class="token function">await_suspend</span><span class="token punctuation">(</span>std<span class="token operator">::</span>coroutine_handle<span class="token operator">&lt;</span><span class="token operator">></span> h<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await suspended"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">await_suspend</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>coroutine_handle<span class="token operator">&lt;</span><span class="token operator">></span> h<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await suspended"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
     handle <span class="token operator">=</span> h<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
@@ -218,47 +218,47 @@ std<span class="token operator">::</span>coroutine_handle<span class="token oper
 <span class="token keyword">struct</span> <span class="token class-name">Promise</span> <span class="token punctuation">{</span>
   <span class="token keyword">struct</span> <span class="token class-name">promise_type</span> <span class="token punctuation">{</span>
     <span class="token keyword">auto</span> <span class="token function">get_return_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"get return object"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"get return object"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
       <span class="token keyword">return</span> <span class="token function">Promise</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">auto</span> <span class="token function">initial_suspend</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"initial suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
-      <span class="token keyword">return</span> std<span class="token operator">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"initial suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+      <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">auto</span> <span class="token function">final_suspend</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"final suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
-      <span class="token keyword">return</span> std<span class="token operator">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"final suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+      <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">void</span> <span class="token function">unhandled_exception</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"unhandle exception"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
-      std<span class="token operator">::</span><span class="token function">terminate</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"unhandle exception"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span><span class="token function">terminate</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">void</span> <span class="token function">return_void</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"return void"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"return void"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
       <span class="token keyword">return</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
   <span class="token punctuation">}</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
 Promise <span class="token function">CoroutineFunc</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"before co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"before co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token keyword">co_await</span> <span class="token function">Awaiter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"after co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"after co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() start"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() start"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token function">CoroutineFunc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
-  std<span class="token operator">::</span>this_thread<span class="token operator">::</span><span class="token function">sleep_for</span><span class="token punctuation">(</span>std<span class="token operator">::</span>chrono<span class="token operator">::</span><span class="token function">seconds</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"resume coroutine after one second"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">sleep_for</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>chrono<span class="token double-colon punctuation">::</span><span class="token function">seconds</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"resume coroutine after one second"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   handle<span class="token punctuation">.</span><span class="token function">resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() exit"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() exit"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">/*
@@ -282,32 +282,32 @@ main() exit
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
 
-std<span class="token operator">::</span>jthread thread<span class="token punctuation">;</span>
+std<span class="token double-colon punctuation">::</span>jthread thread<span class="token punctuation">;</span>
 
 <span class="token keyword">struct</span> <span class="token class-name">Awaiter</span> <span class="token punctuation">{</span>
   <span class="token function">Awaiter</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Awaiter()"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Awaiter()"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
   <span class="token operator">~</span><span class="token function">Awaiter</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"~Awaiter()"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"~Awaiter()"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
   <span class="token keyword">bool</span> <span class="token function">await_ready</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await ready or not"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await ready or not"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
     <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
   <span class="token keyword">void</span> <span class="token function">await_resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await resumed"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await resumed"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
-  <span class="token keyword">void</span> <span class="token function">await_suspend</span><span class="token punctuation">(</span>std<span class="token operator">::</span>coroutine_handle<span class="token operator">&lt;</span><span class="token operator">></span> h<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await suspended"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">await_suspend</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>coroutine_handle<span class="token operator">&lt;</span><span class="token operator">></span> h<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"await suspended"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
 
-    thread <span class="token operator">=</span> std<span class="token operator">::</span><span class="token function">jthread</span><span class="token punctuation">(</span><span class="token punctuation">[</span>h<span class="token punctuation">]</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>this_thread<span class="token operator">::</span><span class="token function">sleep_for</span><span class="token punctuation">(</span>std<span class="token operator">::</span>chrono<span class="token operator">::</span><span class="token function">seconds</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"resume coroutine in another thread"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+    thread <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token function">jthread</span><span class="token punctuation">(</span><span class="token punctuation">[</span>h<span class="token punctuation">]</span> <span class="token punctuation">{</span>
+      std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">sleep_for</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>chrono<span class="token double-colon punctuation">::</span><span class="token function">seconds</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"resume coroutine in another thread"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
       h<span class="token punctuation">.</span><span class="token function">resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
@@ -316,42 +316,42 @@ std<span class="token operator">::</span>jthread thread<span class="token punctu
 <span class="token keyword">struct</span> <span class="token class-name">Promise</span> <span class="token punctuation">{</span>
   <span class="token keyword">struct</span> <span class="token class-name">promise_type</span> <span class="token punctuation">{</span>
     <span class="token keyword">auto</span> <span class="token function">get_return_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"get return object"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"get return object"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
       <span class="token keyword">return</span> <span class="token function">Promise</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">auto</span> <span class="token function">initial_suspend</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"initial suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
-      <span class="token keyword">return</span> std<span class="token operator">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"initial suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+      <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">auto</span> <span class="token function">final_suspend</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"final suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
-      <span class="token keyword">return</span> std<span class="token operator">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"final suspend, return never"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+      <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span>suspend_never<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">void</span> <span class="token function">unhandled_exception</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"unhandle exception"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
-      std<span class="token operator">::</span><span class="token function">terminate</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"unhandle exception"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span><span class="token function">terminate</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
     <span class="token keyword">void</span> <span class="token function">return_void</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"return void"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"return void"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
       <span class="token keyword">return</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
   <span class="token punctuation">}</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
 Promise <span class="token function">CoroutineFunc</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"before co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"before co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token keyword">co_await</span> <span class="token function">Awaiter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"after co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"after co_await"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() start"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() start"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
   <span class="token function">CoroutineFunc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-  std<span class="token operator">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() exit"</span> <span class="token operator">&lt;&lt;</span> std<span class="token operator">::</span>endl<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"main() exit"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">/*

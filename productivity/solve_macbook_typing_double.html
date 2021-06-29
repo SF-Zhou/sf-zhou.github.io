@@ -71,13 +71,13 @@
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;unordered_map></span></span>
 <span class="token keyword">using</span> <span class="token keyword">namespace</span> std<span class="token punctuation">;</span>
 
-<span class="token keyword">typedef</span> chrono<span class="token operator">::</span>time_point<span class="token operator">&lt;</span>std<span class="token operator">::</span>chrono<span class="token operator">::</span>high_resolution_clock<span class="token operator">></span> Time<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> chrono<span class="token double-colon punctuation">::</span>time_point<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>chrono<span class="token double-colon punctuation">::</span>high_resolution_clock<span class="token operator">></span> Time<span class="token punctuation">;</span>
 <span class="token keyword">typedef</span> <span class="token keyword">long</span> <span class="token keyword">long</span> ll<span class="token punctuation">;</span>
 
 unordered_map<span class="token operator">&lt;</span>CGKeyCode<span class="token punctuation">,</span> Time<span class="token operator">></span> last_time<span class="token punctuation">;</span>
 
 Time <span class="token function">time_now</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  <span class="token keyword">return</span> chrono<span class="token operator">::</span>high_resolution_clock<span class="token operator">::</span><span class="token function">now</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> chrono<span class="token double-colon punctuation">::</span>high_resolution_clock<span class="token double-colon punctuation">::</span><span class="token function">now</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">// This callback will be invoked every time there is a keystroke.</span>
@@ -96,7 +96,7 @@ CGEventRef <span class="token function">myCGEventCallback</span><span class="tok
       last_time<span class="token punctuation">[</span>keycode<span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token function">time_now</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
       <span class="token keyword">if</span> <span class="token punctuation">(</span>last_time<span class="token punctuation">.</span><span class="token function">count</span><span class="token punctuation">(</span>keycode<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-        ll microseconds <span class="token operator">=</span> chrono<span class="token operator">::</span>duration_cast<span class="token operator">&lt;</span>chrono<span class="token operator">::</span>microseconds<span class="token operator">></span><span class="token punctuation">(</span>
+        ll microseconds <span class="token operator">=</span> chrono<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">duration_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>chrono<span class="token double-colon punctuation">::</span>microseconds<span class="token operator">></span></span></span><span class="token punctuation">(</span>
           <span class="token function">time_now</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> last_time<span class="token punctuation">[</span>keycode<span class="token punctuation">]</span>
         <span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">count</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 

@@ -35,13 +35,13 @@
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  <span class="token keyword">int</span> A<span class="token operator">::</span><span class="token operator">*</span>a <span class="token operator">=</span> <span class="token operator">&amp;</span>A<span class="token operator">::</span>x<span class="token punctuation">;</span>  <span class="token comment">// a 的类型为 `int A::*`</span>
-  <span class="token keyword">int</span> A<span class="token operator">::</span><span class="token operator">*</span>b <span class="token operator">=</span> <span class="token operator">&amp;</span>A<span class="token operator">::</span>y<span class="token punctuation">;</span>
-  <span class="token keyword">double</span> A<span class="token operator">::</span><span class="token operator">*</span>c <span class="token operator">=</span> <span class="token operator">&amp;</span>A<span class="token operator">::</span>z<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> A<span class="token double-colon punctuation">::</span><span class="token operator">*</span>a <span class="token operator">=</span> <span class="token operator">&amp;</span>A<span class="token double-colon punctuation">::</span>x<span class="token punctuation">;</span>  <span class="token comment">// a 的类型为 `int A::*`</span>
+  <span class="token keyword">int</span> A<span class="token double-colon punctuation">::</span><span class="token operator">*</span>b <span class="token operator">=</span> <span class="token operator">&amp;</span>A<span class="token double-colon punctuation">::</span>y<span class="token punctuation">;</span>
+  <span class="token keyword">double</span> A<span class="token double-colon punctuation">::</span><span class="token operator">*</span>c <span class="token operator">=</span> <span class="token operator">&amp;</span>A<span class="token double-colon punctuation">::</span>z<span class="token punctuation">;</span>
 
   A o<span class="token punctuation">;</span>
   o<span class="token punctuation">.</span><span class="token operator">*</span>a <span class="token operator">=</span> <span class="token number">10</span><span class="token punctuation">;</span>  <span class="token comment">// 可以使用 obj.* 运算符访问</span>
-  o<span class="token punctuation">.</span><span class="token operator">*</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>A<span class="token operator">::</span>y<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">20</span><span class="token punctuation">;</span>
+  o<span class="token punctuation">.</span><span class="token operator">*</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>A<span class="token double-colon punctuation">::</span>y<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">20</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>o<span class="token punctuation">.</span>x <span class="token operator">==</span> <span class="token number">10</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>o<span class="token punctuation">.</span>y <span class="token operator">==</span> <span class="token number">20</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
@@ -71,7 +71,7 @@
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   A o<span class="token punctuation">;</span>
 
-  <span class="token keyword">int</span> A<span class="token operator">::</span><span class="token operator">*</span>a<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> A<span class="token double-colon punctuation">::</span><span class="token operator">*</span>a<span class="token punctuation">;</span>
   <span class="token operator">*</span><span class="token punctuation">(</span>uintptr_t <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>a<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
   o<span class="token punctuation">.</span><span class="token operator">*</span>a <span class="token operator">=</span> <span class="token number">10</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>o<span class="token punctuation">.</span><span class="token function">X</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">10</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -99,12 +99,12 @@
   <span class="token keyword">int</span> x_<span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-<span class="token keyword">int</span> A<span class="token operator">::</span><span class="token operator">*</span><span class="token function">FiledPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">int</span> A<span class="token operator">::</span><span class="token operator">*</span>M<span class="token operator">></span>
+<span class="token keyword">int</span> A<span class="token double-colon punctuation">::</span><span class="token operator">*</span><span class="token function">FiledPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">int</span> A<span class="token double-colon punctuation">::</span><span class="token operator">*</span>M<span class="token operator">></span>
 <span class="token keyword">struct</span> <span class="token class-name">Rob</span> <span class="token punctuation">{</span>
-  <span class="token keyword">friend</span> <span class="token keyword">int</span> A<span class="token operator">::</span><span class="token operator">*</span><span class="token function">FiledPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> M<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">friend</span> <span class="token keyword">int</span> A<span class="token double-colon punctuation">::</span><span class="token operator">*</span><span class="token function">FiledPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> M<span class="token punctuation">;</span> <span class="token punctuation">}</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
-<span class="token keyword">template</span> <span class="token keyword">struct</span> <span class="token class-name">Rob</span><span class="token operator">&lt;</span><span class="token operator">&amp;</span>A<span class="token operator">::</span>x_<span class="token operator">></span><span class="token punctuation">;</span>
+<span class="token keyword">template</span> <span class="token keyword">struct</span> <span class="token class-name">Rob</span><span class="token operator">&lt;</span><span class="token operator">&amp;</span>A<span class="token double-colon punctuation">::</span>x_<span class="token operator">></span><span class="token punctuation">;</span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   A o<span class="token punctuation">;</span>
@@ -121,7 +121,7 @@
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">undef</span> <span class="token expression"><span class="token keyword">private</span></span></span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  std<span class="token operator">::</span>shared_ptr<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> a<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> a<span class="token punctuation">;</span>
   a<span class="token punctuation">.</span>_M_refcount<span class="token punctuation">;</span>  <span class="token comment">// gcc, access private member</span>
 <span class="token punctuation">}</span>
 </code></pre>
@@ -137,7 +137,7 @@
 
 <span class="token keyword">void</span> <span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   A a<span class="token punctuation">;</span>
-  <span class="token keyword">auto</span> <span class="token operator">&amp;</span>i <span class="token operator">=</span> access_private<span class="token operator">::</span><span class="token function">m_i</span><span class="token punctuation">(</span>a<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">auto</span> <span class="token operator">&amp;</span>i <span class="token operator">=</span> access_private<span class="token double-colon punctuation">::</span><span class="token function">m_i</span><span class="token punctuation">(</span>a<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">assert</span><span class="token punctuation">(</span>i <span class="token operator">==</span> <span class="token number">3</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>

@@ -323,14 +323,14 @@
 </code></pre>
 <p>具体的函数实现位于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/network/EpollIO.cpp"><code>network/EpollIO.cpp</code></a>，摘录部分：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 在 epoll 中添加 FD 对象，并根据 fd 存储 FD 对象及其 ID</span>
-<span class="token keyword">int</span> clsEpollIO<span class="token operator">::</span><span class="token function">Add</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsEpollIO<span class="token double-colon punctuation">::</span><span class="token function">Add</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iFD <span class="token operator">=</span> poFD<span class="token operator">-></span><span class="token function">GetFD</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">AssertLess</span><span class="token punctuation">(</span>iFD<span class="token punctuation">,</span> CERTAIN_MAX_FD_NUM<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">CertainLogDebug</span><span class="token punctuation">(</span><span class="token string">"fd %d"</span><span class="token punctuation">,</span> iFD<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   epoll_event ev <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
   ev<span class="token punctuation">.</span>events <span class="token operator">=</span> poFD<span class="token operator">-></span><span class="token function">GetEvents</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-  ev<span class="token punctuation">.</span>data<span class="token punctuation">.</span>ptr <span class="token operator">=</span> <span class="token keyword">static_cast</span><span class="token operator">&lt;</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>poFD<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  ev<span class="token punctuation">.</span>data<span class="token punctuation">.</span>ptr <span class="token operator">=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poFD<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">int</span> iRet <span class="token operator">=</span> <span class="token function">epoll_ctl</span><span class="token punctuation">(</span>m_iEpollFD<span class="token punctuation">,</span> EPOLL_CTL_ADD<span class="token punctuation">,</span> iFD<span class="token punctuation">,</span> <span class="token operator">&amp;</span>ev<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">==</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -348,7 +348,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 执行一次检查，根据事件执行 FD 对象的 HandleRead / HandleWrite</span>
-<span class="token keyword">void</span> clsEpollIO<span class="token operator">::</span><span class="token function">RunOnce</span><span class="token punctuation">(</span><span class="token keyword">int</span> iTimeoutMS<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> clsEpollIO<span class="token double-colon punctuation">::</span><span class="token function">RunOnce</span><span class="token punctuation">(</span><span class="token keyword">int</span> iTimeoutMS<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iNum<span class="token punctuation">,</span> iRet<span class="token punctuation">;</span>
 
   <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -369,7 +369,7 @@
 
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> iNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">int</span> iEvents <span class="token operator">=</span> m_ptEpollEv<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>events<span class="token punctuation">;</span>
-    clsFDBase <span class="token operator">*</span>poFD <span class="token operator">=</span> <span class="token keyword">static_cast</span><span class="token operator">&lt;</span>clsFDBase <span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>m_ptEpollEv<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>data<span class="token punctuation">.</span>ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    clsFDBase <span class="token operator">*</span>poFD <span class="token operator">=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsFDBase <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>m_ptEpollEv<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>data<span class="token punctuation">.</span>ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
     clsIOHandlerBase <span class="token operator">*</span>poHandler <span class="token operator">=</span> poFD<span class="token operator">-></span><span class="token function">GetIOHandler</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token function">Assert</span><span class="token punctuation">(</span>poHandler <span class="token operator">!=</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
@@ -392,7 +392,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 根据 fd 获取 FD 对象，加入 ID 校验</span>
-clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token operator">::</span><span class="token function">GetFDBase</span><span class="token punctuation">(</span><span class="token keyword">int</span> iFD<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iFDID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token double-colon punctuation">::</span><span class="token function">GetFDBase</span><span class="token punctuation">(</span><span class="token keyword">int</span> iFD<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iFDID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>m_atUniqueFDPtrMap<span class="token punctuation">[</span>iFD<span class="token punctuation">]</span><span class="token punctuation">.</span>iFDID <span class="token operator">==</span> iFDID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">return</span> m_atUniqueFDPtrMap<span class="token punctuation">[</span>iFD<span class="token punctuation">]</span><span class="token punctuation">.</span>poFD<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
@@ -539,15 +539,15 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
 <p><code>clsIOChannel</code> 则继承了 <code>clsFDBase</code> 类，并封装了 Socket 连接。类的声明中有一大部分是用来定义写入缓存 <code>CBuffer_t</code>，简单来说就是 Flush 剩下的部分存为 <code>[iStart1, iEnd1)</code>，新缓存存到 <code>[iStart0, iEnd0)</code>，故每次执行 Flush 时，都需要先写 <code>[iStart1, iEnd1)</code>。来看函数的实现：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> clsIOChannel<span class="token operator">::</span><span class="token function">Read</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> clsIOChannel<span class="token double-colon punctuation">::</span><span class="token function">Read</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
-  <span class="token keyword">int</span> iFD <span class="token operator">=</span> clsFDBase<span class="token operator">::</span><span class="token function">GetFD</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">int</span> iFD <span class="token operator">=</span> clsFDBase<span class="token double-colon punctuation">::</span><span class="token function">GetFD</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span>m_bBroken<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
-  <span class="token function">Assert</span><span class="token punctuation">(</span>clsFDBase<span class="token operator">::</span><span class="token function">IsReadable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">Assert</span><span class="token punctuation">(</span>clsFDBase<span class="token double-colon punctuation">::</span><span class="token function">IsReadable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">uint32_t</span> iCurr <span class="token operator">=</span> m_strReadBytes<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">AssertLess</span><span class="token punctuation">(</span>iCurr<span class="token punctuation">,</span> iSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -576,7 +576,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
       <span class="token punctuation">}</span>
       <span class="token comment">// 暂时不可用</span>
       <span class="token keyword">if</span> <span class="token punctuation">(</span>errno <span class="token operator">==</span> EAGAIN<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-        clsFDBase<span class="token operator">::</span><span class="token function">SetReadable</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        clsFDBase<span class="token double-colon punctuation">::</span><span class="token function">SetReadable</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
         <span class="token keyword">break</span><span class="token punctuation">;</span>
       <span class="token punctuation">}</span>
 
@@ -598,7 +598,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token keyword">return</span> iCurr<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">int</span> clsIOChannel<span class="token operator">::</span><span class="token function">Write</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsIOChannel<span class="token double-colon punctuation">::</span><span class="token function">Write</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
 
   iRet <span class="token operator">=</span> <span class="token function">AppendWriteBytes</span><span class="token punctuation">(</span>pcBuffer<span class="token punctuation">,</span> iSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -617,20 +617,20 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 真正地写入</span>
-<span class="token keyword">int</span> clsIOChannel<span class="token operator">::</span><span class="token function">FlushWriteBuffer</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsIOChannel<span class="token double-colon punctuation">::</span><span class="token function">FlushWriteBuffer</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span>m_bBroken<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
-  <span class="token function">Assert</span><span class="token punctuation">(</span>clsFDBase<span class="token operator">::</span><span class="token function">IsWritable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">Assert</span><span class="token punctuation">(</span>clsFDBase<span class="token double-colon punctuation">::</span><span class="token function">IsWritable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">uint32_t</span> iDataSize <span class="token operator">=</span> <span class="token function">GetSize</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>m_tWriteBuffer<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>iDataSize <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
-  <span class="token keyword">int</span> iFD <span class="token operator">=</span> clsFDBase<span class="token operator">::</span><span class="token function">GetFD</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">int</span> iFD <span class="token operator">=</span> clsFDBase<span class="token double-colon punctuation">::</span><span class="token function">GetFD</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">struct</span> <span class="token class-name">iovec</span> atBuffer<span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
 
   atBuffer<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span>iov_base <span class="token operator">=</span> m_tWriteBuffer<span class="token punctuation">.</span>pcData <span class="token operator">+</span> m_tWriteBuffer<span class="token punctuation">.</span>iStart1<span class="token punctuation">;</span>
@@ -670,7 +670,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
         <span class="token keyword">continue</span><span class="token punctuation">;</span>
       <span class="token punctuation">}</span>
       <span class="token keyword">if</span> <span class="token punctuation">(</span>errno <span class="token operator">==</span> EAGAIN<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-        clsFDBase<span class="token operator">::</span><span class="token function">SetWritable</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        clsFDBase<span class="token double-colon punctuation">::</span><span class="token function">SetWritable</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
         <span class="token keyword">break</span><span class="token punctuation">;</span>
       <span class="token punctuation">}</span>
 
@@ -692,13 +692,13 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 读取同样写入 buffer 中</span>
-<span class="token keyword">int</span> clsIOChannel<span class="token operator">::</span><span class="token function">AppendReadBytes</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsIOChannel<span class="token double-colon punctuation">::</span><span class="token function">AppendReadBytes</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   m_strReadBytes<span class="token punctuation">.</span><span class="token function">append</span><span class="token punctuation">(</span>pcBuffer<span class="token punctuation">,</span> iSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 写入 buffer 中</span>
-<span class="token keyword">int</span> clsIOChannel<span class="token operator">::</span><span class="token function">AppendWriteBytes</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsIOChannel<span class="token double-colon punctuation">::</span><span class="token function">AppendWriteBytes</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token function">UpdateBuffer</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>m_tWriteBuffer<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span>iSize <span class="token operator">></span> m_tWriteBuffer<span class="token punctuation">.</span>iStart1 <span class="token operator">-</span> m_tWriteBuffer<span class="token punctuation">.</span>iEnd0<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -712,7 +712,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 序列化地写入 buffer 中</span>
-<span class="token keyword">int</span> clsIOChannel<span class="token operator">::</span><span class="token function">AppendWriteBytes</span><span class="token punctuation">(</span>clsSerializeCBBase <span class="token operator">*</span>poCB<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsIOChannel<span class="token double-colon punctuation">::</span><span class="token function">AppendWriteBytes</span><span class="token punctuation">(</span>clsSerializeCBBase <span class="token operator">*</span>poCB<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token function">UpdateBuffer</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>m_tWriteBuffer<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">int</span> iRet <span class="token operator">=</span> poCB<span class="token operator">-></span><span class="token function">Call</span><span class="token punctuation">(</span>m_tWriteBuffer<span class="token punctuation">.</span>pcData <span class="token operator">+</span> m_tWriteBuffer<span class="token punctuation">.</span>iEnd0<span class="token punctuation">,</span>
@@ -754,7 +754,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
 <p><code>clsConnWorker</code> 继承于 <code>clsThreadBase</code>，封装了 <code>pthread</code>，线程启动时会执行 <code>Run</code> 函数：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> clsConnWorker<span class="token operator">::</span><span class="token function">Run</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> clsConnWorker<span class="token double-colon punctuation">::</span><span class="token function">Run</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">uint32_t</span> iLocalServerID <span class="token operator">=</span> m_poConf<span class="token operator">-></span><span class="token function">GetLocalServerID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">SetThreadTitle</span><span class="token punctuation">(</span><span class="token string">"conn_%u"</span><span class="token punctuation">,</span> iLocalServerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token function">CertainLogInfo</span><span class="token punctuation">(</span><span class="token string">"conn_%u run"</span><span class="token punctuation">,</span> iLocalServerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -777,7 +777,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>Run</code> 函数中首先会执行 <code>AddAllListen</code> 启动服务端的地址监听 <code>AddAllListen</code>：</p>
-<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> clsConnWorker<span class="token operator">::</span><span class="token function">AddAllListen</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> clsConnWorker<span class="token double-colon punctuation">::</span><span class="token function">AddAllListen</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
 
   <span class="token keyword">uint32_t</span> iLocalServerID <span class="token operator">=</span> m_poConf<span class="token operator">-></span><span class="token function">GetLocalServerID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -793,7 +793,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">int</span> clsConnWorker<span class="token operator">::</span><span class="token function">AddListen</span><span class="token punctuation">(</span><span class="token keyword">const</span> InetAddr_t <span class="token operator">&amp;</span>tLocalAddr<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsConnWorker<span class="token double-colon punctuation">::</span><span class="token function">AddListen</span><span class="token punctuation">(</span><span class="token keyword">const</span> InetAddr_t <span class="token operator">&amp;</span>tLocalAddr<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
   <span class="token keyword">int</span> iBacklog <span class="token operator">=</span> <span class="token number">8096</span><span class="token punctuation">;</span>
 
@@ -851,14 +851,14 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token keyword">virtual</span> <span class="token keyword">int</span> <span class="token function">HandleWrite</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-<span class="token keyword">int</span> clsListenHandler<span class="token operator">::</span><span class="token function">HandleRead</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  <span class="token keyword">return</span> m_poConnWorker<span class="token operator">-></span><span class="token function">HandleListen</span><span class="token punctuation">(</span><span class="token keyword">dynamic_cast</span><span class="token operator">&lt;</span>clsListenContext <span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>poFD<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">int</span> clsListenHandler<span class="token double-colon punctuation">::</span><span class="token function">HandleRead</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> m_poConnWorker<span class="token operator">-></span><span class="token function">HandleListen</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsListenContext <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poFD<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">int</span> clsListenHandler<span class="token operator">::</span><span class="token function">HandleWrite</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span> CERTAIN_EPOLLIO_UNREACHABLE<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">int</span> clsListenHandler<span class="token double-colon punctuation">::</span><span class="token function">HandleWrite</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span> CERTAIN_EPOLLIO_UNREACHABLE<span class="token punctuation">;</span> <span class="token punctuation">}</span>
 
 <span class="token comment">// 处理 Listen，要么建立连接，要么重新 Listen</span>
-<span class="token keyword">int</span> clsConnWorker<span class="token operator">::</span><span class="token function">HandleListen</span><span class="token punctuation">(</span>clsListenContext <span class="token operator">*</span>poContext<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsConnWorker<span class="token double-colon punctuation">::</span><span class="token function">HandleListen</span><span class="token punctuation">(</span>clsListenContext <span class="token operator">*</span>poContext<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">int</span> iRet <span class="token operator">=</span> <span class="token function">AcceptOneFD</span><span class="token punctuation">(</span>poContext<span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -887,7 +887,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 
 <span class="token comment">// accept client 端的连接，并将 NegoContext 加入 epoll</span>
-<span class="token keyword">int</span> clsConnWorker<span class="token operator">::</span><span class="token function">AcceptOneFD</span><span class="token punctuation">(</span>clsListenContext <span class="token operator">*</span>poContext<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsConnWorker<span class="token double-colon punctuation">::</span><span class="token function">AcceptOneFD</span><span class="token punctuation">(</span>clsListenContext <span class="token operator">*</span>poContext<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
   <span class="token keyword">int</span> iFD<span class="token punctuation">,</span> iListenFD <span class="token operator">=</span> poContext<span class="token operator">-></span><span class="token function">GetFD</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   ConnInfo_t tConnInfo<span class="token punctuation">;</span>
@@ -960,26 +960,26 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token keyword">virtual</span> <span class="token keyword">int</span> <span class="token function">HandleWrite</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-<span class="token keyword">int</span> clsNegoHandler<span class="token operator">::</span><span class="token function">HandleRead</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsNegoHandler<span class="token double-colon punctuation">::</span><span class="token function">HandleRead</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token comment">// 当 client 发送数据时</span>
-  <span class="token keyword">return</span> m_poConnWorker<span class="token operator">-></span><span class="token function">HandleNego</span><span class="token punctuation">(</span><span class="token keyword">dynamic_cast</span><span class="token operator">&lt;</span>clsNegoContext <span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>poFD<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> m_poConnWorker<span class="token operator">-></span><span class="token function">HandleNego</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsNegoContext <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poFD<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">int</span> clsNegoHandler<span class="token operator">::</span><span class="token function">HandleWrite</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span> CERTAIN_EPOLLIO_UNREACHABLE<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">int</span> clsNegoHandler<span class="token double-colon punctuation">::</span><span class="token function">HandleWrite</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span> CERTAIN_EPOLLIO_UNREACHABLE<span class="token punctuation">;</span> <span class="token punctuation">}</span>
 
 <span class="token comment">// 校验 client 连接，并从 epoll 中删除 NegoContext，加入连接池</span>
-<span class="token keyword">int</span> clsConnWorker<span class="token operator">::</span><span class="token function">HandleNego</span><span class="token punctuation">(</span>clsNegoContext <span class="token operator">*</span>poNegoCtx<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsConnWorker<span class="token double-colon punctuation">::</span><span class="token function">HandleNego</span><span class="token punctuation">(</span>clsNegoContext <span class="token operator">*</span>poNegoCtx<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
   clsAutoDelete<span class="token operator">&lt;</span>clsNegoContext<span class="token operator">></span> <span class="token function">oAuto</span><span class="token punctuation">(</span>poNegoCtx<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   iRet <span class="token operator">=</span> <span class="token function">RecvNegoMsg</span><span class="token punctuation">(</span>poNegoCtx<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"RecvNegoMsg ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
-    m_poEpollIO<span class="token operator">-></span><span class="token function">RemoveAndCloseFD</span><span class="token punctuation">(</span><span class="token keyword">dynamic_cast</span><span class="token operator">&lt;</span>clsFDBase <span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>poNegoCtx<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_poEpollIO<span class="token operator">-></span><span class="token function">RemoveAndCloseFD</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsFDBase <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poNegoCtx<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
-  m_poEpollIO<span class="token operator">-></span><span class="token function">Remove</span><span class="token punctuation">(</span><span class="token keyword">dynamic_cast</span><span class="token operator">&lt;</span>clsFDBase <span class="token operator">*</span><span class="token operator">></span><span class="token punctuation">(</span>poNegoCtx<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  m_poEpollIO<span class="token operator">-></span><span class="token function">Remove</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsFDBase <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poNegoCtx<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token comment">// For check only.</span>
   ConnInfo_t tConnInfo <span class="token operator">=</span> poNegoCtx<span class="token operator">-></span><span class="token function">GetConnInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -1004,7 +1004,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token function">CertainLogInfo</span><span class="token punctuation">(</span><span class="token string">"srvid %u conn %s from Inner Servers"</span><span class="token punctuation">,</span> poNegoCtx<span class="token operator">-></span><span class="token function">GetServerID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
                  tConnInfo<span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
-  iRet <span class="token operator">=</span> clsConnInfoMng<span class="token operator">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">PutByOneThread</span><span class="token punctuation">(</span>poNegoCtx<span class="token operator">-></span><span class="token function">GetServerID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  iRet <span class="token operator">=</span> clsConnInfoMng<span class="token double-colon punctuation">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">PutByOneThread</span><span class="token punctuation">(</span>poNegoCtx<span class="token operator">-></span><span class="token function">GetServerID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
                                                        poNegoCtx<span class="token operator">-></span><span class="token function">GetConnInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"clsConnInfoMng PutByOneThread ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -1015,7 +1015,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 接收 MagicNumber 并设定 ServerID</span>
-<span class="token keyword">int</span> clsConnWorker<span class="token operator">::</span><span class="token function">RecvNegoMsg</span><span class="token punctuation">(</span>clsNegoContext <span class="token operator">*</span>poNegoCtx<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsConnWorker<span class="token double-colon punctuation">::</span><span class="token function">RecvNegoMsg</span><span class="token punctuation">(</span>clsNegoContext <span class="token operator">*</span>poNegoCtx<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
 
   <span class="token keyword">const</span> ConnInfo_t <span class="token operator">&amp;</span>tConnInfo <span class="token operator">=</span> poNegoCtx<span class="token operator">-></span><span class="token function">GetConnInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -1086,7 +1086,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token keyword">int</span> <span class="token function">PutByOneThread</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iServerID<span class="token punctuation">,</span> <span class="token keyword">const</span> ConnInfo_t <span class="token operator">&amp;</span>tConnInfo<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
-<span class="token keyword">int</span> clsConnInfoMng<span class="token operator">::</span><span class="token function">Init</span><span class="token punctuation">(</span>clsConfigure <span class="token operator">*</span>poConf<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsConnInfoMng<span class="token double-colon punctuation">::</span><span class="token function">Init</span><span class="token punctuation">(</span>clsConfigure <span class="token operator">*</span>poConf<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   m_poConf <span class="token operator">=</span> poConf<span class="token punctuation">;</span>
 
   m_iServerNum <span class="token operator">=</span> m_poConf<span class="token operator">-></span><span class="token function">GetServerNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -1098,9 +1098,9 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> clsConnInfoMng<span class="token operator">::</span><span class="token function">Destroy</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> m_vecIntConnQueue<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">void</span> clsConnInfoMng<span class="token double-colon punctuation">::</span><span class="token function">Destroy</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> m_vecIntConnQueue<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
 
-<span class="token keyword">int</span> clsConnInfoMng<span class="token operator">::</span><span class="token function">PutByOneThread</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iServerID<span class="token punctuation">,</span> <span class="token keyword">const</span> ConnInfo_t <span class="token operator">&amp;</span>tConnInfo<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsConnInfoMng<span class="token double-colon punctuation">::</span><span class="token function">PutByOneThread</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iServerID<span class="token punctuation">,</span> <span class="token keyword">const</span> ConnInfo_t <span class="token operator">&amp;</span>tConnInfo<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>iServerID <span class="token operator">==</span> m_iLocalServerID <span class="token operator">||</span>
       <span class="token punctuation">(</span>iServerID <span class="token operator">>=</span> m_iServerNum <span class="token operator">&amp;&amp;</span> iServerID <span class="token operator">!=</span> INVALID_SERVER_ID<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"Unexpected server id %u"</span><span class="token punctuation">,</span> iServerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -1116,7 +1116,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">void</span> clsConnInfoMng<span class="token operator">::</span><span class="token function">RemoveInvalidConn</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> clsConnInfoMng<span class="token double-colon punctuation">::</span><span class="token function">RemoveInvalidConn</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">uint32_t</span> iInvalidCnt <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
   <span class="token keyword">uint32_t</span> iConnNotToken <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
 
@@ -1147,7 +1147,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">int</span> clsConnInfoMng<span class="token operator">::</span><span class="token function">TakeByMultiThread</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iIOWorkerID<span class="token punctuation">,</span>
+<span class="token keyword">int</span> clsConnInfoMng<span class="token double-colon punctuation">::</span><span class="token function">TakeByMultiThread</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iIOWorkerID<span class="token punctuation">,</span>
                                       <span class="token keyword">const</span> vector<span class="token operator">&lt;</span>vector<span class="token operator">&lt;</span>clsIOChannel <span class="token operator">*</span><span class="token operator">></span> <span class="token operator">></span> vecIntChannel<span class="token punctuation">,</span>
                                       ConnInfo_t <span class="token operator">&amp;</span>tConnInfo<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> <span class="token operator">&amp;</span>iServerID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   clsThreadLock <span class="token function">oLock</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>m_oMutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -1168,7 +1168,7 @@ clsFDBase <span class="token operator">*</span>clsEpollIO<span class="token oper
 
     <span class="token keyword">int32_t</span> iMinChannelCnt <span class="token operator">=</span> INT32_MAX<span class="token punctuation">;</span>
     <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iWorkerID <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> iWorkerID <span class="token operator">&lt;</span> m_poConf<span class="token operator">-></span><span class="token function">GetIOWorkerNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>iWorkerID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-      <span class="token keyword">int32_t</span> iTemp <span class="token operator">=</span> clsIOWorkerRouter<span class="token operator">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">GetAndAddIntChannelCnt</span><span class="token punctuation">(</span>iWorkerID<span class="token punctuation">,</span> i<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">int32_t</span> iTemp <span class="token operator">=</span> clsIOWorkerRouter<span class="token double-colon punctuation">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">GetAndAddIntChannelCnt</span><span class="token punctuation">(</span>iWorkerID<span class="token punctuation">,</span> i<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token keyword">if</span> <span class="token punctuation">(</span>iMinChannelCnt <span class="token operator">></span> iTemp<span class="token punctuation">)</span> <span class="token punctuation">{</span>
         iMinChannelCnt <span class="token operator">=</span> iTemp<span class="token punctuation">;</span>
       <span class="token punctuation">}</span>

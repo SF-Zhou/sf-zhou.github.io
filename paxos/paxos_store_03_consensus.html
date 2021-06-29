@@ -168,7 +168,7 @@
   <span class="token keyword">uint32_t</span> m_iMostAcceptedNum<span class="token punctuation">;</span>
   <span class="token keyword">uint32_t</span> m_iMostAcceptedNumCnt<span class="token punctuation">;</span>
 
-  std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>EntryRecord_t<span class="token operator">></span> m_atRecord<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>vector<span class="token operator">&lt;</span>EntryRecord_t<span class="token operator">></span> m_atRecord<span class="token punctuation">;</span>
 
   <span class="token keyword">uint32_t</span> <span class="token function">CountAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">uint32_t</span> <span class="token function">CountPromisedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iPromisedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -231,18 +231,18 @@
 
 <span class="token keyword">namespace</span> Certain <span class="token punctuation">{</span>
 
-<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span>s_iAcceptorNum <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
-<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span>s_iMajorityNum <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span>s_iAcceptorNum <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span>s_iMajorityNum <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
 
 <span class="token comment">// 从 ValueID 中解析 AcceptorID</span>
-<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">GetAcceptorID</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iValueID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">GetAcceptorID</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iValueID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">uint32_t</span> iProposalNum <span class="token operator">=</span> iValueID <span class="token operator">&amp;</span> <span class="token number">0xffffffff</span><span class="token punctuation">;</span>
   <span class="token function">AssertLess</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> iProposalNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">return</span> <span class="token punctuation">(</span>iProposalNum <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">%</span> s_iAcceptorNum<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 初始化，设定 Acceptor 和 Majority 的数量</span>
-<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">Init</span><span class="token punctuation">(</span>clsConfigure <span class="token operator">*</span>poConf<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">Init</span><span class="token punctuation">(</span>clsConfigure <span class="token operator">*</span>poConf<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   s_iAcceptorNum <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetAcceptorNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   s_iMajorityNum <span class="token operator">=</span> <span class="token punctuation">(</span>s_iAcceptorNum <span class="token operator">>></span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">;</span>
 
@@ -250,12 +250,12 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 获取 Acceptor[i].EntryRecord</span>
-<span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>clsEntryStateMachine<span class="token operator">::</span><span class="token function">GetRecord</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">GetRecord</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">return</span> m_atRecord<span class="token punctuation">[</span>iAcceptorID<span class="token punctuation">]</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 获取下一个 PreparedNum</span>
-<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">GetNextPreparedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">GetNextPreparedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iMaxPreparedNum <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     m_iMaxPreparedNum <span class="token operator">=</span> iLocalAcceptorID <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
@@ -266,32 +266,32 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 清空所有 CheckedEmpty 状态</span>
-<span class="token keyword">void</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">ResetAllCheckedEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">ResetAllCheckedEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>bCheckedEmpty <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 设定 CheckedEmpty 状态</span>
-<span class="token keyword">void</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">SetCheckedEmpty</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">SetCheckedEmpty</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   m_atRecord<span class="token punctuation">[</span>iAcceptorID<span class="token punctuation">]</span><span class="token punctuation">.</span>bCheckedEmpty <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 检查本地是否是 Normal 状态</span>
-<span class="token keyword">bool</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">IsLocalEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">bool</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">IsLocalEmpty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token comment">// (TODO)rock: use tla to check</span>
   <span class="token keyword">return</span> m_iEntryState <span class="token operator">==</span> kEntryStateNormal<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 设定本地 Record 的 ValueID</span>
-<span class="token keyword">void</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">SetStoredValueID</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">SetStoredValueID</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   EntryRecord_t <span class="token operator">&amp;</span>tLocalRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>iLocalAcceptorID<span class="token punctuation">]</span><span class="token punctuation">;</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>tLocalRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
     tLocalRecord<span class="token punctuation">.</span>iStoredValueID <span class="token operator">=</span> tLocalRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">bool</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">IsReadOK</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">bool</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">IsReadOK</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">uint32_t</span> iCount <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
 
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -305,7 +305,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 统计 Accepted 数量</span>
-<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">CountAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">CountAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">uint32_t</span> iCount <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
 
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -317,7 +317,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 统计 PromisedNum 数量</span>
-<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">CountPromisedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">CountPromisedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iPromisedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">uint32_t</span> iCount <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
 
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -329,7 +329,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 根据 AcceptedNum 获取 Value</span>
-<span class="token keyword">bool</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">GetValueByAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">,</span> PaxosValue_t <span class="token operator">&amp;</span>tValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">bool</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">GetValueByAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptedNum<span class="token punctuation">,</span> PaxosValue_t <span class="token operator">&amp;</span>tValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span>m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>iAcceptedNum <span class="token operator">==</span> iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
       tValue <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>tValue<span class="token punctuation">;</span>
@@ -341,7 +341,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 更新最多 Accepted 的 Num</span>
-<span class="token keyword">void</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">UpdateMostAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tRecord<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">void</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">UpdateMostAcceptedNum</span><span class="token punctuation">(</span><span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tRecord<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iMostAcceptedNum <span class="token operator">==</span> tRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     m_iMostAcceptedNumCnt<span class="token operator">++</span><span class="token punctuation">;</span>
     <span class="token keyword">return</span><span class="token punctuation">;</span>
@@ -356,7 +356,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 计算当前的状态</span>
-<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">CalcEntryState</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">CalcEntryState</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   EntryRecord_t <span class="token operator">&amp;</span>tLocalRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>iLocalAcceptorID<span class="token punctuation">]</span><span class="token punctuation">;</span>
 
   m_iEntryState <span class="token operator">=</span> kEntryStateNormal<span class="token punctuation">;</span>
@@ -416,7 +416,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 通过 ValueID 获取 tRecord.tValue</span>
-<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">MakeRealRecord</span><span class="token punctuation">(</span>EntryRecord_t <span class="token operator">&amp;</span>tRecord<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">MakeRealRecord</span><span class="token punctuation">(</span>EntryRecord_t <span class="token operator">&amp;</span>tRecord<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     EntryRecord_t <span class="token operator">&amp;</span>tRealRecord <span class="token operator">=</span> m_atRecord<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span>
 
@@ -455,7 +455,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 转为字符串</span>
-string clsEntryStateMachine<span class="token operator">::</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+string clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   string strState<span class="token punctuation">;</span>
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">if</span> <span class="token punctuation">(</span>i <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -467,7 +467,7 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
   <span class="token keyword">return</span> strState<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">Update</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iEntityID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntry<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span>
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">Update</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iEntityID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntry<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span>
                                  <span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">,</span>
                                  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tRecordMayWithValueIDOnly<span class="token punctuation">)</span> <span class="token punctuation">{</span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">if</span> <span class="token expression">CERTAIN_DEBUG</span></span>
@@ -655,7 +655,7 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
   <span class="token keyword">return</span> m_iEntryState<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">int</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">AcceptOnMajorityPromise</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span>
+<span class="token keyword">int</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">AcceptOnMajorityPromise</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iLocalAcceptorID<span class="token punctuation">,</span>
                                                   <span class="token keyword">const</span> PaxosValue_t <span class="token operator">&amp;</span>tValue<span class="token punctuation">,</span>
                                                   <span class="token keyword">bool</span> <span class="token operator">&amp;</span>bAcceptPreparedValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
 <span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">if</span> <span class="token expression">CERTAIN_DEBUG</span></span>
@@ -714,7 +714,7 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
   <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
-<span class="token keyword">bool</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">IsRemoteCompeting</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">bool</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">IsRemoteCompeting</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iEntryState <span class="token operator">==</span> kEntryStatePromiseRemote <span class="token operator">||</span> m_iEntryState <span class="token operator">==</span> kEntryStateAcceptRemote<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
@@ -723,7 +723,7 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 统计自身数据大小</span>
-<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token operator">::</span><span class="token function">CalcSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">uint32_t</span> clsEntryStateMachine<span class="token double-colon punctuation">::</span><span class="token function">CalcSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">uint32_t</span> iSize <span class="token operator">=</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>clsEntryStateMachine<span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> s_iAcceptorNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
@@ -751,7 +751,7 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
 </code></pre>
 <p>算法描述中其他部分则主要实现于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/EntityWorker.cpp"><code>src/EntityWorker.cpp</code></a>。该文件还实现了 CatchUp / Recovery 等功能，代码非常长，这里摘录出 Paxos 流程的核心代码：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token comment">// A 节点发起 Paxos 流程</span>
-<span class="token keyword">int</span> clsEntityWorker<span class="token operator">::</span><span class="token function">DoWithClientCmd</span><span class="token punctuation">(</span>clsClientCmd <span class="token operator">*</span>poCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsEntityWorker<span class="token double-colon punctuation">::</span><span class="token function">DoWithClientCmd</span><span class="token punctuation">(</span>clsClientCmd <span class="token operator">*</span>poCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">uint64_t</span> iEntityID <span class="token operator">=</span> poCmd<span class="token operator">-></span><span class="token function">GetEntityID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   EntryInfo_t <span class="token operator">*</span>ptInfo <span class="token operator">=</span> m_poEntryMng<span class="token operator">-></span><span class="token function">FindEntryInfo</span><span class="token punctuation">(</span>iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">uint32_t</span> iLocalAcceptorID <span class="token operator">=</span> ptEntityInfo<span class="token operator">-></span>iLocalAcceptorID<span class="token punctuation">;</span>
@@ -787,12 +787,12 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
       <span class="token keyword">new</span> <span class="token function">clsPaxosCmd</span><span class="token punctuation">(</span>iLocalAcceptorID<span class="token punctuation">,</span> iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> <span class="token operator">&amp;</span>tUpdatedRecord<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
 
   <span class="token comment">// 加入 PLog Req 队列进行持久化，可以暂时忽略</span>
-  iRet <span class="token operator">=</span> clsPLogWorker<span class="token operator">::</span><span class="token function">EnterPLogReqQueue</span><span class="token punctuation">(</span>poPaxosCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  iRet <span class="token operator">=</span> clsPLogWorker<span class="token double-colon punctuation">::</span><span class="token function">EnterPLogReqQueue</span><span class="token punctuation">(</span>poPaxosCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">return</span> eRetCodePtrReuse<span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token comment">// A 节点经过 PLogWorker 持久化后，会广播 Message</span>
-<span class="token keyword">void</span> clsEntityWorker<span class="token operator">::</span><span class="token function">BroadcastToRemote</span><span class="token punctuation">(</span>EntryInfo_t <span class="token operator">*</span>ptInfo<span class="token punctuation">,</span> clsEntryStateMachine <span class="token operator">*</span>poMachine<span class="token punctuation">,</span>
+<span class="token keyword">void</span> clsEntityWorker<span class="token double-colon punctuation">::</span><span class="token function">BroadcastToRemote</span><span class="token punctuation">(</span>EntryInfo_t <span class="token operator">*</span>ptInfo<span class="token punctuation">,</span> clsEntryStateMachine <span class="token operator">*</span>poMachine<span class="token punctuation">,</span>
                                         clsClientCmd <span class="token operator">*</span>poCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   EntityInfo_t <span class="token operator">*</span>ptEntityInfo <span class="token operator">=</span> ptInfo<span class="token operator">-></span>ptEntityInfo<span class="token punctuation">;</span>
 
@@ -820,7 +820,7 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
 <span class="token punctuation">}</span>
 
 <span class="token comment">// X 节点通过网络接收到消息后</span>
-<span class="token keyword">int</span> clsEntityWorker<span class="token operator">::</span><span class="token function">UpdateRecord</span><span class="token punctuation">(</span>clsPaxosCmd <span class="token operator">*</span>poPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsEntityWorker<span class="token double-colon punctuation">::</span><span class="token function">UpdateRecord</span><span class="token punctuation">(</span>clsPaxosCmd <span class="token operator">*</span>poPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">uint32_t</span> iAcceptorID <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetSrcAcceptorID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">uint64_t</span> iEntityID <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetEntityID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">uint64_t</span> iEntry <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetEntry</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -863,7 +863,7 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
 
   <span class="token keyword">if</span> <span class="token punctuation">(</span>bLocalUpdated<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     <span class="token comment">// 如果自身的实际状态存在更新，则需要使用 PLog 将其持久化</span>
-    iRet <span class="token operator">=</span> clsPLogWorker<span class="token operator">::</span><span class="token function">EnterPLogReqQueue</span><span class="token punctuation">(</span>po<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    iRet <span class="token operator">=</span> clsPLogWorker<span class="token double-colon punctuation">::</span><span class="token function">EnterPLogReqQueue</span><span class="token punctuation">(</span>po<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
     <span class="token comment">// 自身状态不存在更新，直接进入回复阶段</span>
     <span class="token function">SyncEntryRecord</span><span class="token punctuation">(</span>ptInfo<span class="token punctuation">,</span> po<span class="token operator">-></span><span class="token function">GetDestAcceptorID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> po<span class="token operator">-></span><span class="token function">GetUUID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -873,7 +873,7 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
 <span class="token punctuation">}</span>
 
 <span class="token comment">// X 节点持久化完成后，发送回复消息</span>
-<span class="token keyword">void</span> clsEntityWorker<span class="token operator">::</span><span class="token function">SyncEntryRecord</span><span class="token punctuation">(</span>EntryInfo_t <span class="token operator">*</span>ptInfo<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iDestAcceptorID<span class="token punctuation">,</span>
+<span class="token keyword">void</span> clsEntityWorker<span class="token double-colon punctuation">::</span><span class="token function">SyncEntryRecord</span><span class="token punctuation">(</span>EntryInfo_t <span class="token operator">*</span>ptInfo<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iDestAcceptorID<span class="token punctuation">,</span>
                                       <span class="token keyword">uint64_t</span> iUUID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   EntityInfo_t <span class="token operator">*</span>ptEntityInfo <span class="token operator">=</span> ptInfo<span class="token operator">-></span>ptEntityInfo<span class="token punctuation">;</span>
 
@@ -905,7 +905,7 @@ string clsEntryStateMachine<span class="token operator">::</span><span class="to
 <span class="token punctuation">}</span>
 
 <span class="token comment">// 节点 A 收到回复消息后，同样会执行 UpdateRecord</span>
-<span class="token keyword">int</span> clsEntityWorker<span class="token operator">::</span><span class="token function">UpdateRecord</span><span class="token punctuation">(</span>clsPaxosCmd <span class="token operator">*</span>poPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token keyword">int</span> clsEntityWorker<span class="token double-colon punctuation">::</span><span class="token function">UpdateRecord</span><span class="token punctuation">(</span>clsPaxosCmd <span class="token operator">*</span>poPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
 
   <span class="token comment">// 更新 A 自身的状态机</span>

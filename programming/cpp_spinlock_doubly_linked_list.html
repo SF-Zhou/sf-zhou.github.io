@@ -45,11 +45,11 @@
   <span class="token punctuation">}</span>
 
   <span class="token keyword">void</span> <span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    flag_<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span>std<span class="token operator">::</span>memory_order_release<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    flag_<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>memory_order_release<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
  <span class="token keyword">private</span><span class="token operator">:</span>
-  std<span class="token operator">::</span>atomic_flag flag_ <span class="token operator">=</span> ATOMIC_FLAG_INIT<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>atomic_flag flag_ <span class="token operator">=</span> ATOMIC_FLAG_INIT<span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
 <p>注意 <code>ATOMIC_FLAG_INIT</code>，按照<a href="http://en.cppreference.com/w/cpp/atomic/ATOMIC_FLAG_INIT">文档要求</a>只能使用 <code>operator=</code> 来完成 <code>std::atomic_flag</code> 的初始化。由于提供了 <code>lock</code> 和 <code>unlock</code>，可以配合 <code>std::lock_guard</code> 使用。下面使用自旋锁实现双向链表：</p>
@@ -72,7 +72,7 @@
  <span class="token keyword">public</span><span class="token operator">:</span>
   <span class="token function">DoublyLinkedList</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">head_</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token punctuation">.</span>prev <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">,</span> <span class="token punctuation">.</span>next <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
   <span class="token keyword">void</span> <span class="token function">PushFront</span><span class="token punctuation">(</span>Node <span class="token operator">*</span>node<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
     node<span class="token operator">-></span>next <span class="token operator">=</span> head_<span class="token punctuation">.</span>next<span class="token punctuation">;</span>
     node<span class="token operator">-></span>prev <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">;</span>
     head_<span class="token punctuation">.</span>next<span class="token operator">-></span>prev <span class="token operator">=</span> node<span class="token punctuation">;</span>
@@ -80,7 +80,7 @@
   <span class="token punctuation">}</span>
 
   <span class="token keyword">void</span> <span class="token function">PushBack</span><span class="token punctuation">(</span>Node <span class="token operator">*</span>node<span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
     node<span class="token operator">-></span>next <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">;</span>
     node<span class="token operator">-></span>prev <span class="token operator">=</span> head_<span class="token punctuation">.</span>prev<span class="token punctuation">;</span>
     head_<span class="token punctuation">.</span>prev<span class="token operator">-></span>next <span class="token operator">=</span> node<span class="token punctuation">;</span>
@@ -88,7 +88,7 @@
   <span class="token punctuation">}</span>
 
   Node <span class="token operator">*</span><span class="token function">PopFront</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
     Node <span class="token operator">*</span>node <span class="token operator">=</span> head_<span class="token punctuation">.</span>next<span class="token punctuation">;</span>
     node<span class="token operator">-></span>next<span class="token operator">-></span>prev <span class="token operator">=</span> node<span class="token operator">-></span>prev<span class="token punctuation">;</span>
     node<span class="token operator">-></span>prev<span class="token operator">-></span>next <span class="token operator">=</span> node<span class="token operator">-></span>next<span class="token punctuation">;</span>
@@ -96,7 +96,7 @@
   <span class="token punctuation">}</span>
 
   Node <span class="token operator">*</span><span class="token function">PopBack</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-    std<span class="token operator">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    std<span class="token double-colon punctuation">::</span>lock_guard<span class="token operator">&lt;</span>SpinMutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
     Node <span class="token operator">*</span>node <span class="token operator">=</span> head_<span class="token punctuation">.</span>prev<span class="token punctuation">;</span>
     node<span class="token operator">-></span>next<span class="token operator">-></span>prev <span class="token operator">=</span> node<span class="token operator">-></span>prev<span class="token punctuation">;</span>
     node<span class="token operator">-></span>prev<span class="token operator">-></span>next <span class="token operator">=</span> node<span class="token operator">-></span>next<span class="token punctuation">;</span>
@@ -109,7 +109,7 @@
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  std<span class="token operator">::</span>vector<span class="token operator">&lt;</span>DoublyLinkedList<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span><span class="token operator">::</span>Node<span class="token operator">></span> <span class="token function">nodes</span><span class="token punctuation">(</span><span class="token number">4</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>vector<span class="token operator">&lt;</span>DoublyLinkedList<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span><span class="token double-colon punctuation">::</span>Node<span class="token operator">></span> <span class="token function">nodes</span><span class="token punctuation">(</span><span class="token number">4</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> nodes<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
     nodes<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>value <span class="token operator">=</span> i<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
