@@ -151,6 +151,15 @@
   std<span class="token double-colon punctuation">::</span>array<span class="token operator">&lt;</span><span class="token keyword">char</span><span class="token punctuation">,</span> N<span class="token operator">></span> data<span class="token punctuation">;</span>
 <span class="token punctuation">}</span><span class="token punctuation">;</span>
 </code></pre>
+<h3 id="one-more-time,-one-more-chance" tabindex="-1"><a href="#one-more-time%2C-one-more-chance">One more time, One more chance</a></h3>
+<p>在历史代码中偶遇：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string <span class="token operator">&amp;</span>a <span class="token operator">=</span> <span class="token string">"hello world"</span><span class="token punctuation">;</span>
+</code></pre>
+<p>第一直觉是后面的字符串会转成一个临时的 <code>std::string</code> 对象，前面 a 引用了一个临时对象，这行过后 a 非法。但历史代码至今没炸过，十分好奇然后搜索了下，得到如下<a href="http://eel.is/c++draft/class.temporary#6.9">规范</a>：</p>
+<blockquote>
+<p>A temporary object bound to a reference parameter in a function call (<a href="http://eel.is/c++draft/expr.call">[expr.call]</a>) persists until the completion of the full-expression containing the call<a href="http://eel.is/c++draft/class.temporary#6.9.sentence-1">.</a></p>
+</blockquote>
+<p>C++，不愧是你！</p>
 <h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/language/lambda">&quot;Lambda expressions&quot;, <em>Wikipedia</em></a></li>
