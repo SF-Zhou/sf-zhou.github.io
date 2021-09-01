@@ -163,6 +163,11 @@
 </ul>
 </blockquote>
 <p>C++，不愧是你！</p>
+<p>类似的情况还有：</p>
+<pre class="language-cpp"><code class="language-cpp">std<span class="token double-colon punctuation">::</span>string <span class="token operator">&amp;&amp;</span>a <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token function">string</span><span class="token punctuation">(</span><span class="token string">"hello world"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// valid</span>
+std<span class="token double-colon punctuation">::</span>string <span class="token operator">&amp;&amp;</span>a <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">string</span><span class="token punctuation">(</span><span class="token string">"hello world"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// invalid</span>
+</code></pre>
+<p><code>std::string(&quot;hello world&quot;)</code> 会产生一个临时对象，第一行使用一个右值引用指向它，同时也延长了该临时对象的生命周期；第二行显式地使用 <code>std::move</code> 将其转为临时的右值引用，但该引用在本行结束后生命周期就结束了，对应的临时对象也析构了。</p>
 <h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://en.cppreference.com/w/cpp/language/lambda">&quot;Lambda expressions&quot;, <em>Wikipedia</em></a></li>
