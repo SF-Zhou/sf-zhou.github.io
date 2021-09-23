@@ -89,7 +89,6 @@ async function main() {
       author: article.author,
       tags: JSON.stringify(article.tags),
       article: article.html,
-      year: (new Date()).getFullYear(),
       web_master: config.web_master,
       google_analytics_id: config.google_analytics_id
     };
@@ -125,7 +124,6 @@ async function main() {
     title_string: config.site_name,
     title: config.site_name,
     article: index_result,
-    year: (new Date()).getFullYear(),
     web_master: config.web_master,
     google_analytics_id: config.google_analytics_id
   };
