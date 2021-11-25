@@ -1,6 +1,7 @@
 #!/bin/sh
 
 mkdir -p public
+mkdir -p profile
 node src/main.js
 cp -r posts/images public
 cp -r dist public
