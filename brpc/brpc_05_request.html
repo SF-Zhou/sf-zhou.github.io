@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>bRPC 源码分析「五、请求处理」 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> bRPC 源码分析「五、请求处理」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2021.03.19 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-request-and-wait" tabindex="-1"><a href="#1.-request-and-wait">1. Request and Wait</a></h3>
+<p>bRPC 中同步的 RPC 发出请求后，会等待请求对应的 <code>bthread_id</code> 等待回复。<code>bthread_id</code> 是一个 64 位的标识符，可以附带一个指针数据，支持加锁、等待、范围检查，并且通过 ResourcePool 的版本规避了 ABA 问题。来看下具体实现：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 创建一个 bthread_id，附带数据为 data，错误处理为 on_error</span>
+<span class="token keyword">int</span> <span class="token function">bthread_id_create</span><span class="token punctuation">(</span>bthread_id_t<span class="token operator">*</span> id<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> data<span class="token punctuation">,</span>
+                      <span class="token keyword">int</span> <span class="token punctuation">(</span><span class="token operator">*</span>on_error<span class="token punctuation">)</span><span class="token punctuation">(</span>bthread_id_t<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span><span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> bthread<span class="token double-colon punctuation">::</span><span class="token function">id_create_impl</span><span class="token punctuation">(</span>
+      id<span class="token punctuation">,</span> data<span class="token punctuation">,</span> <span class="token punctuation">(</span>on_error <span class="token operator">?</span> on_error <span class="token operator">:</span> bthread<span class="token double-colon punctuation">::</span>default_bthread_id_on_error<span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">static</span> <span class="token keyword">int</span> <span class="token function">id_create_impl</span><span class="token punctuation">(</span>bthread_id_t<span class="token operator">*</span> id<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> data<span class="token punctuation">,</span>
+                          <span class="token keyword">int</span> <span class="token punctuation">(</span><span class="token operator">*</span>on_error<span class="token punctuation">)</span><span class="token punctuation">(</span>bthread_id_t<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span><span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                          <span class="token keyword">int</span> <span class="token punctuation">(</span><span class="token operator">*</span>on_error2<span class="token punctuation">)</span><span class="token punctuation">(</span>bthread_id_t<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span><span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token punctuation">,</span>
+                                           <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  IdResourceId slot<span class="token punctuation">;</span>
+  Id<span class="token operator">*</span> <span class="token keyword">const</span> meta <span class="token operator">=</span> <span class="token function">get_resource</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>slot<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// resource pool 获取对象</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>meta<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    meta<span class="token operator">-></span>data <span class="token operator">=</span> data<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>on_error <span class="token operator">=</span> on_error<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>on_error2 <span class="token operator">=</span> on_error2<span class="token punctuation">;</span>
+    <span class="token function">CHECK</span><span class="token punctuation">(</span>meta<span class="token operator">-></span>pending_q<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">uint32_t</span><span class="token operator">*</span> butex <span class="token operator">=</span> meta<span class="token operator">-></span>butex<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token number">0</span> <span class="token operator">==</span> <span class="token operator">*</span>butex <span class="token operator">||</span> <span class="token operator">*</span>butex <span class="token operator">+</span> ID_MAX_RANGE <span class="token operator">+</span> <span class="token number">2</span> <span class="token operator">&lt;</span> <span class="token operator">*</span>butex<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// Skip 0 so that bthread_id_t is never 0</span>
+      <span class="token comment">// avoid overflow to make comparisons simpler.</span>
+      <span class="token comment">// butex 的值规避 0</span>
+      <span class="token operator">*</span>butex <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token operator">*</span>meta<span class="token operator">-></span>join_butex <span class="token operator">=</span> <span class="token operator">*</span>butex<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>first_ver <span class="token operator">=</span> <span class="token operator">*</span>butex<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>locked_ver <span class="token operator">=</span> <span class="token operator">*</span>butex <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token operator">*</span>id <span class="token operator">=</span> <span class="token function">make_id</span><span class="token punctuation">(</span><span class="token operator">*</span>butex<span class="token punctuation">,</span> slot<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> ENOMEM<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> bthread_id_t <span class="token function">make_id</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> version<span class="token punctuation">,</span> IdResourceId slot<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// 版本位于低 32 位，resource_id 使用高 32 位</span>
+  <span class="token keyword">const</span> bthread_id_t tmp <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">)</span>slot<span class="token punctuation">.</span>value<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token number">32</span><span class="token punctuation">)</span> <span class="token operator">|</span> <span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">)</span>version<span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> tmp<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// bthread_id_t 实际对应的数据结构</span>
+<span class="token keyword">struct</span> <span class="token class-name">BAIDU_CACHELINE_ALIGNMENT</span> Id <span class="token punctuation">{</span>
+  <span class="token comment">// first_ver ~ locked_ver - 1: unlocked versions</span>
+  <span class="token comment">// locked_ver: locked</span>
+  <span class="token comment">// unlockable_ver: locked and about to be destroyed</span>
+  <span class="token comment">// contended_ver: locked and contended</span>
+  <span class="token keyword">uint32_t</span> first_ver<span class="token punctuation">;</span>  <span class="token comment">// 起始合法版本，first_ver ~ locked_ver - 1 为合法范围</span>
+  <span class="token keyword">uint32_t</span> locked_ver<span class="token punctuation">;</span>  <span class="token comment">// 锁定状态的版本</span>
+  internal<span class="token double-colon punctuation">::</span>FastPthreadMutex mutex<span class="token punctuation">;</span>  <span class="token comment">// 该结构元数据的锁</span>
+  <span class="token keyword">void</span><span class="token operator">*</span> data<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> <span class="token punctuation">(</span><span class="token operator">*</span>on_error<span class="token punctuation">)</span><span class="token punctuation">(</span>bthread_id_t<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span><span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">int</span> <span class="token punctuation">(</span><span class="token operator">*</span>on_error2<span class="token punctuation">)</span><span class="token punctuation">(</span>bthread_id_t<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span><span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token punctuation">,</span> <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> lock_location<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span><span class="token operator">*</span> butex<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span><span class="token operator">*</span> join_butex<span class="token punctuation">;</span>
+  SmallQueue<span class="token operator">&lt;</span>PendingError<span class="token punctuation">,</span> <span class="token number">2</span><span class="token operator">></span> pending_q<span class="token punctuation">;</span>
+
+  <span class="token function">Id</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Although value of the butex(as version part of bthread_id_t)</span>
+    <span class="token comment">// does not matter, we set it to 0 to make program more deterministic.</span>
+    butex <span class="token operator">=</span> bthread<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">butex_create_checked</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">uint32_t</span><span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    join_butex <span class="token operator">=</span> bthread<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">butex_create_checked</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">uint32_t</span><span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token operator">*</span>butex <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token operator">*</span>join_butex <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token operator">~</span><span class="token function">Id</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    bthread<span class="token double-colon punctuation">::</span><span class="token function">butex_destroy</span><span class="token punctuation">(</span>butex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    bthread<span class="token double-colon punctuation">::</span><span class="token function">butex_destroy</span><span class="token punctuation">(</span>join_butex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">inline</span> <span class="token keyword">bool</span> <span class="token function">has_version</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> id_ver<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 范围内的版本意味着合法。每个 slot 的版本空间是独立的</span>
+    <span class="token keyword">return</span> id_ver <span class="token operator">>=</span> first_ver <span class="token operator">&amp;&amp;</span> id_ver <span class="token operator">&lt;</span> locked_ver<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">inline</span> <span class="token keyword">uint32_t</span> <span class="token function">contended_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> locked_ver <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>  <span class="token comment">// 锁定冲突时的状态</span>
+  <span class="token keyword">inline</span> <span class="token keyword">uint32_t</span> <span class="token function">unlockable_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> locked_ver <span class="token operator">+</span> <span class="token number">2</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>  <span class="token comment">// 准备析构的状态</span>
+  <span class="token keyword">inline</span> <span class="token keyword">uint32_t</span> <span class="token function">last_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">unlockable_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>  <span class="token comment">// 销毁状态的版本</span>
+
+  <span class="token comment">// also the next "first_ver"</span>
+  <span class="token keyword">inline</span> <span class="token keyword">uint32_t</span> <span class="token function">end_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">last_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// 等待 bthread_id 销毁</span>
+<span class="token keyword">int</span> <span class="token function">bthread_id_join</span><span class="token punctuation">(</span>bthread_id_t id<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> bthread<span class="token double-colon punctuation">::</span>IdResourceId slot <span class="token operator">=</span> bthread<span class="token double-colon punctuation">::</span><span class="token function">get_slot</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  bthread<span class="token double-colon punctuation">::</span>Id<span class="token operator">*</span> <span class="token keyword">const</span> meta <span class="token operator">=</span> <span class="token function">address_resource</span><span class="token punctuation">(</span>slot<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>meta<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// The id is not created yet, this join is definitely wrong.</span>
+    <span class="token keyword">return</span> EINVAL<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_ver <span class="token operator">=</span> bthread<span class="token double-colon punctuation">::</span><span class="token function">get_version</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 获取 id 低 32 位的版本</span>
+  <span class="token keyword">uint32_t</span><span class="token operator">*</span> join_butex <span class="token operator">=</span> meta<span class="token operator">-></span>join_butex<span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">const</span> <span class="token keyword">bool</span> has_ver <span class="token operator">=</span> meta<span class="token operator">-></span><span class="token function">has_version</span><span class="token punctuation">(</span>id_ver<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 检查当前 id 是否合法</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> expected_ver <span class="token operator">=</span> <span class="token operator">*</span>join_butex<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>has_ver<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">// 在 join_butex 上等待唤醒</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>bthread<span class="token double-colon punctuation">::</span><span class="token function">butex_wait</span><span class="token punctuation">(</span>join_butex<span class="token punctuation">,</span> expected_ver<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token operator">&lt;</span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span>
+        errno <span class="token operator">!=</span> EWOULDBLOCK <span class="token operator">&amp;&amp;</span> errno <span class="token operator">!=</span> EINTR<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> errno<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 解锁并销毁 bthread_id</span>
+<span class="token keyword">int</span> <span class="token function">bthread_id_unlock_and_destroy</span><span class="token punctuation">(</span>bthread_id_t id<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  bthread<span class="token double-colon punctuation">::</span>Id<span class="token operator">*</span> <span class="token keyword">const</span> meta <span class="token operator">=</span> <span class="token function">address_resource</span><span class="token punctuation">(</span>bthread<span class="token double-colon punctuation">::</span><span class="token function">get_slot</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>meta<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> EINVAL<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">uint32_t</span><span class="token operator">*</span> butex <span class="token operator">=</span> meta<span class="token operator">-></span>butex<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span><span class="token operator">*</span> join_butex <span class="token operator">=</span> meta<span class="token operator">-></span>join_butex<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_ver <span class="token operator">=</span> bthread<span class="token double-colon punctuation">::</span><span class="token function">get_version</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>meta<span class="token operator">-></span><span class="token function">has_version</span><span class="token punctuation">(</span>id_ver<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Invalid bthread_id="</span> <span class="token operator">&lt;&lt;</span> id<span class="token punctuation">.</span>value<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> EINVAL<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">*</span>butex <span class="token operator">==</span> meta<span class="token operator">-></span>first_ver<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"bthread_id="</span> <span class="token operator">&lt;&lt;</span> id<span class="token punctuation">.</span>value <span class="token operator">&lt;&lt;</span> <span class="token string">" is not locked!"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> EPERM<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> next_ver <span class="token operator">=</span> meta<span class="token operator">-></span><span class="token function">end_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token operator">*</span>butex <span class="token operator">=</span> next_ver<span class="token punctuation">;</span>
+  <span class="token operator">*</span>join_butex <span class="token operator">=</span> next_ver<span class="token punctuation">;</span>
+  meta<span class="token operator">-></span>first_ver <span class="token operator">=</span> next_ver<span class="token punctuation">;</span>  <span class="token comment">// 赋值后后续的 join 要么版本不合法，要么 join_butex 不一致</span>
+  meta<span class="token operator">-></span>locked_ver <span class="token operator">=</span> next_ver<span class="token punctuation">;</span>
+  meta<span class="token operator">-></span>pending_q<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">// Notice that butex_wake* returns # of woken-up, not successful or not.</span>
+  bthread<span class="token double-colon punctuation">::</span><span class="token function">butex_wake_except</span><span class="token punctuation">(</span>butex<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  bthread<span class="token double-colon punctuation">::</span><span class="token function">butex_wake_all</span><span class="token punctuation">(</span>join_butex<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 唤醒等待的 join 函数</span>
+  <span class="token function">return_resource</span><span class="token punctuation">(</span>bthread<span class="token double-colon punctuation">::</span><span class="token function">get_slot</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 释放资源，原先的 bthread_id 会因为版本原因不再合法</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 声明 bthread_id 发生错误</span>
+<span class="token keyword">int</span> <span class="token function">bthread_id_error2_verbose</span><span class="token punctuation">(</span>bthread_id_t id<span class="token punctuation">,</span> <span class="token keyword">int</span> error_code<span class="token punctuation">,</span>
+                              <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> error_text<span class="token punctuation">,</span>
+                              <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> location<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  bthread<span class="token double-colon punctuation">::</span>Id<span class="token operator">*</span> <span class="token keyword">const</span> meta <span class="token operator">=</span> <span class="token function">address_resource</span><span class="token punctuation">(</span>bthread<span class="token double-colon punctuation">::</span><span class="token function">get_slot</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>meta<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> EINVAL<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_ver <span class="token operator">=</span> bthread<span class="token double-colon punctuation">::</span><span class="token function">get_version</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span><span class="token operator">*</span> butex <span class="token operator">=</span> meta<span class="token operator">-></span>butex<span class="token punctuation">;</span>
+  meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>meta<span class="token operator">-></span><span class="token function">has_version</span><span class="token punctuation">(</span>id_ver<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> EINVAL<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">*</span>butex <span class="token operator">==</span> meta<span class="token operator">-></span>first_ver<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// unlock 的状态，则上锁</span>
+    <span class="token operator">*</span>butex <span class="token operator">=</span> meta<span class="token operator">-></span>locked_ver<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>lock_location <span class="token operator">=</span> location<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// 调用错误处理函数</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>meta<span class="token operator">-></span>on_error<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> meta<span class="token operator">-></span><span class="token function">on_error</span><span class="token punctuation">(</span>id<span class="token punctuation">,</span> meta<span class="token operator">-></span>data<span class="token punctuation">,</span> error_code<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> meta<span class="token operator">-></span><span class="token function">on_error2</span><span class="token punctuation">(</span>id<span class="token punctuation">,</span> meta<span class="token operator">-></span>data<span class="token punctuation">,</span> error_code<span class="token punctuation">,</span> error_text<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token comment">// lock 的状态，将错误信息加入队列</span>
+    bthread<span class="token double-colon punctuation">::</span>PendingError e<span class="token punctuation">;</span>
+    e<span class="token punctuation">.</span>id <span class="token operator">=</span> id<span class="token punctuation">;</span>
+    e<span class="token punctuation">.</span>error_code <span class="token operator">=</span> error_code<span class="token punctuation">;</span>
+    e<span class="token punctuation">.</span>error_text <span class="token operator">=</span> error_text<span class="token punctuation">;</span>
+    e<span class="token punctuation">.</span>location <span class="token operator">=</span> location<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>pending_q<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 锁定 bthread_id</span>
+<span class="token keyword">int</span> <span class="token function">bthread_id_lock_and_reset_range_verbose</span><span class="token punctuation">(</span>bthread_id_t id<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span><span class="token operator">*</span> pdata<span class="token punctuation">,</span>
+                                            <span class="token keyword">int</span> range<span class="token punctuation">,</span> <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> location<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  bthread<span class="token double-colon punctuation">::</span>Id<span class="token operator">*</span> <span class="token keyword">const</span> meta <span class="token operator">=</span> <span class="token function">address_resource</span><span class="token punctuation">(</span>bthread<span class="token double-colon punctuation">::</span><span class="token function">get_slot</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>meta<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> EINVAL<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_ver <span class="token operator">=</span> bthread<span class="token double-colon punctuation">::</span><span class="token function">get_version</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span><span class="token operator">*</span> butex <span class="token operator">=</span> meta<span class="token operator">-></span>butex<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> ever_contended <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>meta<span class="token operator">-></span><span class="token function">has_version</span><span class="token punctuation">(</span>id_ver<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 元数据上锁，且版本合法的情况下</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">*</span>butex <span class="token operator">==</span> meta<span class="token operator">-></span>first_ver<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// contended locker always wakes up the butex at unlock.</span>
+      <span class="token comment">// 如果处于 unlock 的状态</span>
+      meta<span class="token operator">-></span>lock_location <span class="token operator">=</span> location<span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>range <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// fast path</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>range <span class="token operator">&lt;</span> <span class="token number">0</span> <span class="token operator">||</span> range <span class="token operator">></span> bthread<span class="token double-colon punctuation">::</span>ID_MAX_RANGE <span class="token operator">||</span>
+                 range <span class="token operator">+</span> meta<span class="token operator">-></span>first_ver <span class="token operator">&lt;=</span> meta<span class="token operator">-></span>locked_ver<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">LOG_IF</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">,</span> range <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span>
+            <span class="token operator">&lt;&lt;</span> <span class="token string">"range must be positive, actually "</span> <span class="token operator">&lt;&lt;</span> range<span class="token punctuation">;</span>
+        <span class="token function">LOG_IF</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">,</span> range <span class="token operator">></span> bthread<span class="token double-colon punctuation">::</span>ID_MAX_RANGE<span class="token punctuation">)</span>
+            <span class="token operator">&lt;&lt;</span> <span class="token string">"max range is "</span> <span class="token operator">&lt;&lt;</span> bthread<span class="token double-colon punctuation">::</span>ID_MAX_RANGE <span class="token operator">&lt;&lt;</span> <span class="token string">", actually "</span>
+            <span class="token operator">&lt;&lt;</span> range<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token comment">// 如果附带了版本修改操作，则修改对应的 locked_ver</span>
+        meta<span class="token operator">-></span>locked_ver <span class="token operator">=</span> meta<span class="token operator">-></span>first_ver <span class="token operator">+</span> range<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token comment">// 如果之前冲突了，则修改为 contended_ver()，这样 unlock 的时候会唤醒其他 bthread_id_lock</span>
+      <span class="token operator">*</span>butex <span class="token operator">=</span> <span class="token punctuation">(</span>ever_contended <span class="token operator">?</span> meta<span class="token operator">-></span><span class="token function">contended_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> meta<span class="token operator">-></span>locked_ver<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>pdata<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token operator">*</span>pdata <span class="token operator">=</span> meta<span class="token operator">-></span>data<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">*</span>butex <span class="token operator">!=</span> meta<span class="token operator">-></span><span class="token function">unlockable_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 如果不是 unlock，也不是准备析构的状态，则表示现在处于 locked 或者 contended，赋值为 contended 状态</span>
+      <span class="token operator">*</span>butex <span class="token operator">=</span> meta<span class="token operator">-></span><span class="token function">contended_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">uint32_t</span> expected_ver <span class="token operator">=</span> <span class="token operator">*</span>butex<span class="token punctuation">;</span>
+      meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      ever_contended <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>bthread<span class="token double-colon punctuation">::</span><span class="token function">butex_wait</span><span class="token punctuation">(</span>butex<span class="token punctuation">,</span> expected_ver<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token operator">&lt;</span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span>
+          errno <span class="token operator">!=</span> EWOULDBLOCK <span class="token operator">&amp;&amp;</span> errno <span class="token operator">!=</span> EINTR<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// 等待</span>
+        <span class="token keyword">return</span> errno<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>  <span class="token comment">// bthread_id_about_to_destroy was called. 准备销毁</span>
+      meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span> EPERM<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> EINVAL<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 解锁 bthread_id</span>
+<span class="token keyword">int</span> <span class="token function">bthread_id_unlock</span><span class="token punctuation">(</span>bthread_id_t id<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  bthread<span class="token double-colon punctuation">::</span>Id<span class="token operator">*</span> <span class="token keyword">const</span> meta <span class="token operator">=</span> <span class="token function">address_resource</span><span class="token punctuation">(</span>bthread<span class="token double-colon punctuation">::</span><span class="token function">get_slot</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>meta<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> EINVAL<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">uint32_t</span><span class="token operator">*</span> butex <span class="token operator">=</span> meta<span class="token operator">-></span>butex<span class="token punctuation">;</span>
+  <span class="token comment">// Release fence makes sure all changes made before signal visible to</span>
+  <span class="token comment">// woken-up waiters.</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_ver <span class="token operator">=</span> bthread<span class="token double-colon punctuation">::</span><span class="token function">get_version</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>meta<span class="token operator">-></span><span class="token function">has_version</span><span class="token punctuation">(</span>id_ver<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Invalid bthread_id="</span> <span class="token operator">&lt;&lt;</span> id<span class="token punctuation">.</span>value<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> EINVAL<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">*</span>butex <span class="token operator">==</span> meta<span class="token operator">-></span>first_ver<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>FATAL<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"bthread_id="</span> <span class="token operator">&lt;&lt;</span> id<span class="token punctuation">.</span>value <span class="token operator">&lt;&lt;</span> <span class="token string">" is not locked!"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> EPERM<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  bthread<span class="token double-colon punctuation">::</span>PendingError front<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>meta<span class="token operator">-></span>pending_q<span class="token punctuation">.</span><span class="token function">pop</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>front<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 如果已经出错了，直接调用错误处理函数</span>
+    meta<span class="token operator">-></span>lock_location <span class="token operator">=</span> front<span class="token punctuation">.</span>location<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>meta<span class="token operator">-></span>on_error<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> meta<span class="token operator">-></span><span class="token function">on_error</span><span class="token punctuation">(</span>front<span class="token punctuation">.</span>id<span class="token punctuation">,</span> meta<span class="token operator">-></span>data<span class="token punctuation">,</span> front<span class="token punctuation">.</span>error_code<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> meta<span class="token operator">-></span><span class="token function">on_error2</span><span class="token punctuation">(</span>front<span class="token punctuation">.</span>id<span class="token punctuation">,</span> meta<span class="token operator">-></span>data<span class="token punctuation">,</span> front<span class="token punctuation">.</span>error_code<span class="token punctuation">,</span>
+                             front<span class="token punctuation">.</span>error_text<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 否则唤醒等待的锁定操作</span>
+    <span class="token keyword">const</span> <span class="token keyword">bool</span> contended <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token operator">*</span>butex <span class="token operator">==</span> meta<span class="token operator">-></span><span class="token function">contended_ver</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token operator">*</span>butex <span class="token operator">=</span> meta<span class="token operator">-></span>first_ver<span class="token punctuation">;</span>
+    meta<span class="token operator">-></span>mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>contended<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// We may wake up already-reused id, but that's OK.</span>
+      bthread<span class="token double-colon punctuation">::</span><span class="token function">butex_wake</span><span class="token punctuation">(</span>butex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>如<a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/bthread_id.md">官方文档</a>所述，使用 <code>bthread_id</code> 可以解决以下问题：</p>
+<ol>
+<li>在发送 RPC 过程中 response 回来了，处理 response 的代码和发送代码产生竞争。</li>
+<li>设置 timer 后很快触发了，超时处理代码和发送代码产生竞争。</li>
+<li>重试产生的多个 response 同时回来产生的竞争。</li>
+<li>通过 correlation_id 在 O(1) 时间内找到对应的 RPC 上下文，而无需建立从 correlation_id 到 RPC 上下文的全局哈希表。</li>
+<li>取消 RPC。</li>
+</ol>
+<p>具体实现上，每个 Controller 拥有一个 <code>bthread_id</code> 对象 <code>_correlation_id</code>，创建时将 <code>data</code> 绑定为 Controller 自身的指针，错误处理使用 <code>HandleSocketFailed</code> 函数：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// controller.cpp</span>
+CallId <span class="token class-name">Controller</span><span class="token double-colon punctuation">::</span><span class="token function">call_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    butil<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span><span class="token operator">*</span> target <span class="token operator">=</span>
+        <span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span><span class="token operator">*</span><span class="token punctuation">)</span><span class="token operator">&amp;</span>_correlation_id<span class="token punctuation">.</span>value<span class="token punctuation">;</span>
+    <span class="token keyword">uint64_t</span> loaded <span class="token operator">=</span> target<span class="token operator">-></span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>loaded<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">const</span> CallId id <span class="token operator">=</span> <span class="token punctuation">{</span> loaded <span class="token punctuation">}</span><span class="token punctuation">;</span>
+        <span class="token keyword">return</span> id<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">// Optimistic locking.</span>
+    CallId cid <span class="token operator">=</span> <span class="token punctuation">{</span> <span class="token number">0</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token comment">// The range of this id will be reset in Channel::CallMethod</span>
+    <span class="token function">CHECK_EQ</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token function">bthread_id_create2</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>cid<span class="token punctuation">,</span> <span class="token keyword">this</span><span class="token punctuation">,</span> HandleSocketFailed<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>target<span class="token operator">-></span><span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>loaded<span class="token punctuation">,</span> cid<span class="token punctuation">.</span>value<span class="token punctuation">,</span>
+                                         butil<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">bthread_id_cancel</span><span class="token punctuation">(</span>cid<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        cid<span class="token punctuation">.</span>value <span class="token operator">=</span> loaded<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> cid<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>调用前会将 <code>correlation_id</code> 对象的范围改为 <code>max_retry() + 2</code>，每个版本对应的解释如代码中的注释所示：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// channel.cpp</span>
+<span class="token keyword">const</span> CallId correlation_id <span class="token operator">=</span> cntl<span class="token operator">-></span><span class="token function">call_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">const</span> <span class="token keyword">int</span> rc <span class="token operator">=</span> <span class="token function">bthread_id_lock_and_reset_range</span><span class="token punctuation">(</span>
+                    correlation_id<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">,</span> <span class="token number">2</span> <span class="token operator">+</span> cntl<span class="token operator">-></span><span class="token function">max_retry</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// Make versioned correlation_id.</span>
+<span class="token comment">// call_id         : unversioned, mainly for ECANCELED and ERPCTIMEDOUT</span>
+<span class="token comment">// call_id + 1     : first try.</span>
+<span class="token comment">// call_id + 2     : retry 1</span>
+<span class="token comment">// ...</span>
+<span class="token comment">// call_id + N + 1 : retry N</span>
+<span class="token comment">// All ids except call_id are versioned. Say if we've sent retry 1 and</span>
+<span class="token comment">// a failed response of first try comes back, it will be ignored.</span>
+</code></pre>
+<p>当调用 <code>Socket</code> 将请求写入后，Controller 会在 <code>correlation_id</code> 上执行等待：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// channel.cpp</span>
+<span class="token keyword">void</span> <span class="token class-name">Channel</span><span class="token double-colon punctuation">::</span><span class="token function">CallMethod</span><span class="token punctuation">(</span><span class="token keyword">const</span> google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>MethodDescriptor<span class="token operator">*</span> method<span class="token punctuation">,</span>
+                         google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>RpcController<span class="token operator">*</span> controller_base<span class="token punctuation">,</span>
+                         <span class="token keyword">const</span> google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>Message<span class="token operator">*</span> request<span class="token punctuation">,</span>
+                         google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>Message<span class="token operator">*</span> response<span class="token punctuation">,</span>
+                         google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>Closure<span class="token operator">*</span> done<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  cntl<span class="token operator">-></span><span class="token function">IssueRPC</span><span class="token punctuation">(</span>start_send_real_us<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>done <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// MUST wait for response when sending synchronous RPC. It will</span>
+    <span class="token comment">// be woken up by callback when RPC finishes (succeeds or still</span>
+    <span class="token comment">// fails after retry)</span>
+    <span class="token function">Join</span><span class="token punctuation">(</span>correlation_id<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 等待 correlation_id 销毁</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>cntl<span class="token operator">-></span>_span<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      cntl<span class="token operator">-></span><span class="token function">SubmitSpan</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    cntl<span class="token operator">-></span><span class="token function">OnRPCEnd</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span><span class="token function">gettimeofday_us</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>当请求成功收到回复时，会按照协议调用对应的处理函数，例如 <code>baidu_std</code> 会调用 <code>ProcessRpcResponse</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// baidu_rpc_protocol.cpp</span>
+<span class="token keyword">void</span> <span class="token function">ProcessRpcResponse</span><span class="token punctuation">(</span>InputMessageBase<span class="token operator">*</span> msg_base<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">int64_t</span> start_parse_us <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token function">cpuwide_time_us</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  DestroyingPtr<span class="token operator">&lt;</span>MostCommonMessage<span class="token operator">></span> <span class="token function">msg</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>MostCommonMessage<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>msg_base<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  RpcMeta meta<span class="token punctuation">;</span>
+  <span class="token comment">// 解析 RPC 元信息</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">ParsePbFromIOBuf</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>meta<span class="token punctuation">,</span> msg<span class="token operator">-></span>meta<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>WARNING<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Fail to parse from response meta"</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 读取 correlation_id</span>
+  <span class="token keyword">const</span> bthread_id_t cid <span class="token operator">=</span> <span class="token punctuation">{</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>meta<span class="token punctuation">.</span><span class="token function">correlation_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+  Controller<span class="token operator">*</span> cntl <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+  <span class="token comment">// 对 correlation_id 加锁</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> rc <span class="token operator">=</span> <span class="token function">bthread_id_lock</span><span class="token punctuation">(</span>cid<span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token keyword">void</span><span class="token operator">*</span><span class="token operator">*</span><span class="token punctuation">)</span><span class="token operator">&amp;</span>cntl<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> saved_error <span class="token operator">=</span> cntl<span class="token operator">-></span><span class="token function">ErrorCode</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  accessor<span class="token punctuation">.</span><span class="token function">OnResponse</span><span class="token punctuation">(</span>cid<span class="token punctuation">,</span> saved_error<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// controller_private_accessor.h</span>
+<span class="token keyword">class</span> <span class="token class-name">ControllerPrivateAccessor</span> <span class="token punctuation">{</span>
+<span class="token keyword">public</span><span class="token operator">:</span>
+    <span class="token keyword">void</span> <span class="token function">OnResponse</span><span class="token punctuation">(</span>CallId id<span class="token punctuation">,</span> <span class="token keyword">int</span> saved_error<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">const</span> Controller<span class="token double-colon punctuation">::</span>CompletionInfo info <span class="token operator">=</span> <span class="token punctuation">{</span> id<span class="token punctuation">,</span> <span class="token boolean">true</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+        _cntl<span class="token operator">-></span><span class="token function">OnVersionedRPCReturned</span><span class="token punctuation">(</span>info<span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">,</span> saved_error<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// controller.cpp</span>
+<span class="token keyword">void</span> <span class="token class-name">Controller</span><span class="token double-colon punctuation">::</span><span class="token function">OnVersionedRPCReturned</span><span class="token punctuation">(</span><span class="token keyword">const</span> CompletionInfo<span class="token operator">&amp;</span> info<span class="token punctuation">,</span>
+                                        <span class="token keyword">bool</span> new_bthread<span class="token punctuation">,</span> <span class="token keyword">int</span> saved_error<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token function">bthread_id_about_to_destroy</span><span class="token punctuation">(</span>info<span class="token punctuation">.</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 唤醒 join</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>当 RPC 过程中发生错误时，比如 <code>Socket</code> 的 <code>KeepWrite</code> 写入失败：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// socket.cpp</span>
+<span class="token keyword">void</span> <span class="token class-name">Socket</span><span class="token double-colon punctuation">::</span><span class="token function">ReturnFailedWriteRequest</span><span class="token punctuation">(</span>Socket<span class="token double-colon punctuation">::</span>WriteRequest<span class="token operator">*</span> p<span class="token punctuation">,</span> <span class="token keyword">int</span> error_code<span class="token punctuation">,</span>
+                                      <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> error_text<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>p<span class="token operator">-></span><span class="token function">reset_pipelined_count_and_user_message</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CancelUnwrittenBytes</span><span class="token punctuation">(</span>p<span class="token operator">-></span>data<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  p<span class="token operator">-></span>data<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// data is probably not written.</span>
+  <span class="token keyword">const</span> bthread_id_t id_wait <span class="token operator">=</span> p<span class="token operator">-></span>id_wait<span class="token punctuation">;</span>
+  butil<span class="token double-colon punctuation">::</span><span class="token function">return_object</span><span class="token punctuation">(</span>p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>id_wait <span class="token operator">!=</span> INVALID_BTHREAD_ID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// id_wait 也就是上面的 correlation_id，bthread_id_error2 会进行上锁，并调用对应的错误处理函数，也就是初始化赋值的 HandleSocketFailed</span>
+    <span class="token function">bthread_id_error2</span><span class="token punctuation">(</span>id_wait<span class="token punctuation">,</span> error_code<span class="token punctuation">,</span> error_text<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// controller.cpp</span>
+<span class="token keyword">int</span> <span class="token class-name">Controller</span><span class="token double-colon punctuation">::</span><span class="token function">HandleSocketFailed</span><span class="token punctuation">(</span>bthread_id_t id<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> data<span class="token punctuation">,</span> <span class="token keyword">int</span> error_code<span class="token punctuation">,</span>
+                                   <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> error_text<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// 从 data 中回复 controller 指针</span>
+  Controller<span class="token operator">*</span> cntl <span class="token operator">=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>Controller<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>cntl<span class="token operator">-></span><span class="token function">is_used_by_rpc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Cannot destroy the call_id before RPC otherwise an async RPC</span>
+    <span class="token comment">// using the controller cannot be joined and related resources may be</span>
+    <span class="token comment">// destroyed before done->Run() running in another bthread.</span>
+    <span class="token comment">// The error set will be detected in Channel::CallMethod and fail</span>
+    <span class="token comment">// the RPC.</span>
+    cntl<span class="token operator">-></span><span class="token function">SetFailed</span><span class="token punctuation">(</span>error_code<span class="token punctuation">,</span> <span class="token string">"Cancel call_id=%"</span> PRId64
+                    <span class="token string">" before CallMethod()"</span><span class="token punctuation">,</span> id<span class="token punctuation">.</span>value<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token function">bthread_id_unlock</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> saved_error <span class="token operator">=</span> cntl<span class="token operator">-></span><span class="token function">ErrorCode</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>error_code <span class="token operator">==</span> ERPCTIMEDOUT<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    cntl<span class="token operator">-></span><span class="token function">SetFailed</span><span class="token punctuation">(</span>error_code<span class="token punctuation">,</span> <span class="token string">"Reached timeout=%"</span> PRId64 <span class="token string">"ms @%s"</span><span class="token punctuation">,</span>
+                    cntl<span class="token operator">-></span><span class="token function">timeout_ms</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                    butil<span class="token double-colon punctuation">::</span><span class="token function">endpoint2str</span><span class="token punctuation">(</span>cntl<span class="token operator">-></span><span class="token function">remote_side</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>error_code <span class="token operator">==</span> EBACKUPREQUEST<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    cntl<span class="token operator">-></span><span class="token function">SetFailed</span><span class="token punctuation">(</span>error_code<span class="token punctuation">,</span> <span class="token string">"Reached backup timeout=%"</span> PRId64 <span class="token string">"ms @%s"</span><span class="token punctuation">,</span>
+                    cntl<span class="token operator">-></span><span class="token function">backup_request_ms</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                    butil<span class="token double-colon punctuation">::</span><span class="token function">endpoint2str</span><span class="token punctuation">(</span>cntl<span class="token operator">-></span><span class="token function">remote_side</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>error_text<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    cntl<span class="token operator">-></span><span class="token function">SetFailed</span><span class="token punctuation">(</span>error_code<span class="token punctuation">,</span> <span class="token string">"%s"</span><span class="token punctuation">,</span> error_text<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    cntl<span class="token operator">-></span><span class="token function">SetFailed</span><span class="token punctuation">(</span>error_code<span class="token punctuation">,</span> <span class="token string">"%s @%s"</span><span class="token punctuation">,</span> <span class="token function">berror</span><span class="token punctuation">(</span>error_code<span class="token punctuation">)</span><span class="token punctuation">,</span>
+                    butil<span class="token double-colon punctuation">::</span><span class="token function">endpoint2str</span><span class="token punctuation">(</span>cntl<span class="token operator">-></span><span class="token function">remote_side</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  CompletionInfo info <span class="token operator">=</span> <span class="token punctuation">{</span> id<span class="token punctuation">,</span> <span class="token boolean">false</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+  cntl<span class="token operator">-></span><span class="token function">OnVersionedRPCReturned</span><span class="token punctuation">(</span>info<span class="token punctuation">,</span> <span class="token boolean">true</span><span class="token punctuation">,</span> saved_error<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 结束</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>correlation_id</code> 也会用作超时的处理：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// channel.cpp</span>
+<span class="token keyword">void</span> <span class="token class-name">Channel</span><span class="token double-colon punctuation">::</span><span class="token function">CallMethod</span><span class="token punctuation">(</span><span class="token keyword">const</span> google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>MethodDescriptor<span class="token operator">*</span> method<span class="token punctuation">,</span>
+                         google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>RpcController<span class="token operator">*</span> controller_base<span class="token punctuation">,</span>
+                         <span class="token keyword">const</span> google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>Message<span class="token operator">*</span> request<span class="token punctuation">,</span>
+                         google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>Message<span class="token operator">*</span> response<span class="token punctuation">,</span>
+                         google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>Closure<span class="token operator">*</span> done<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token comment">// Setup timer for RPC timetout</span>
+
+  <span class="token comment">// _deadline_us is for truncating _connect_timeout_ms</span>
+  cntl<span class="token operator">-></span>_deadline_us <span class="token operator">=</span> cntl<span class="token operator">-></span><span class="token function">timeout_ms</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">*</span> <span class="token number">1000L</span> <span class="token operator">+</span> start_send_real_us<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> rc <span class="token operator">=</span> <span class="token function">bthread_timer_add</span><span class="token punctuation">(</span>
+    <span class="token operator">&amp;</span>cntl<span class="token operator">-></span>_timeout_id<span class="token punctuation">,</span>
+    butil<span class="token double-colon punctuation">::</span><span class="token function">microseconds_to_timespec</span><span class="token punctuation">(</span>cntl<span class="token operator">-></span>_deadline_us<span class="token punctuation">)</span><span class="token punctuation">,</span>
+    HandleTimeout<span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token keyword">void</span><span class="token operator">*</span><span class="token punctuation">)</span>correlation_id<span class="token punctuation">.</span>value<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 参数使用 correlation_id 的值</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 超时时调用 HandleTimeout</span>
+<span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">HandleTimeout</span><span class="token punctuation">(</span><span class="token keyword">void</span><span class="token operator">*</span> arg<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    bthread_id_t correlation_id <span class="token operator">=</span> <span class="token punctuation">{</span> <span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">)</span>arg <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token function">bthread_id_error</span><span class="token punctuation">(</span>correlation_id<span class="token punctuation">,</span> ERPCTIMEDOUT<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 继而调用 HandleSocketFailed</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// RPC 结束时会删除对应的定时器</span>
+<span class="token keyword">void</span> <span class="token class-name">Controller</span><span class="token double-colon punctuation">::</span><span class="token function">EndRPC</span><span class="token punctuation">(</span><span class="token keyword">const</span> CompletionInfo<span class="token operator">&amp;</span> info<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>_timeout_id <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">bthread_timer_del</span><span class="token punctuation">(</span>_timeout_id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    _timeout_id <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/bthread_id.md">&quot;bRPC bthread_id&quot;, <em>incubator-brpc</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>

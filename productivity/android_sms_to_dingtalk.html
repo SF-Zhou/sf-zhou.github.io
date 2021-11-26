@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Android 备用机短信转发 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Android 备用机短信转发 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2018.07.13 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>之前的移动号用了七年，一时没法换，也舍不得换，很多短信还是会发到上面。然而移动的流量价格仍然处于 5-30 的水平，再加上工作的地方换了城市，所以新办了一张联通卡。无奈 iPhone 只能插入一张卡，笔者又不想随身携带两个手机，故而需要一个高可用并且安全的短信转发方案。</p>
+<p>整理需求如下：手头上有一台安卓备用机，插入了以前使用的移动卡；iPhone 上使用新办的联通卡；安卓备用机上收到的短信需要及时地、安全地转发到 iPhone，并且转发的成本要尽可能低，最好有短信过滤功能。</p>
+<h3 id="调研" tabindex="-1"><a href="#%E8%B0%83%E7%A0%94">调研</a></h3>
+<p>在网上搜索已有的方案，整理如下：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">方案名</th>
+<th style="text-align:center">简介</th>
+<th style="text-align:center">成本</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">短信转移</td>
+<td style="text-align:center">由运营商提供，类似呼叫转移</td>
+<td style="text-align:center">0.1元 / 条</td>
+</tr>
+<tr>
+<td style="text-align:center">IFTTT</td>
+<td style="text-align:center">如果收到短信，则转发邮件或 Notification</td>
+<td style="text-align:center">流量</td>
+</tr>
+<tr>
+<td style="text-align:center"><a href="http://a.app.qq.com/o/simple.jsp?pkgname=com.lvyatech.wxapp.smstowx">绿芽短信转发微信</a></td>
+<td style="text-align:center">成熟的 APP 方案，配置更简单，不开源</td>
+<td style="text-align:center">0.01元 / 条 + 流量</td>
+</tr>
+<tr>
+<td style="text-align:center"><a href="http://app.mi.com/details?id=com.cozylife.smshelper">双卡助手</a></td>
+<td style="text-align:center">免费的 APP 方案，配置灵活，不开源</td>
+<td style="text-align:center">流量</td>
+</tr>
+<tr>
+<td style="text-align:center"><a href="https://github.com/HaoFeiWang/MessageRelayer">短信助手</a></td>
+<td style="text-align:center">免费 APP 方案，转发短信或邮件，开源</td>
+<td style="text-align:center">0.1 元 / 条或流量</td>
+</tr>
+</tbody>
+</table>
+<p>短信转移因为价格的原因 PASS；而 IFTTT 经过测试，无法在笔者的备用机（魅蓝 X）上正常工作，PASS；而绿芽短信转发微信和双卡助手经过测试，均可正常使用，但因为不开源，仍然担心其安全性；最后一个短信助手，转发短信成本太高，而转发邮件笔者担心其成功率。本来想把这个开源方案魔改一下，将发送部分换成 HTTP Request，然而因为没有安卓开发经验，魔改失败了[捂脸]。</p>
+<p>理想中的方案应该是一个开源的，然后通过 HTTP Request 直接给 iPhone 发推送。By the way，目前找到三个可用的 HTTP Request 转推送的方案：</p>
+<ol>
+<li><a href="https://open-doc.dingtalk.com/docs/doc.htm?treeId=257&amp;articleId=105735&amp;docType=1">钉钉机器人</a>，可以推送到钉钉群中；</li>
+<li><a href="http://sc.ftqq.com/3.version">Server 酱</a>，可以推送到微信公众号；</li>
+<li><a href="https://ifttt.com/maker_webhooks">IFTTT Webhooks</a>，可以推送到 IFTTT 的 App 上。</li>
+</ol>
+<p>最后，考虑到安全性和可拓展性，还是自己写代码好了[捂脸]</p>
+<h3 id="开发" tabindex="-1"><a href="#%E5%BC%80%E5%8F%91">开发</a></h3>
+<p>首先，学习一下 Android 开发的基本流程。推荐直接看 <a href="https://developer.android.com/training/basics/firstapp/">Google 的官方文档</a>，已经有中文版了（虽然是机翻的感觉）。学习完 Build your first app 之后，会对 Android 中的 Activity、Layout 和 Intent 有一个初步的认识。</p>
+<p>再来，就是搜索现有的短信拦截方案。笔者在 GitHub 上找到了一个可用的方案：<a href="https://github.com/sasidhar678/android-sms-listener">android-sms-listener</a>。仿照其代码编写 Listener，并进行简单的测试，确认 OK。</p>
+<p>然后，需要将拦截到的短信通过 HTTP Request 给 iPhone 发推送。这里选择的推送方案是钉钉机器人。Android 上推荐的 HTTP Library 是 <a href="https://developer.android.com/training/volley/">Volley</a>，如果感觉看文档比较慢，可以直接在 YouTube 上找<a href="https://youtu.be/9GeW3UoEnDw">实践视频</a>，对初学者来说上手会更快一些。</p>
+<p>最后，整合加测试，做成 <a href="https://github.com/FebruaryBreeze/SMStoDingTalk">App</a>，如下。界面很简陋，在文本框里填入钉钉机器人的 Token，点击 SET 按钮即可。</p>
+<figure tabindex="1"><a href="../images/94bedf98b7e142ca919eb5d7e3cb0531.png"><img src="../images/94bedf98b7e142ca919eb5d7e3cb0531.png" alt=""></a></figure>
+<p>值得注意的是，需要给 App 网络访问和读取短信的权限。另外需要将软件加入电源管理和加速的白名单中。这几步可以参考绿芽短信转发微信中的教程。</p>
+<h3 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
+<p>当前的 App 是十分简陋的，但好在可用，后期会加入过滤等功能。软件在 GitHub 上开源，<a href="https://github.com/FebruaryBreeze/SMStoDingTalk">点击此处查看代码</a>。</p>
+<p>不提供 APK 文件。如果你觉得 APK 就可以，那直接使用文中提供的两个闭源方案就好，不用折腾这个[捂脸]。</p>
+<p>最后 Android 水真深。比如魅族的 Flyme 系统，6 代之后不允许第三方 App 读取带有验证码字样的短信，为了这个特地把系统降级到 5 了。当然这个是个好特性，更安全，只是不适合当前的场景。</p>
+<p>如果你的备用机是 iPhone 的话，其实直接用短信设置里的 <code>信息转发</code> 。其使用流量完成多苹果设备的短信同步，高可用并且配置相当容易：登录同一个 Apple ID 即可[捂脸]</p>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>

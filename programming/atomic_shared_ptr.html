@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>C++ Lock-free Atomic Shared Pointer | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> C++ Lock-free Atomic Shared Pointer </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2020.06.14 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-shared-pointer" tabindex="-1"><a href="#1.-shared-pointer">1. Shared Pointer</a></h3>
+<p>使用原子量引用计数实现一个简易的共享指针：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">ReferenceCount</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">ReferenceCount</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> ptr<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">ptr_</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>ptr<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">cnt_</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  T <span class="token operator">*</span><span class="token function">Ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> ptr_<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  ReferenceCount <span class="token operator">*</span><span class="token function">Ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token operator">++</span>cnt_<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">Deref</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">--</span>cnt_ <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">delete</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> ptr_<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>atomic_uint32_t cnt_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">SharedPtr</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">SharedPtr</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> ptr <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span>
+      <span class="token operator">:</span> <span class="token function">rc_</span><span class="token punctuation">(</span><span class="token keyword">new</span> <span class="token generic-function"><span class="token function">ReferenceCount</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>ptr<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token operator">~</span><span class="token function">SharedPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> rc_<span class="token operator">-></span><span class="token function">Deref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  T <span class="token operator">*</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rc_<span class="token operator">-></span><span class="token function">Ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">Store</span><span class="token punctuation">(</span><span class="token keyword">const</span> SharedPtr <span class="token operator">&amp;</span>other<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> old <span class="token operator">=</span> rc_<span class="token punctuation">;</span>
+    rc_ <span class="token operator">=</span> other<span class="token punctuation">.</span><span class="token function">Copy</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    old<span class="token operator">-></span><span class="token function">Deref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  ReferenceCount<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span><span class="token function">Copy</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rc_<span class="token operator">-></span><span class="token function">Ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  ReferenceCount<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span>rc_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">A</span><span class="token punctuation">(</span><span class="token keyword">int</span> value<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">value_</span><span class="token punctuation">(</span>value<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"A("</span> <span class="token operator">&lt;&lt;</span> value_ <span class="token operator">&lt;&lt;</span> <span class="token string">")"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token operator">~</span><span class="token function">A</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"~A("</span> <span class="token operator">&lt;&lt;</span> value_ <span class="token operator">&lt;&lt;</span> <span class="token string">")"</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">int</span> <span class="token function">Value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> value_<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">int</span> value_ <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  SharedPtr<span class="token operator">&lt;</span>A<span class="token operator">></span> a<span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>a<span class="token punctuation">.</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  SharedPtr<span class="token operator">&lt;</span>A<span class="token operator">></span> <span class="token function">b</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_unique</span><span class="token generic class-name"><span class="token operator">&lt;</span>A<span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token number">7</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>b<span class="token punctuation">.</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  A <span class="token operator">&amp;</span>r <span class="token operator">=</span> <span class="token operator">*</span>b<span class="token punctuation">.</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>r<span class="token punctuation">.</span><span class="token function">Value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">7</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  a<span class="token punctuation">.</span><span class="token function">Store</span><span class="token punctuation">(</span>b<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>a<span class="token punctuation">.</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>a<span class="token punctuation">.</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">Value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">7</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  b<span class="token punctuation">.</span><span class="token function">Store</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">SharedPtr</span><span class="token generic class-name"><span class="token operator">&lt;</span>A<span class="token operator">></span></span></span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_unique</span><span class="token generic class-name"><span class="token operator">&lt;</span>A<span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token number">9</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>b<span class="token punctuation">.</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>b<span class="token punctuation">.</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">Value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">9</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  a<span class="token punctuation">.</span><span class="token function">Store</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">SharedPtr</span><span class="token generic class-name"><span class="token operator">&lt;</span>A<span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>a<span class="token punctuation">.</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>标准库中的 <code>std::shared_ptr</code> 的实现与之类似。仔细观察可以发现 <code>ReferenceCount</code> 是线程安全的，无论是 <code>Ref</code> 还是 <code>Unref</code>，使用原子量都可以保证计数准确，并且有且仅有一次析构。但 <code>SharedPtr</code> 中对 <code>rc_</code> 的操作并不是线程安全的，例如两个线程同时执行 <code>Store</code>，可能会对同一个 <code>rc_</code> 对象重复执行两次 <code>Deref</code>。所以只能支持单线程写或多线程读。</p>
+<h3 id="2.-atomic-shared-pointer" tabindex="-1"><a href="#2.-atomic-shared-pointer">2. Atomic Shared Pointer</a></h3>
+<p>如果希望线程安全，最简单的方案自然是加锁。可以在 <code>SharedPtr</code> 的 <code>Load</code> / <code>Store</code> / <code>Copy</code> 函数中加自旋锁或互斥锁，标准库也是这样实现的，但显然锁的开销有点大。</p>
+<p>仔细分析这里的 <code>Store</code> 的过程，一来需要将原先的计数 -1，二来需要从新计数中复制指针并 +1 计数，如果可以原子化的实现这一步骤，就可以实现无锁的共享指针。直觉地写出如下的代码：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">SharedPtr</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">SharedPtr</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> ptr <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    rc_<span class="token punctuation">.</span><span class="token function">store</span><span class="token punctuation">(</span><span class="token keyword">new</span> <span class="token generic-function"><span class="token function">ReferenceCount</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>ptr<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token operator">~</span><span class="token function">SharedPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> rc_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">Deref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  T <span class="token operator">*</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rc_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">Ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">Store</span><span class="token punctuation">(</span><span class="token keyword">const</span> SharedPtr <span class="token operator">&amp;</span>other<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> copy <span class="token operator">=</span> other<span class="token punctuation">.</span>rc_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">Ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> old <span class="token operator">=</span> rc_<span class="token punctuation">.</span><span class="token function">exchange</span><span class="token punctuation">(</span>copy<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    old<span class="token operator">-></span><span class="token function">Deref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  std<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span>ReferenceCount<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span><span class="token operator">></span> rc_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><a href="https://wandbox.org/permlink/cnBs2UTDDVDCKFIK">然而随意地多线程跑下 <code>Store</code>，会发现这段代码是不靠谱的</a>。仔细分析 <code>Store</code> 的过程，可以发现 <code>other.rc_.load()-&gt;Ref()</code> 并不是原子的。当一个线程完成 <code>other.rc_.load()</code> 后，可能另一个线程执行 <code>old-&gt;Deref()</code>，此时引用计数对象已经完成析构，也就没法再执行后面的 <code>Ref</code> 操作。这里的 <code>Load</code> 也是如此。换句话说，这里需要保证计数对象存活地情况下执行 <code>Ref()</code>。</p>
+<p>仔细思考下，这里无法基于可能被析构的 <code>rc_</code> 做引用计数的原子加。一个可行的方案是增加本地引用计数。除了 <code>rc_</code> 指向的全局引用计数外，再增加一个本地引用计数变量。在 <code>Load</code> 时首先原子地增加本地引用计数，并在 <code>Release</code> 时删去。那么如何使得 <code>rc_</code> 也能感知到本地引用计数的存在、不至于提前“自杀”呢？一个简单粗暴的方法是预支。首先在 <code>rc_</code> 指向的全局引用计数上增加一个大计数，用来表示共享指针提前预支的引用计数量，保证它不会因为外界的原因先析构掉。后面每次 <code>Load</code> 的时候，从预支的计数中取出，CAS 更新本地计数剩余量，最后 <code>Release</code> 时再减去剩下的预支计数量。</p>
+<p>本地引用计数如果使用独立的变量存储，就需要使用 128 位的 CAS 操作了，但这个操作是很低效的。好在 x64 平台上，指针的高 16 位是全 0 的，刚好可以用来放本地引用计数，也就可以直接使用 64 位的 CAS 操作了。这也就是 <code>folly</code> 中的无锁共享指针的实现方法，简化实现如下：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">ReferenceCount</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">ReferenceCount</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> ptr<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">ptr_</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>ptr<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">cnt_</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  T <span class="token operator">*</span><span class="token function">Ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> ptr_<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  ReferenceCount <span class="token operator">*</span><span class="token function">Ref</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> cnt <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    cnt_<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span>cnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">Deref</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> cnt <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>cnt_<span class="token punctuation">.</span><span class="token function">fetch_sub</span><span class="token punctuation">(</span>cnt<span class="token punctuation">)</span> <span class="token operator">==</span> cnt<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">delete</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> ptr_<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>atomic_uint32_t cnt_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">AtomicSharedPtr</span><span class="token punctuation">;</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">SharedPtr</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">SharedPtr</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> ptr <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span>
+      <span class="token operator">:</span> <span class="token function">rc_</span><span class="token punctuation">(</span><span class="token keyword">new</span> <span class="token generic-function"><span class="token function">ReferenceCount</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>ptr<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token operator">~</span><span class="token function">SharedPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> rc_<span class="token operator">-></span><span class="token function">Deref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  T <span class="token operator">*</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rc_<span class="token operator">-></span><span class="token function">Ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">Store</span><span class="token punctuation">(</span><span class="token keyword">const</span> SharedPtr <span class="token operator">&amp;</span>other<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> old <span class="token operator">=</span> rc_<span class="token punctuation">;</span>
+    rc_ <span class="token operator">=</span> other<span class="token punctuation">.</span><span class="token function">Copy</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    old<span class="token operator">-></span><span class="token function">Deref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token function">SharedPtr</span><span class="token punctuation">(</span>ReferenceCount<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span>rc<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">rc_</span><span class="token punctuation">(</span>rc<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+  <span class="token keyword">friend</span> <span class="token keyword">class</span> <span class="token class-name">AtomicSharedPtr</span><span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token punctuation">;</span>
+
+  ReferenceCount<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span><span class="token function">Copy</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> rc_<span class="token operator">-></span><span class="token function">Ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  ReferenceCount<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span>rc_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">AtomicSharedPtr</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token operator">~</span><span class="token function">AtomicSharedPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">Release</span><span class="token punctuation">(</span>rc_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  SharedPtr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token generic-function"><span class="token function">SharedPtr</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token function">Acquire</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">Store</span><span class="token punctuation">(</span>SharedPtr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">&amp;</span>ptr<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    ptr<span class="token punctuation">.</span>rc_<span class="token operator">-></span><span class="token function">Ref</span><span class="token punctuation">(</span>kCnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> old <span class="token operator">=</span> rc_<span class="token punctuation">.</span><span class="token function">exchange</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">)</span>ptr<span class="token punctuation">.</span>rc_ <span class="token operator">|</span> <span class="token punctuation">(</span>kCnt <span class="token operator">&lt;&lt;</span> <span class="token number">48</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">Release</span><span class="token punctuation">(</span>old<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  ReferenceCount<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span><span class="token function">Acquire</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">uint64_t</span> local <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token keyword">do</span> <span class="token punctuation">{</span>
+      local <span class="token operator">=</span> rc_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token operator">!</span>rc_<span class="token punctuation">.</span><span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>local<span class="token punctuation">,</span> local <span class="token operator">-</span> <span class="token punctuation">(</span><span class="token number">1ull</span> <span class="token operator">&lt;&lt;</span> <span class="token number">48</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>ReferenceCount<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>local <span class="token operator">&amp;</span> <span class="token punctuation">(</span><span class="token operator">-</span><span class="token number">1ull</span> <span class="token operator">>></span> <span class="token number">16</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">Release</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> local<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>local <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">uint32_t</span> local_cnt <span class="token operator">=</span> <span class="token punctuation">(</span>local <span class="token operator">>></span> <span class="token number">48</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>ReferenceCount<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>local <span class="token operator">&amp;</span> <span class="token punctuation">(</span><span class="token operator">-</span><span class="token number">1ull</span> <span class="token operator">>></span> <span class="token number">16</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+        <span class="token operator">-></span><span class="token function">Deref</span><span class="token punctuation">(</span>local_cnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> <span class="token keyword">uint64_t</span> kCnt <span class="token operator">=</span> <span class="token number">0x2000</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span> rc_<span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+std<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int32_t</span><span class="token operator">></span> cnt<span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">A</span><span class="token punctuation">(</span><span class="token keyword">int</span> value<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">value_</span><span class="token punctuation">(</span>value<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">++</span>cnt<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token operator">~</span><span class="token function">A</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">--</span>cnt<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">int</span> <span class="token function">Value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> value_<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">int</span> value_ <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">constexpr</span> <span class="token keyword">uint32_t</span> N <span class="token operator">=</span> <span class="token number">1000000</span><span class="token punctuation">;</span>
+  <span class="token keyword">constexpr</span> <span class="token keyword">uint32_t</span> T <span class="token operator">=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+
+  AtomicSharedPtr<span class="token operator">&lt;</span>A<span class="token operator">></span> x<span class="token punctuation">;</span>
+  AtomicSharedPtr<span class="token operator">&lt;</span>A<span class="token operator">></span> y<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>vector<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>thread<span class="token operator">></span> threads<span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> t <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> t <span class="token operator">&lt;</span> T<span class="token punctuation">;</span> <span class="token operator">++</span>t<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    threads<span class="token punctuation">.</span><span class="token function">emplace_back</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token operator">&amp;</span><span class="token punctuation">]</span> <span class="token punctuation">{</span>
+      <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> N<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        SharedPtr<span class="token operator">&lt;</span>A<span class="token operator">></span> <span class="token function">a</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_unique</span><span class="token generic class-name"><span class="token operator">&lt;</span>A<span class="token operator">></span></span></span><span class="token punctuation">(</span>t <span class="token operator">*</span> N <span class="token operator">+</span> i<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        x<span class="token punctuation">.</span><span class="token function">Store</span><span class="token punctuation">(</span>a<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        SharedPtr<span class="token operator">&lt;</span>A<span class="token operator">></span> b <span class="token operator">=</span> x<span class="token punctuation">.</span><span class="token function">Load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        y<span class="token punctuation">.</span><span class="token function">Store</span><span class="token punctuation">(</span>b<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">auto</span> <span class="token operator">&amp;</span>thread <span class="token operator">:</span> threads<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    thread<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> cnt<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">1</span> <span class="token operator">?</span> <span class="token number">0</span> <span class="token operator">:</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><a href="https://wandbox.org/permlink/DztCmhW4h7XxnpkZ">点击此处查看线上运行结果</a>。</p>
+<p>如果本地引用计数不足了怎么办？继续预支一笔就好。设定一个阈值，小于阈值时就预支一笔，并 CAS 更新本地引用计数，使其始终保持足够的余额，可参考文献 3 中 <code>folly</code> 的实现。</p>
+<p>以下代码截取自 <code>folly</code>，删除了 <code>folly</code> 本身的一些调用，可直接在 C++ 11 中使用：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;cassert></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;climits></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;memory></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;type_traits></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;vector></span></span>
+
+<span class="token comment">// copy from</span>
+<span class="token comment">// https://github.com/facebook/folly/blob/master/folly/concurrency/detail/AtomicSharedPtr-detail.h</span>
+<span class="token comment">// https://github.com/facebook/folly/blob/master/folly/PackedSyncPtr.h</span>
+<span class="token comment">// https://github.com/facebook/folly/blob/master/folly/concurrency/AtomicSharedPtr.h</span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">if</span> <span class="token expression"><span class="token operator">!</span>__x86_64__</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">error</span> <span class="token string">"PackedSyncPtr is x64 specific code."</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span></span>
+
+<span class="token keyword">namespace</span> std <span class="token punctuation">{</span>
+<span class="token keyword">namespace</span> detail <span class="token punctuation">{</span>
+
+<span class="token comment">// This implementation is specific to libstdc++, now accepting</span>
+<span class="token comment">// diffs for other libraries.</span>
+
+<span class="token comment">// Specifically, this adds support for two things:</span>
+<span class="token comment">// 1) incrementing/decrementing the shared count by more than 1 at a time</span>
+<span class="token comment">// 2) Getting the thing the shared_ptr points to, which may be different from</span>
+<span class="token comment">//    the aliased pointer.</span>
+
+<span class="token keyword">class</span> <span class="token class-name">shared_ptr_internals</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token punctuation">,</span> <span class="token keyword">typename</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> Args<span class="token operator">></span>
+  <span class="token keyword">static</span> std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token function">make_ptr</span><span class="token punctuation">(</span>Args <span class="token operator">&amp;&amp;</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span> args<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_shared</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">forward</span><span class="token generic class-name"><span class="token operator">&lt;</span>Args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>args<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">typedef</span> std<span class="token double-colon punctuation">::</span>__shared_count<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>_S_atomic<span class="token operator">></span> shared_count<span class="token punctuation">;</span>
+  <span class="token keyword">typedef</span> std<span class="token double-colon punctuation">::</span>_Sp_counted_base<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>_S_atomic<span class="token operator">></span> counted_base<span class="token punctuation">;</span>
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+  <span class="token keyword">using</span> CountedPtr <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token punctuation">;</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+  <span class="token keyword">static</span> counted_base <span class="token operator">*</span><span class="token function">get_counted_base</span><span class="token punctuation">(</span><span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">&amp;</span>bar<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">inc_shared_count</span><span class="token punctuation">(</span>counted_base <span class="token operator">*</span>base<span class="token punctuation">,</span> <span class="token keyword">long</span> count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+  <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">release_shared</span><span class="token punctuation">(</span>counted_base <span class="token operator">*</span>base<span class="token punctuation">,</span> <span class="token keyword">long</span> count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+  <span class="token keyword">static</span> T <span class="token operator">*</span><span class="token function">get_shared_ptr</span><span class="token punctuation">(</span>counted_base <span class="token operator">*</span>base<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+  <span class="token keyword">static</span> T <span class="token operator">*</span><span class="token function">release_ptr</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">&amp;</span>p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+  <span class="token keyword">static</span> std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token function">get_shared_ptr_from_counted_base</span><span class="token punctuation">(</span>counted_base <span class="token operator">*</span>base<span class="token punctuation">,</span>
+                                                             <span class="token keyword">bool</span> inc <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token comment">/* Accessors for private members using explicit template instantiation */</span>
+  <span class="token keyword">struct</span> <span class="token class-name">access_shared_ptr</span> <span class="token punctuation">{</span>
+    <span class="token keyword">typedef</span> shared_count std<span class="token double-colon punctuation">::</span>__shared_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>_S_atomic<span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token operator">*</span>type<span class="token punctuation">;</span>
+    <span class="token keyword">friend</span> type <span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_shared_ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">struct</span> <span class="token class-name">access_base</span> <span class="token punctuation">{</span>
+    <span class="token keyword">typedef</span> counted_base <span class="token operator">*</span>shared_count<span class="token double-colon punctuation">::</span><span class="token operator">*</span>type<span class="token punctuation">;</span>
+    <span class="token keyword">friend</span> type <span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_base<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">struct</span> <span class="token class-name">access_use_count</span> <span class="token punctuation">{</span>
+    <span class="token keyword">typedef</span> _Atomic_word counted_base<span class="token double-colon punctuation">::</span><span class="token operator">*</span>type<span class="token punctuation">;</span>
+    <span class="token keyword">friend</span> type <span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_use_count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">struct</span> <span class="token class-name">access_weak_count</span> <span class="token punctuation">{</span>
+    <span class="token keyword">typedef</span> _Atomic_word counted_base<span class="token double-colon punctuation">::</span><span class="token operator">*</span>type<span class="token punctuation">;</span>
+    <span class="token keyword">friend</span> type <span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_weak_count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">struct</span> <span class="token class-name">access_counted_ptr_ptr</span> <span class="token punctuation">{</span>
+    <span class="token keyword">typedef</span> <span class="token keyword">const</span> <span class="token keyword">void</span>
+        <span class="token operator">*</span>std<span class="token double-colon punctuation">::</span>_Sp_counted_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>_S_atomic<span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token operator">*</span>type<span class="token punctuation">;</span>
+    <span class="token keyword">friend</span> type <span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_counted_ptr_ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">struct</span> <span class="token class-name">access_shared_ptr_ptr</span> <span class="token punctuation">{</span>
+    <span class="token keyword">typedef</span> <span class="token keyword">const</span> <span class="token keyword">void</span> <span class="token operator">*</span>std<span class="token double-colon punctuation">::</span>__shared_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>_S_atomic<span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token operator">*</span>type<span class="token punctuation">;</span>
+    <span class="token keyword">friend</span> type <span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_shared_ptr_ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">struct</span> <span class="token class-name">access_refcount</span> <span class="token punctuation">{</span>
+    <span class="token keyword">typedef</span> shared_count std<span class="token double-colon punctuation">::</span>__shared_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>_S_atomic<span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token operator">*</span>type<span class="token punctuation">;</span>
+    <span class="token keyword">friend</span> type <span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_refcount<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">Tag</span><span class="token punctuation">,</span> <span class="token keyword">typename</span> <span class="token class-name">Tag</span><span class="token double-colon punctuation">::</span>type M<span class="token operator">></span>
+  <span class="token keyword">struct</span> <span class="token class-name">Rob</span> <span class="token punctuation">{</span>
+    <span class="token keyword">friend</span> <span class="token keyword">typename</span> <span class="token class-name">Tag</span><span class="token double-colon punctuation">::</span>type <span class="token function">fieldPtr</span><span class="token punctuation">(</span>Tag<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> M<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">template</span> <span class="token keyword">struct</span> <span class="token class-name">shared_ptr_internals</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Rob</span><span class="token operator">&lt;</span>
+    shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token class-name">access_shared_ptr</span><span class="token punctuation">,</span>
+    <span class="token operator">&amp;</span>std<span class="token double-colon punctuation">::</span><span class="token class-name">__shared_ptr</span><span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">_S_atomic</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token class-name">_M_refcount</span><span class="token operator">></span></span><span class="token punctuation">;</span>
+<span class="token keyword">template</span> <span class="token keyword">struct</span> <span class="token class-name">shared_ptr_internals</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Rob</span><span class="token operator">&lt;</span>
+    shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token class-name">access_base</span><span class="token punctuation">,</span>
+    <span class="token operator">&amp;</span>shared_ptr_internals<span class="token double-colon punctuation">::</span>shared_count<span class="token double-colon punctuation">::</span><span class="token class-name">_M_pi</span><span class="token operator">></span></span><span class="token punctuation">;</span>
+<span class="token keyword">template</span> <span class="token keyword">struct</span> <span class="token class-name">shared_ptr_internals</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Rob</span><span class="token operator">&lt;</span>
+    shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token class-name">access_use_count</span><span class="token punctuation">,</span>
+    <span class="token operator">&amp;</span>shared_ptr_internals<span class="token double-colon punctuation">::</span>counted_base<span class="token double-colon punctuation">::</span><span class="token class-name">_M_use_count</span><span class="token operator">></span></span><span class="token punctuation">;</span>
+<span class="token keyword">template</span> <span class="token keyword">struct</span> <span class="token class-name">shared_ptr_internals</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Rob</span><span class="token operator">&lt;</span>
+    shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token class-name">access_weak_count</span><span class="token punctuation">,</span>
+    <span class="token operator">&amp;</span>shared_ptr_internals<span class="token double-colon punctuation">::</span>counted_base<span class="token double-colon punctuation">::</span><span class="token class-name">_M_weak_count</span><span class="token operator">></span></span><span class="token punctuation">;</span>
+<span class="token keyword">template</span> <span class="token keyword">struct</span> <span class="token class-name">shared_ptr_internals</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Rob</span><span class="token operator">&lt;</span>
+    shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token class-name">access_counted_ptr_ptr</span><span class="token punctuation">,</span>
+    <span class="token operator">&amp;</span>std<span class="token double-colon punctuation">::</span><span class="token class-name">_Sp_counted_ptr</span><span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">_S_atomic</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token class-name">_M_ptr</span><span class="token operator">></span></span><span class="token punctuation">;</span>
+<span class="token keyword">template</span> <span class="token keyword">struct</span> <span class="token class-name">shared_ptr_internals</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Rob</span><span class="token operator">&lt;</span>
+    shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token class-name">access_shared_ptr_ptr</span><span class="token punctuation">,</span>
+    <span class="token operator">&amp;</span>std<span class="token double-colon punctuation">::</span><span class="token class-name">__shared_ptr</span><span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">_S_atomic</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token class-name">_M_ptr</span><span class="token operator">></span></span><span class="token punctuation">;</span>
+<span class="token keyword">template</span> <span class="token keyword">struct</span> <span class="token class-name">shared_ptr_internals</span><span class="token operator">:</span><span class="token base-clause"><span class="token operator">:</span><span class="token class-name">Rob</span><span class="token operator">&lt;</span>
+    shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token class-name">access_refcount</span><span class="token punctuation">,</span>
+    <span class="token operator">&amp;</span>std<span class="token double-colon punctuation">::</span><span class="token class-name">__shared_ptr</span><span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">_S_atomic</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token class-name">_M_refcount</span><span class="token operator">></span></span><span class="token punctuation">;</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">inline</span> shared_ptr_internals<span class="token double-colon punctuation">::</span>counted_base <span class="token operator">*</span>
+shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token function">get_counted_base</span><span class="token punctuation">(</span><span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">&amp;</span>bar<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// reinterpret_pointer_cast&lt;const void></span>
+  <span class="token comment">// Not quite C++ legal, but explicit template instantiation access to</span>
+  <span class="token comment">// private members requires full type name (i.e. shared_ptr&lt;const void>, not</span>
+  <span class="token comment">// shared_ptr&lt;T>)</span>
+  <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token operator">></span> <span class="token operator">&amp;</span><span class="token function">ptr</span><span class="token punctuation">(</span>
+      <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token operator">></span> <span class="token operator">&amp;</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>bar<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token punctuation">(</span>ptr<span class="token punctuation">.</span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_shared_ptr<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_base<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">void</span> shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token function">inc_shared_count</span><span class="token punctuation">(</span>counted_base <span class="token operator">*</span>base<span class="token punctuation">,</span>
+                                                   <span class="token keyword">long</span> count<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Check that we don't exceed the maximum number of atomic_shared_ptrs.</span>
+  <span class="token comment">// Consider setting EXTERNAL_COUNT lower if this CHECK is hit.</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>base<span class="token operator">-></span><span class="token function">_M_get_use_count</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> count <span class="token operator">&lt;</span> INT_MAX<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  __gnu_cxx<span class="token double-colon punctuation">::</span><span class="token function">__atomic_add_dispatch</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token punctuation">(</span>base<span class="token operator">-></span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_use_count<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                                   count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">inline</span> <span class="token keyword">void</span> shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token function">release_shared</span><span class="token punctuation">(</span>counted_base <span class="token operator">*</span>base<span class="token punctuation">,</span>
+                                                 <span class="token keyword">long</span> count<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// If count == 1, this is equivalent to base->_M_release()</span>
+  <span class="token keyword">auto</span> <span class="token operator">&amp;</span>a <span class="token operator">=</span> base<span class="token operator">-></span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_use_count<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>__gnu_cxx<span class="token double-colon punctuation">::</span><span class="token function">__exchange_and_add_dispatch</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>a<span class="token punctuation">,</span> <span class="token operator">-</span>count<span class="token punctuation">)</span> <span class="token operator">==</span> count<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    base<span class="token operator">-></span><span class="token function">_M_dispose</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">auto</span> <span class="token operator">&amp;</span>b <span class="token operator">=</span> base<span class="token operator">-></span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_weak_count<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>__gnu_cxx<span class="token double-colon punctuation">::</span><span class="token function">__exchange_and_add_dispatch</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>b<span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      base<span class="token operator">-></span><span class="token function">_M_destroy</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">inline</span> T <span class="token operator">*</span>shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token function">get_shared_ptr</span><span class="token punctuation">(</span>counted_base <span class="token operator">*</span>base<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// See if this was a make_shared allocation</span>
+  <span class="token keyword">auto</span> inplace <span class="token operator">=</span> base<span class="token operator">-></span><span class="token function">_M_get_deleter</span><span class="token punctuation">(</span><span class="token keyword">typeid</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>_Sp_make_shared_tag<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>inplace<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token punctuation">(</span>T <span class="token operator">*</span><span class="token punctuation">)</span>inplace<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token comment">// Could also be a _Sp_counted_deleter, but the layout is the same</span>
+  <span class="token keyword">using</span> derived_type <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>_Sp_counted_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>_S_atomic<span class="token operator">></span><span class="token punctuation">;</span>
+  <span class="token keyword">auto</span> ptr <span class="token operator">=</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>derived_type <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>base<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token punctuation">(</span>T <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">(</span>ptr<span class="token operator">-></span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_counted_ptr_ptr<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">inline</span> T <span class="token operator">*</span>shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token function">release_ptr</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">&amp;</span>p<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">auto</span> res <span class="token operator">=</span> p<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token operator">></span> <span class="token operator">&amp;</span><span class="token function">ptr</span><span class="token punctuation">(</span>
+      <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token operator">></span> <span class="token operator">&amp;</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>p<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  ptr<span class="token punctuation">.</span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_shared_ptr_ptr<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+  <span class="token punctuation">(</span>ptr<span class="token punctuation">.</span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_refcount<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_base<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> res<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">inline</span> std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span>
+shared_ptr_internals<span class="token double-colon punctuation">::</span><span class="token function">get_shared_ptr_from_counted_base</span><span class="token punctuation">(</span>counted_base <span class="token operator">*</span>base<span class="token punctuation">,</span>
+                                                       <span class="token keyword">bool</span> inc<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>base<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token operator">></span> newp<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>inc<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">inc_shared_count</span><span class="token punctuation">(</span>base<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  newp<span class="token punctuation">.</span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_shared_ptr_ptr<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token operator">=</span>
+      <span class="token generic-function"><span class="token function">get_shared_ptr</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">void</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>base<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// _M_ptr</span>
+  <span class="token punctuation">(</span>newp<span class="token punctuation">.</span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_refcount<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token operator">*</span><span class="token function">fieldPtr</span><span class="token punctuation">(</span>access_base<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token operator">=</span> base<span class="token punctuation">;</span>
+  <span class="token comment">// reinterpret_pointer_cast&lt;T></span>
+  <span class="token keyword">auto</span> res <span class="token operator">=</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token operator">&amp;</span>newp<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span><span class="token operator">*</span>res<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">class</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">PackedSyncPtr</span> <span class="token punctuation">{</span>
+  <span class="token comment">// This just allows using this class even with T=void.  Attempting</span>
+  <span class="token comment">// to use the operator* or operator[] on a PackedSyncPtr&lt;void> will</span>
+  <span class="token comment">// still properly result in a compile error.</span>
+  <span class="token keyword">typedef</span> <span class="token keyword">typename</span> <span class="token class-name">std</span><span class="token double-colon punctuation">::</span>add_lvalue_reference<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token double-colon punctuation">::</span>type reference<span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">/*
+   * If you default construct one of these, you must call this init()
+   * function before using it.
+   *
+   * (We are avoiding a constructor to ensure gcc allows us to put
+   * this class in packed structures.)
+   */</span>
+  <span class="token keyword">void</span> <span class="token function">init</span><span class="token punctuation">(</span>T <span class="token operator">*</span>initialPtr <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">,</span> <span class="token keyword">uint16_t</span> initialExtra <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> intPtr <span class="token operator">=</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>uintptr_t<span class="token operator">></span></span></span><span class="token punctuation">(</span>initialPtr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span><span class="token punctuation">(</span>intPtr <span class="token operator">>></span> <span class="token number">48</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    data_ <span class="token operator">=</span> intPtr<span class="token punctuation">;</span>
+    <span class="token function">setExtra</span><span class="token punctuation">(</span>initialExtra<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">/*
+   * Sets a new pointer.  You must hold the lock when calling this
+   * function, or else be able to guarantee no other threads could be
+   * using this PackedSyncPtr&lt;>.
+   */</span>
+  <span class="token keyword">void</span> <span class="token function">set</span><span class="token punctuation">(</span>T <span class="token operator">*</span>t<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> intPtr <span class="token operator">=</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>uintptr_t<span class="token operator">></span></span></span><span class="token punctuation">(</span>t<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> shiftedExtra <span class="token operator">=</span> <span class="token function">uintptr_t</span><span class="token punctuation">(</span><span class="token function">extra</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token number">48</span><span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span><span class="token punctuation">(</span>intPtr <span class="token operator">>></span> <span class="token number">48</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    data_ <span class="token operator">=</span> <span class="token punctuation">(</span>intPtr <span class="token operator">|</span> shiftedExtra<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">/*
+   * Get the pointer.
+   *
+   * You can call any of these without holding the lock, with the
+   * normal types of behavior you'll get on x64 from reading a pointer
+   * without locking.
+   */</span>
+  T <span class="token operator">*</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>T <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>data_ <span class="token operator">&amp;</span> <span class="token punctuation">(</span><span class="token operator">-</span><span class="token number">1ull</span> <span class="token operator">>></span> <span class="token number">16</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  T <span class="token operator">*</span><span class="token keyword">operator</span><span class="token operator">-></span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  reference <span class="token keyword">operator</span><span class="token operator">*</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token operator">*</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  reference <span class="token keyword">operator</span><span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>ptrdiff_t i<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">/*
+   * Access extra data stored in unused bytes of the pointer.
+   *
+   * It is ok to call this without holding the lock.
+   */</span>
+  <span class="token keyword">uint16_t</span> <span class="token function">extra</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> data_ <span class="token operator">>></span> <span class="token number">48</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">/*
+   * Don't try to put anything into this that has the high bit set:
+   * that's what we're using for the mutex.
+   *
+   * Don't call this without holding the lock.
+   */</span>
+  <span class="token keyword">void</span> <span class="token function">setExtra</span><span class="token punctuation">(</span><span class="token keyword">uint16_t</span> extra<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span><span class="token punctuation">(</span>extra <span class="token operator">&amp;</span> <span class="token number">0x8000</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> ptr <span class="token operator">=</span> data_ <span class="token operator">&amp;</span> <span class="token punctuation">(</span><span class="token operator">-</span><span class="token number">1ull</span> <span class="token operator">>></span> <span class="token number">16</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    data_ <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token function">uintptr_t</span><span class="token punctuation">(</span>extra<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token number">48</span><span class="token punctuation">)</span> <span class="token operator">|</span> ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  uintptr_t data_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">static_assert</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>is_pod<span class="token operator">&lt;</span>PackedSyncPtr<span class="token operator">&lt;</span><span class="token keyword">void</span><span class="token operator">>></span><span class="token double-colon punctuation">::</span>value<span class="token punctuation">,</span>
+              <span class="token string">"PackedSyncPtr must be kept a POD type."</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">static_assert</span><span class="token punctuation">(</span><span class="token keyword">sizeof</span><span class="token punctuation">(</span>PackedSyncPtr<span class="token operator">&lt;</span><span class="token keyword">void</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">8</span><span class="token punctuation">,</span>
+              <span class="token string">"PackedSyncPtr should be only 8 bytes---something is "</span>
+              <span class="token string">"messed up"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token punctuation">}</span>  <span class="token comment">// namespace detail</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token punctuation">,</span> <span class="token keyword">typename</span> <span class="token class-name">CountedDetail</span> <span class="token operator">=</span> detail<span class="token double-colon punctuation">::</span>shared_ptr_internals<span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">atomic_shared_ptr</span> <span class="token punctuation">{</span>
+  <span class="token keyword">using</span> SharedPtr <span class="token operator">=</span> <span class="token keyword">typename</span> <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token keyword">template</span> CountedPtr<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token punctuation">;</span>
+  <span class="token keyword">using</span> BasePtr <span class="token operator">=</span> <span class="token keyword">typename</span> <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span>counted_base<span class="token punctuation">;</span>
+  <span class="token keyword">using</span> PackedPtr <span class="token operator">=</span> detail<span class="token double-colon punctuation">::</span>PackedSyncPtr<span class="token operator">&lt;</span>BasePtr<span class="token operator">></span><span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">atomic_shared_ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span> <span class="token function">init</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">explicit</span> <span class="token function">atomic_shared_ptr</span><span class="token punctuation">(</span>SharedPtr foo<span class="token punctuation">)</span> <span class="token comment">/* noexcept */</span>
+      <span class="token operator">:</span> <span class="token function">atomic_shared_ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">store</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>foo<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token function">atomic_shared_ptr</span><span class="token punctuation">(</span><span class="token keyword">const</span> atomic_shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+
+  <span class="token operator">~</span><span class="token function">atomic_shared_ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">store</span><span class="token punctuation">(</span><span class="token function">SharedPtr</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token keyword">operator</span><span class="token operator">=</span><span class="token punctuation">(</span>SharedPtr desired<span class="token punctuation">)</span> <span class="token comment">/* noexcept */</span> <span class="token punctuation">{</span>
+    <span class="token function">store</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>desired<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token keyword">operator</span><span class="token operator">=</span><span class="token punctuation">(</span><span class="token keyword">const</span> atomic_shared_ptr<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">is_lock_free</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token comment">// lock free unless more than EXTERNAL_OFFSET threads are</span>
+    <span class="token comment">// contending and they all get unlucky and scheduled out during</span>
+    <span class="token comment">// load().</span>
+    <span class="token comment">//</span>
+    <span class="token comment">// TODO: Could use a lock-free external map to fix this</span>
+    <span class="token comment">// corner case.</span>
+    <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  SharedPtr <span class="token function">load</span><span class="token punctuation">(</span>
+      std<span class="token double-colon punctuation">::</span>memory_order order <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>memory_order_seq_cst<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> local <span class="token operator">=</span> <span class="token function">takeOwnedBase</span><span class="token punctuation">(</span>order<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token function">get_shared_ptr</span><span class="token punctuation">(</span>local<span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">/* implicit */</span> <span class="token keyword">operator</span> <span class="token function">SharedPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">store</span><span class="token punctuation">(</span>SharedPtr n<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>memory_order order <span class="token operator">=</span>
+                              std<span class="token double-colon punctuation">::</span>memory_order_seq_cst<span class="token punctuation">)</span> <span class="token comment">/* noexcept */</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> newptr <span class="token operator">=</span> <span class="token function">get_newptr</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> old <span class="token operator">=</span> ptr_<span class="token punctuation">.</span><span class="token function">exchange</span><span class="token punctuation">(</span>newptr<span class="token punctuation">,</span> order<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">release_external</span><span class="token punctuation">(</span>old<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  SharedPtr <span class="token function">exchange</span><span class="token punctuation">(</span>
+      SharedPtr n<span class="token punctuation">,</span>
+      std<span class="token double-colon punctuation">::</span>memory_order order <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>memory_order_seq_cst<span class="token punctuation">)</span> <span class="token comment">/* noexcept */</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> newptr <span class="token operator">=</span> <span class="token function">get_newptr</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> old <span class="token operator">=</span> ptr_<span class="token punctuation">.</span><span class="token function">exchange</span><span class="token punctuation">(</span>newptr<span class="token punctuation">,</span> order<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    SharedPtr old_ptr<span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>old<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      old_ptr <span class="token operator">=</span> <span class="token function">get_shared_ptr</span><span class="token punctuation">(</span>old<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">release_external</span><span class="token punctuation">(</span>old<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">return</span> old_ptr<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>
+      SharedPtr <span class="token operator">&amp;</span>expected<span class="token punctuation">,</span> <span class="token keyword">const</span> SharedPtr <span class="token operator">&amp;</span>n<span class="token punctuation">,</span>
+      std<span class="token double-colon punctuation">::</span>memory_order mo <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>memory_order_seq_cst<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>expected<span class="token punctuation">,</span> n<span class="token punctuation">,</span> mo<span class="token punctuation">,</span> mo<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">bool</span> <span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>SharedPtr <span class="token operator">&amp;</span>expected<span class="token punctuation">,</span> <span class="token keyword">const</span> SharedPtr <span class="token operator">&amp;</span>n<span class="token punctuation">,</span>
+                             std<span class="token double-colon punctuation">::</span>memory_order success<span class="token punctuation">,</span>
+                             std<span class="token double-colon punctuation">::</span>memory_order failure<span class="token punctuation">)</span> <span class="token comment">/* noexcept */</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> newptr <span class="token operator">=</span> <span class="token function">get_newptr</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    PackedPtr oldptr<span class="token punctuation">,</span> expectedptr<span class="token punctuation">;</span>
+
+    oldptr <span class="token operator">=</span> <span class="token function">takeOwnedBase</span><span class="token punctuation">(</span>success<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">owners_eq</span><span class="token punctuation">(</span>oldptr<span class="token punctuation">,</span> <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">get_counted_base</span><span class="token punctuation">(</span>expected<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      expected <span class="token operator">=</span> <span class="token function">get_shared_ptr</span><span class="token punctuation">(</span>oldptr<span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">release_external</span><span class="token punctuation">(</span>newptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    expectedptr <span class="token operator">=</span> oldptr<span class="token punctuation">;</span>  <span class="token comment">// Need oldptr to release if failed</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>ptr_<span class="token punctuation">.</span><span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>expectedptr<span class="token punctuation">,</span> newptr<span class="token punctuation">,</span> success<span class="token punctuation">,</span> failure<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>oldptr<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">release_external</span><span class="token punctuation">(</span>oldptr<span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>oldptr<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        expected <span class="token operator">=</span> <span class="token function">get_shared_ptr</span><span class="token punctuation">(</span>oldptr<span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        expected <span class="token operator">=</span> <span class="token function">SharedPtr</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token function">release_external</span><span class="token punctuation">(</span>newptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">bool</span> <span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>
+      SharedPtr <span class="token operator">&amp;</span>expected<span class="token punctuation">,</span> SharedPtr <span class="token operator">&amp;&amp;</span>desired<span class="token punctuation">,</span>
+      std<span class="token double-colon punctuation">::</span>memory_order mo <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>memory_order_seq_cst<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>expected<span class="token punctuation">,</span> desired<span class="token punctuation">,</span> mo<span class="token punctuation">,</span> mo<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">bool</span> <span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>SharedPtr <span class="token operator">&amp;</span>expected<span class="token punctuation">,</span> SharedPtr <span class="token operator">&amp;&amp;</span>desired<span class="token punctuation">,</span>
+                             std<span class="token double-colon punctuation">::</span>memory_order success<span class="token punctuation">,</span>
+                             std<span class="token double-colon punctuation">::</span>memory_order failure<span class="token punctuation">)</span> <span class="token comment">/* noexcept */</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>expected<span class="token punctuation">,</span> desired<span class="token punctuation">,</span> success<span class="token punctuation">,</span> failure<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">bool</span> <span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>
+      SharedPtr <span class="token operator">&amp;</span>expected<span class="token punctuation">,</span> <span class="token keyword">const</span> SharedPtr <span class="token operator">&amp;</span>n<span class="token punctuation">,</span>
+      std<span class="token double-colon punctuation">::</span>memory_order mo <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>memory_order_seq_cst<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>expected<span class="token punctuation">,</span> n<span class="token punctuation">,</span> mo<span class="token punctuation">,</span> mo<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">bool</span> <span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>SharedPtr <span class="token operator">&amp;</span>expected<span class="token punctuation">,</span> <span class="token keyword">const</span> SharedPtr <span class="token operator">&amp;</span>n<span class="token punctuation">,</span>
+                               std<span class="token double-colon punctuation">::</span>memory_order success<span class="token punctuation">,</span>
+                               std<span class="token double-colon punctuation">::</span>memory_order failure<span class="token punctuation">)</span> <span class="token comment">/* noexcept */</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> local_expected <span class="token operator">=</span> expected<span class="token punctuation">;</span>
+    <span class="token keyword">do</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>expected<span class="token punctuation">,</span> n<span class="token punctuation">,</span> success<span class="token punctuation">,</span> failure<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span> <span class="token keyword">while</span> <span class="token punctuation">(</span>local_expected <span class="token operator">==</span> expected<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">bool</span> <span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>
+      SharedPtr <span class="token operator">&amp;</span>expected<span class="token punctuation">,</span> SharedPtr <span class="token operator">&amp;&amp;</span>desired<span class="token punctuation">,</span>
+      std<span class="token double-colon punctuation">::</span>memory_order mo <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>memory_order_seq_cst<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>expected<span class="token punctuation">,</span> desired<span class="token punctuation">,</span> mo<span class="token punctuation">,</span> mo<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">bool</span> <span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>SharedPtr <span class="token operator">&amp;</span>expected<span class="token punctuation">,</span> SharedPtr <span class="token operator">&amp;&amp;</span>desired<span class="token punctuation">,</span>
+                               std<span class="token double-colon punctuation">::</span>memory_order success<span class="token punctuation">,</span>
+                               std<span class="token double-colon punctuation">::</span>memory_order failure<span class="token punctuation">)</span> <span class="token comment">/* noexcept */</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>expected<span class="token punctuation">,</span> desired<span class="token punctuation">,</span> success<span class="token punctuation">,</span> failure<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token comment">// Matches packed_sync_pointer.  Must be > max number of local</span>
+  <span class="token comment">// counts.  This is the max number of threads that can access this</span>
+  <span class="token comment">// atomic_shared_ptr at once before we start blocking.</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> <span class="token keyword">unsigned</span> EXTERNAL_OFFSET<span class="token punctuation">{</span><span class="token number">0x2000</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token comment">// Bit signifying aliased constructor</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> <span class="token keyword">unsigned</span> ALIASED_PTR<span class="token punctuation">{</span><span class="token number">0x4000</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">mutable</span> std<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span>PackedPtr<span class="token operator">></span> ptr_<span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">add_external</span><span class="token punctuation">(</span>BasePtr <span class="token operator">*</span>res<span class="token punctuation">,</span> <span class="token keyword">int64_t</span> c <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>res<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">inc_shared_count</span><span class="token punctuation">(</span>res<span class="token punctuation">,</span> EXTERNAL_OFFSET <span class="token operator">+</span> c<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">release_external</span><span class="token punctuation">(</span>PackedPtr <span class="token operator">&amp;</span>res<span class="token punctuation">,</span> <span class="token keyword">int64_t</span> c <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>res<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">int64_t</span> count <span class="token operator">=</span> <span class="token function">get_local_count</span><span class="token punctuation">(</span>res<span class="token punctuation">)</span> <span class="token operator">+</span> c<span class="token punctuation">;</span>
+    <span class="token keyword">int64_t</span> diff <span class="token operator">=</span> EXTERNAL_OFFSET <span class="token operator">-</span> count<span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>diff <span class="token operator">>=</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    CountedDetail<span class="token double-colon punctuation">::</span><span class="token keyword">template</span> <span class="token generic-function"><span class="token function">release_shared</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>res<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> diff<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  PackedPtr <span class="token function">get_newptr</span><span class="token punctuation">(</span><span class="token keyword">const</span> SharedPtr <span class="token operator">&amp;</span>n<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    BasePtr <span class="token operator">*</span>newval<span class="token punctuation">;</span>
+    <span class="token keyword">unsigned</span> count <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>n<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      newval <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      newval <span class="token operator">=</span> <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">get_counted_base</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>n<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">!=</span> CountedDetail<span class="token double-colon punctuation">::</span><span class="token keyword">template</span> <span class="token generic-function"><span class="token function">get_shared_ptr</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>newval<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// This is an aliased sharedptr.  Make an un-aliased one</span>
+        <span class="token comment">// by wrapping in *another* shared_ptr.</span>
+        <span class="token keyword">auto</span> data <span class="token operator">=</span> CountedDetail<span class="token double-colon punctuation">::</span><span class="token keyword">template</span> <span class="token generic-function"><span class="token function">make_ptr</span><span class="token generic class-name"><span class="token operator">&lt;</span>SharedPtr<span class="token operator">></span></span></span><span class="token punctuation">(</span>n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        newval <span class="token operator">=</span> <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">get_counted_base</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        count <span class="token operator">=</span> ALIASED_PTR<span class="token punctuation">;</span>
+        <span class="token comment">// (add external must happen before data goes out of scope)</span>
+        <span class="token function">add_external</span><span class="token punctuation">(</span>newval<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token function">add_external</span><span class="token punctuation">(</span>newval<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    PackedPtr newptr<span class="token punctuation">;</span>
+    newptr<span class="token punctuation">.</span><span class="token function">init</span><span class="token punctuation">(</span>newval<span class="token punctuation">,</span> count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> newptr<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  PackedPtr <span class="token function">get_newptr</span><span class="token punctuation">(</span>SharedPtr <span class="token operator">&amp;&amp;</span>n<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    BasePtr <span class="token operator">*</span>newval<span class="token punctuation">;</span>
+    <span class="token keyword">unsigned</span> count <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>n<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      newval <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      newval <span class="token operator">=</span> <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">get_counted_base</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>n<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">!=</span> CountedDetail<span class="token double-colon punctuation">::</span><span class="token keyword">template</span> <span class="token generic-function"><span class="token function">get_shared_ptr</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>newval<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// This is an aliased sharedptr.  Make an un-aliased one</span>
+        <span class="token comment">// by wrapping in *another* shared_ptr.</span>
+        <span class="token keyword">auto</span> data <span class="token operator">=</span> CountedDetail<span class="token double-colon punctuation">::</span><span class="token keyword">template</span> <span class="token generic-function"><span class="token function">make_ptr</span><span class="token generic class-name"><span class="token operator">&lt;</span>SharedPtr<span class="token operator">></span></span></span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        newval <span class="token operator">=</span> <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">get_counted_base</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        count <span class="token operator">=</span> ALIASED_PTR<span class="token punctuation">;</span>
+        <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">release_ptr</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">add_external</span><span class="token punctuation">(</span>newval<span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">release_ptr</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">add_external</span><span class="token punctuation">(</span>newval<span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    PackedPtr newptr<span class="token punctuation">;</span>
+    newptr<span class="token punctuation">.</span><span class="token function">init</span><span class="token punctuation">(</span>newval<span class="token punctuation">,</span> count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> newptr<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">init</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    PackedPtr data<span class="token punctuation">;</span>
+    data<span class="token punctuation">.</span><span class="token function">init</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    ptr_<span class="token punctuation">.</span><span class="token function">store</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">unsigned</span> <span class="token keyword">int</span> <span class="token function">get_local_count</span><span class="token punctuation">(</span><span class="token keyword">const</span> PackedPtr <span class="token operator">&amp;</span>p<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> p<span class="token punctuation">.</span><span class="token function">extra</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;</span> <span class="token operator">~</span>ALIASED_PTR<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Check pointer equality considering wrapped aliased pointers.</span>
+  <span class="token keyword">bool</span> <span class="token function">owners_eq</span><span class="token punctuation">(</span>PackedPtr <span class="token operator">&amp;</span>p1<span class="token punctuation">,</span> BasePtr <span class="token operator">*</span>p2<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">bool</span> aliased1 <span class="token operator">=</span> p1<span class="token punctuation">.</span><span class="token function">extra</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;</span> ALIASED_PTR<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>aliased1<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">auto</span> p1a <span class="token operator">=</span> CountedDetail<span class="token double-colon punctuation">::</span><span class="token keyword">template</span> <span class="token generic-function"><span class="token function">get_shared_ptr_from_counted_base</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>
+          p1<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span> <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">get_counted_base</span><span class="token punctuation">(</span>p1a<span class="token punctuation">)</span> <span class="token operator">==</span> p2<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> p1<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> p2<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  SharedPtr <span class="token function">get_shared_ptr</span><span class="token punctuation">(</span><span class="token keyword">const</span> PackedPtr <span class="token operator">&amp;</span>p<span class="token punctuation">,</span> <span class="token keyword">bool</span> inc <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">bool</span> aliased <span class="token operator">=</span> p<span class="token punctuation">.</span><span class="token function">extra</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;</span> ALIASED_PTR<span class="token punctuation">;</span>
+
+    <span class="token keyword">auto</span> res <span class="token operator">=</span> CountedDetail<span class="token double-colon punctuation">::</span><span class="token keyword">template</span> <span class="token generic-function"><span class="token function">get_shared_ptr_from_counted_base</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>
+        p<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> inc<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>aliased<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">auto</span> aliasedp <span class="token operator">=</span>
+          CountedDetail<span class="token double-colon punctuation">::</span><span class="token keyword">template</span> <span class="token generic-function"><span class="token function">get_shared_ptr_from_counted_base</span><span class="token generic class-name"><span class="token operator">&lt;</span>SharedPtr<span class="token operator">></span></span></span><span class="token punctuation">(</span>
+              p<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      res <span class="token operator">=</span> <span class="token operator">*</span>aliasedp<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> res<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">/* Get a reference to the pointer, either from the local batch or
+   * from the global count.
+   *
+   * return is the base ptr, and the previous local count, if it is
+   * needed for compare_and_swap later.
+   */</span>
+  PackedPtr <span class="token function">takeOwnedBase</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>memory_order order<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    PackedPtr local<span class="token punctuation">,</span> newlocal<span class="token punctuation">;</span>
+    local <span class="token operator">=</span> ptr_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>local<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> local<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      newlocal <span class="token operator">=</span> local<span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">get_local_count</span><span class="token punctuation">(</span>newlocal<span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span> <span class="token operator">></span> EXTERNAL_OFFSET<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// spinlock in the rare case we have more than</span>
+        <span class="token comment">// EXTERNAL_OFFSET threads trying to access at once.</span>
+        std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">yield</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">// Force DeterministicSchedule to choose a different thread</span>
+        local <span class="token operator">=</span> ptr_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        newlocal<span class="token punctuation">.</span><span class="token function">setExtra</span><span class="token punctuation">(</span>newlocal<span class="token punctuation">.</span><span class="token function">extra</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">assert</span><span class="token punctuation">(</span><span class="token function">get_local_count</span><span class="token punctuation">(</span>newlocal<span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>ptr_<span class="token punctuation">.</span><span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>local<span class="token punctuation">,</span> newlocal<span class="token punctuation">,</span> order<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">break</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// Check if we need to push a batch from local -> global</span>
+    <span class="token keyword">auto</span> batchcount <span class="token operator">=</span> EXTERNAL_OFFSET <span class="token operator">/</span> <span class="token number">2</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">get_local_count</span><span class="token punctuation">(</span>newlocal<span class="token punctuation">)</span> <span class="token operator">></span> batchcount<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token class-name">CountedDetail</span><span class="token double-colon punctuation">::</span><span class="token function">inc_shared_count</span><span class="token punctuation">(</span>newlocal<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> batchcount<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">putOwnedBase</span><span class="token punctuation">(</span>newlocal<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> batchcount<span class="token punctuation">,</span> order<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">return</span> newlocal<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">putOwnedBase</span><span class="token punctuation">(</span>BasePtr <span class="token operator">*</span>p<span class="token punctuation">,</span> <span class="token keyword">unsigned</span> <span class="token keyword">int</span> count<span class="token punctuation">,</span>
+                    std<span class="token double-colon punctuation">::</span>memory_order mo<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    PackedPtr local <span class="token operator">=</span> ptr_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>local<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">!=</span> p<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">break</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token keyword">auto</span> newlocal <span class="token operator">=</span> local<span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">get_local_count</span><span class="token punctuation">(</span>local<span class="token punctuation">)</span> <span class="token operator">></span> count<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        newlocal<span class="token punctuation">.</span><span class="token function">setExtra</span><span class="token punctuation">(</span>local<span class="token punctuation">.</span><span class="token function">extra</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token comment">// Otherwise it may be the same pointer, but someone else won</span>
+        <span class="token comment">// the compare_exchange below, local count was already made</span>
+        <span class="token comment">// global.  We decrement the global count directly instead of</span>
+        <span class="token comment">// the local one.</span>
+        <span class="token keyword">break</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>ptr_<span class="token punctuation">.</span><span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>local<span class="token punctuation">,</span> newlocal<span class="token punctuation">,</span> mo<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    CountedDetail<span class="token double-colon punctuation">::</span><span class="token keyword">template</span> <span class="token generic-function"><span class="token function">release_shared</span><span class="token generic class-name"><span class="token operator">&lt;</span>T<span class="token operator">></span></span></span><span class="token punctuation">(</span>p<span class="token punctuation">,</span> count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token punctuation">}</span>  <span class="token comment">// namespace std</span>
+
+<span class="token comment">// example</span>
+std<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int32_t</span><span class="token operator">></span> cnt<span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token keyword">class</span> <span class="token class-name">A</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">A</span><span class="token punctuation">(</span><span class="token keyword">int</span> value<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">value_</span><span class="token punctuation">(</span>value<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">++</span>cnt<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token operator">~</span><span class="token function">A</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">--</span>cnt<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">int</span> <span class="token function">Value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> value_<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">int</span> value_ <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">constexpr</span> <span class="token keyword">uint32_t</span> N <span class="token operator">=</span> <span class="token number">1000000</span><span class="token punctuation">;</span>
+  <span class="token keyword">constexpr</span> <span class="token keyword">uint32_t</span> T <span class="token operator">=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+
+  std<span class="token double-colon punctuation">::</span>atomic_shared_ptr<span class="token operator">&lt;</span>A<span class="token operator">></span> x<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>atomic_shared_ptr<span class="token operator">&lt;</span>A<span class="token operator">></span> y<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>vector<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>thread<span class="token operator">></span> threads<span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> t <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> t <span class="token operator">&lt;</span> T<span class="token punctuation">;</span> <span class="token operator">++</span>t<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    threads<span class="token punctuation">.</span><span class="token function">emplace_back</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token operator">&amp;</span><span class="token punctuation">]</span> <span class="token punctuation">{</span>
+      <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> N<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">auto</span> a <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_shared</span><span class="token generic class-name"><span class="token operator">&lt;</span>A<span class="token operator">></span></span></span><span class="token punctuation">(</span>t <span class="token operator">*</span> N <span class="token operator">+</span> i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        x<span class="token punctuation">.</span><span class="token function">store</span><span class="token punctuation">(</span>a<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">auto</span> b <span class="token operator">=</span> x<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        y<span class="token punctuation">.</span><span class="token function">store</span><span class="token punctuation">(</span>b<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">auto</span> <span class="token operator">&amp;</span>thread <span class="token operator">:</span> threads<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    thread<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> cnt<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">1</span> <span class="token operator">?</span> <span class="token number">0</span> <span class="token operator">:</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://en.cppreference.com/w/cpp/memory/shared_ptr">std::shared_ptr, <em>C++ Reference</em></a></li>
+<li><a href="https://en.cppreference.com/w/cpp/memory/shared_ptr/atomic2">std::atomic(std::shared_ptr), <em>C++ Reference</em></a></li>
+<li><a href="https://github.com/facebook/folly/blob/master/folly/concurrency/AtomicSharedPtr.h">folly::atomic_shared_ptr, <em>Facebook</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>

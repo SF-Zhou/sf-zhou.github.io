@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>LevelDB 源码分析「一、基本数据结构」 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> LevelDB 源码分析「一、基本数据结构」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2019.07.26 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>断断续续大半年，<a href="https://github.com/google/leveldb">LevelDB 的源代码</a>快看完了。期间经常会发出由衷的感叹：Google 的代码写得真好。为了督促自己尽快看完，同时也为了真正地从 LevelDB 源码里汲取养分，所以开出一个新系列「LevelDB 源码分析」，希望能整理输出一些干货。作为系列的第一篇，本文会介绍 LevelDB 中的基本数据结构，包括 <code>Slice</code>、<code>Hash</code>、<code>LRUCache</code>。</p>
+<h3 id="1.-字符串封装-slice" tabindex="-1"><a href="#1.-%E5%AD%97%E7%AC%A6%E4%B8%B2%E5%B0%81%E8%A3%85-slice">1. 字符串封装 Slice</a></h3>
+<p>Slice 定义于 <a href="https://github.com/google/leveldb/blob/master/include/leveldb/slice.h"><code>include/leveldb/slice.h</code></a>，源码不过百行：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;assert.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stddef.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string.h></span></span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/export.h"</span></span>
+
+<span class="token keyword">namespace</span> leveldb <span class="token punctuation">{</span>
+
+<span class="token keyword">class</span> <span class="token class-name">LEVELDB_EXPORT</span> Slice <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">// Create an empty slice.</span>
+  <span class="token function">Slice</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">data_</span><span class="token punctuation">(</span><span class="token string">""</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">size_</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token comment">// Create a slice that refers to d[0,n-1].</span>
+  <span class="token function">Slice</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> d<span class="token punctuation">,</span> size_t n<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">data_</span><span class="token punctuation">(</span>d<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">size_</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token comment">// Create a slice that refers to the contents of "s"</span>
+  <span class="token function">Slice</span><span class="token punctuation">(</span><span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> s<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">data_</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">size_</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token comment">// Create a slice that refers to s[0,strlen(s)-1]</span>
+  <span class="token function">Slice</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> s<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">data_</span><span class="token punctuation">(</span>s<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">size_</span><span class="token punctuation">(</span><span class="token function">strlen</span><span class="token punctuation">(</span>s<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token comment">// Intentionally copyable.</span>
+  <span class="token function">Slice</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">default</span><span class="token punctuation">;</span>
+  Slice<span class="token operator">&amp;</span> <span class="token keyword">operator</span><span class="token operator">=</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">default</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Return a pointer to the beginning of the referenced data</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> <span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> data_<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">// Return the length (in bytes) of the referenced data</span>
+  size_t <span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> size_<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">// Return true iff the length of the referenced data is zero</span>
+  <span class="token keyword">bool</span> <span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> size_ <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">// Return the ith byte in the referenced data.</span>
+  <span class="token comment">// REQUIRES: n &lt; size()</span>
+  <span class="token keyword">char</span> <span class="token keyword">operator</span><span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">(</span>size_t n<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>n <span class="token operator">&lt;</span> <span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> data_<span class="token punctuation">[</span>n<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Change this slice to refer to an empty array</span>
+  <span class="token keyword">void</span> <span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    data_ <span class="token operator">=</span> <span class="token string">""</span><span class="token punctuation">;</span>
+    size_ <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Drop the first "n" bytes from this slice.</span>
+  <span class="token keyword">void</span> <span class="token function">remove_prefix</span><span class="token punctuation">(</span>size_t n<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>n <span class="token operator">&lt;=</span> <span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    data_ <span class="token operator">+=</span> n<span class="token punctuation">;</span>
+    size_ <span class="token operator">-=</span> n<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Return a string that contains the copy of the referenced data.</span>
+  std<span class="token double-colon punctuation">::</span>string <span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span><span class="token function">string</span><span class="token punctuation">(</span>data_<span class="token punctuation">,</span> size_<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">// Three-way comparison.  Returns value:</span>
+  <span class="token comment">//   &lt;  0 iff "*this" &lt;  "b",</span>
+  <span class="token comment">//   == 0 iff "*this" == "b",</span>
+  <span class="token comment">//   >  0 iff "*this" >  "b"</span>
+  <span class="token keyword">int</span> <span class="token function">compare</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> b<span class="token punctuation">)</span> <span class="token keyword">const</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Return true iff "x" is a prefix of "*this"</span>
+  <span class="token keyword">bool</span> <span class="token function">starts_with</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> x<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>size_ <span class="token operator">>=</span> x<span class="token punctuation">.</span>size_<span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> <span class="token punctuation">(</span><span class="token function">memcmp</span><span class="token punctuation">(</span>data_<span class="token punctuation">,</span> x<span class="token punctuation">.</span>data_<span class="token punctuation">,</span> x<span class="token punctuation">.</span>size_<span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> data_<span class="token punctuation">;</span>
+  size_t size_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">==</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> x<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> y<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>x<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> y<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span>
+          <span class="token punctuation">(</span><span class="token function">memcmp</span><span class="token punctuation">(</span>x<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> y<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> x<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">!=</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> x<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> y<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token operator">!</span><span class="token punctuation">(</span>x <span class="token operator">==</span> y<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">int</span> <span class="token class-name">Slice</span><span class="token double-colon punctuation">::</span><span class="token function">compare</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> b<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> size_t min_len <span class="token operator">=</span> <span class="token punctuation">(</span>size_ <span class="token operator">&lt;</span> b<span class="token punctuation">.</span>size_<span class="token punctuation">)</span> <span class="token operator">?</span> size_ <span class="token operator">:</span> b<span class="token punctuation">.</span>size_<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> r <span class="token operator">=</span> <span class="token function">memcmp</span><span class="token punctuation">(</span>data_<span class="token punctuation">,</span> b<span class="token punctuation">.</span>data_<span class="token punctuation">,</span> min_len<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>r <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>size_ <span class="token operator">&lt;</span> b<span class="token punctuation">.</span>size_<span class="token punctuation">)</span>
+      r <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>size_ <span class="token operator">></span> b<span class="token punctuation">.</span>size_<span class="token punctuation">)</span>
+      r <span class="token operator">=</span> <span class="token operator">+</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> r<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token punctuation">}</span>  <span class="token comment">// namespace leveldb</span>
+</code></pre>
+<p>没有外部依赖，代码也非常清晰易懂。整个定义可以分为四个部分：构造、获取、修改和比较。</p>
+<p><strong>构造</strong>：默认构造为空字符串，字符串构造提供了带长度和不带长度，并且支持默认的复制构造函数和赋值操作符（毕竟只有 <code>data_</code> 和 <code>size_</code> 两个属性）。</p>
+<p><strong>获取</strong>：获取 <code>Slice</code> 的基本信息，支持导出为 <code>std::string</code>。</p>
+<p><strong>修改</strong>：支持 <code>clear</code> 操作字符串清空，也支持 <code>remove_prefix</code> 将指定长度的前缀去除。注意 <code>data_</code> 的类型为 <code>const char *</code>，对应的字符串内容是不可修改的，<code>Slice</code> 只能修改字符串的起始位置。</p>
+<p><strong>比较</strong>：<code>Slice::compare</code> 实现了非常严谨的字符串比较，返回 0/1/-1。注意为了提高性能，<code>operator==</code> 并没有直接调用 <code>Slice::compare</code>。</p>
+<p>值得注意的是，<code>Slice</code> 本身并没有任何内存管理，仅仅是 C 风格字符串及其长度的封装。</p>
+<h3 id="2.-哈希函数-hash" tabindex="-1"><a href="#2.-%E5%93%88%E5%B8%8C%E5%87%BD%E6%95%B0-hash">2. 哈希函数 Hash</a></h3>
+<p>哈希函数定义于 <a href="https://github.com/google/leveldb/blob/master/util/hash.cc"><code>util/hash.[h/cc]</code></a>，源代码如下：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"util/hash.h"</span></span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string.h></span></span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"util/coding.h"</span></span>
+
+<span class="token comment">// The FALLTHROUGH_INTENDED macro can be used to annotate implicit fall-through</span>
+<span class="token comment">// between switch labels. The real definition should be provided externally.</span>
+<span class="token comment">// This one is a fallback version for unsupported compilers.</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">ifndef</span> <span class="token expression">FALLTHROUGH_INTENDED</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name">FALLTHROUGH_INTENDED</span> <span class="token punctuation">\</span>
+  <span class="token expression"><span class="token keyword">do</span> <span class="token punctuation">{</span>                       </span><span class="token punctuation">\</span>
+  <span class="token expression"><span class="token punctuation">}</span> <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span></span>
+
+<span class="token keyword">namespace</span> leveldb <span class="token punctuation">{</span>
+
+<span class="token keyword">uint32_t</span> <span class="token function">Hash</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> data<span class="token punctuation">,</span> size_t n<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> seed<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Similar to murmur hash</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> m <span class="token operator">=</span> <span class="token number">0xc6a4a793</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> r <span class="token operator">=</span> <span class="token number">24</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> limit <span class="token operator">=</span> data <span class="token operator">+</span> n<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> h <span class="token operator">=</span> seed <span class="token operator">^</span> <span class="token punctuation">(</span>n <span class="token operator">*</span> m<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Pick up four bytes at a time</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>data <span class="token operator">+</span> <span class="token number">4</span> <span class="token operator">&lt;=</span> limit<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">uint32_t</span> w <span class="token operator">=</span> <span class="token function">DecodeFixed32</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    data <span class="token operator">+=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+    h <span class="token operator">+=</span> w<span class="token punctuation">;</span>
+    h <span class="token operator">*=</span> m<span class="token punctuation">;</span>
+    h <span class="token operator">^=</span> <span class="token punctuation">(</span>h <span class="token operator">>></span> <span class="token number">16</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Pick up remaining bytes</span>
+  <span class="token keyword">switch</span> <span class="token punctuation">(</span>limit <span class="token operator">-</span> data<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">case</span> <span class="token number">3</span><span class="token operator">:</span>
+      h <span class="token operator">+=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">uint8_t</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>data<span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token number">16</span><span class="token punctuation">;</span>
+      FALLTHROUGH_INTENDED<span class="token punctuation">;</span>
+    <span class="token keyword">case</span> <span class="token number">2</span><span class="token operator">:</span>
+      h <span class="token operator">+=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">uint8_t</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>data<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token number">8</span><span class="token punctuation">;</span>
+      FALLTHROUGH_INTENDED<span class="token punctuation">;</span>
+    <span class="token keyword">case</span> <span class="token number">1</span><span class="token operator">:</span>
+      h <span class="token operator">+=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">uint8_t</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>data<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      h <span class="token operator">*=</span> m<span class="token punctuation">;</span>
+      h <span class="token operator">^=</span> <span class="token punctuation">(</span>h <span class="token operator">>></span> r<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> h<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token punctuation">}</span>  <span class="token comment">// namespace leveldb</span>
+</code></pre>
+<p>每次按照四字节长度读取字节流中的数据 <code>w</code>，并使用普通的哈希函数计算哈希值。计算过程中使用 <code>uint32_t</code> 的自然溢出特性。四字节读取则为了加速，最终可能剩下 3/2/1 个多余的字节，使用 <code>switch</code> 语句补充计算，以实现最好的性能。</p>
+<p>这里 <code>FALLTHROUGH_INTENDED</code> 宏并无实际作用，仅仅作为一种“我确定我这里想跳过”的标志。<code>do {} while(0)</code> 对代码无影响，这种写法也会出现在一些多行的宏定义里（见<a href="https://stackoverflow.com/questions/257418/do-while-0-what-is-it-good-for">链接</a>）。</p>
+<p>LevelDB 中哈希表和布隆过滤器会使用到该哈希函数。</p>
+<h3 id="3.-缓存-lrucache" tabindex="-1"><a href="#3.-%E7%BC%93%E5%AD%98-lrucache">3. 缓存 LRUCache</a></h3>
+<p>LevelDB 中使用的是 Least Recently Used Cache，即最近最少使用缓存。缓存接口定义于 <a href="https://github.com/google/leveldb/blob/master/include/leveldb/cache.h"><code>include/leveldb/cache.h</code></a>，去除掉注释后接口如下（其实建议自己看看源代码的注释）：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdint.h></span></span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/export.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/slice.h"</span></span>
+
+<span class="token keyword">namespace</span> leveldb <span class="token punctuation">{</span>
+
+<span class="token keyword">class</span> <span class="token class-name">LEVELDB_EXPORT</span> Cache<span class="token punctuation">;</span>
+
+LEVELDB_EXPORT Cache<span class="token operator">*</span> <span class="token function">NewLRUCache</span><span class="token punctuation">(</span>size_t capacity<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">LEVELDB_EXPORT</span> Cache <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">Cache</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">default</span><span class="token punctuation">;</span>
+  <span class="token function">Cache</span><span class="token punctuation">(</span><span class="token keyword">const</span> Cache<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+  Cache<span class="token operator">&amp;</span> <span class="token keyword">operator</span><span class="token operator">=</span><span class="token punctuation">(</span><span class="token keyword">const</span> Cache<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token operator">~</span><span class="token function">Cache</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">struct</span> <span class="token class-name">Handle</span> <span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> Handle<span class="token operator">*</span> <span class="token function">Insert</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">,</span> size_t charge<span class="token punctuation">,</span>
+                         <span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>deleter<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> Handle<span class="token operator">*</span> <span class="token function">Lookup</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token keyword">void</span> <span class="token function">Release</span><span class="token punctuation">(</span>Handle<span class="token operator">*</span> handle<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token keyword">void</span><span class="token operator">*</span> <span class="token function">Value</span><span class="token punctuation">(</span>Handle<span class="token operator">*</span> handle<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token keyword">void</span> <span class="token function">Erase</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token keyword">uint64_t</span> <span class="token function">NewId</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token keyword">void</span> <span class="token function">Prune</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+  <span class="token keyword">virtual</span> size_t <span class="token function">TotalCharge</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">void</span> <span class="token function">LRU_Remove</span><span class="token punctuation">(</span>Handle<span class="token operator">*</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">LRU_Append</span><span class="token punctuation">(</span>Handle<span class="token operator">*</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">Unref</span><span class="token punctuation">(</span>Handle<span class="token operator">*</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">struct</span> <span class="token class-name">Rep</span><span class="token punctuation">;</span>
+  Rep<span class="token operator">*</span> rep_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p>接口仅依赖 <code>Slice</code>，接口也很容易看懂。<code>Cache</code> 中定义的 <code>Handle</code> 仅作为指针类型使用，实际上使用 <code>void *</code> 也并无区别，<code>Handle</code> 增加语意而已。而 <code>Rep *rep_</code> 则是经典的 <code>pImpl</code> 范式，但 <code>cache.cc</code> 中并没有使用到该机制，注释掉这两行不影响编译，所以留到后续文章中再介绍吧。</p>
+<p><code>NewLRUCache</code> 作为工厂函数，可以生产一个 <code>LRUCache</code>，其定义于 <a href="https://github.com/google/leveldb/blob/master/util/cache.cc"><code>util/cache.cc</code></a>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">ShardedLRUCache</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">Cache</span></span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+
+Cache<span class="token operator">*</span> <span class="token function">NewLRUCache</span><span class="token punctuation">(</span>size_t capacity<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token keyword">new</span> <span class="token function">ShardedLRUCache</span><span class="token punctuation">(</span>capacity<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+</code></pre>
+<p><code>LRUCahce</code> 的实现依靠双向环形链表和哈希表。其中双向环形链表维护 <code>Recently</code> 属性，哈希表维护 <code>Used</code> 属性。双向环形链表和哈希表的节点信息都存储于 <code>LRUHandle</code> 结构中：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">LRUHandle</span> <span class="token punctuation">{</span>
+  <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>deleter<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span><span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  LRUHandle<span class="token operator">*</span> next_hash<span class="token punctuation">;</span>
+  LRUHandle<span class="token operator">*</span> next<span class="token punctuation">;</span>
+  LRUHandle<span class="token operator">*</span> prev<span class="token punctuation">;</span>
+  size_t charge<span class="token punctuation">;</span>  <span class="token comment">// TODO(opt): Only allow uint32_t?</span>
+  size_t key_length<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> in_cache<span class="token punctuation">;</span>     <span class="token comment">// Whether entry is in the cache.</span>
+  <span class="token keyword">uint32_t</span> refs<span class="token punctuation">;</span>     <span class="token comment">// References, including cache reference, if present.</span>
+  <span class="token keyword">uint32_t</span> hash<span class="token punctuation">;</span>     <span class="token comment">// Hash of key(); used for fast sharding and comparisons</span>
+  <span class="token keyword">char</span> key_data<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">;</span>  <span class="token comment">// Beginning of key</span>
+
+  Slice <span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token comment">// next_ is only equal to this if the LRU handle is the list head of an</span>
+    <span class="token comment">// empty list. List heads never have meaningful keys.</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>next <span class="token operator">!=</span> <span class="token keyword">this</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> <span class="token function">Slice</span><span class="token punctuation">(</span>key_data<span class="token punctuation">,</span> key_length<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p>依次解释每一项属性：</p>
+<ol>
+<li><code>value</code> 为缓存存储的数据，类型无关；</li>
+<li><code>deleter</code> 为键值对的析构函数指针；</li>
+<li><code>next_hash</code> 为开放式哈希表中同一个桶下存储链表时使用的指针；</li>
+<li><code>next</code> 和 <code>prev</code> 自然是双向环形链接的前后指针；</li>
+<li><code>charge</code> 为当前节点的缓存费用，比如一个字符串的费用可能就是它的长度；</li>
+<li><code>key_length</code> 为 <code>key</code> 的长度；</li>
+<li><code>in_cache</code> 为节点是否在缓存里的标志；</li>
+<li><code>refs</code> 为引用计数，当计数为 0 时则可以用 <code>deleter</code> 清理掉；</li>
+<li><code>hash</code> 为 <code>key</code> 的哈希值；</li>
+<li><code>key_data</code> 为变长的 <code>key</code> 数据，最小长度为 1，<code>malloc</code> 时动态指定长度。</li>
+</ol>
+<p>接着看哈希表的实现：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">HandleTable</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">HandleTable</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">length_</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">elems_</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">list_</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">Resize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token operator">~</span><span class="token function">HandleTable</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">delete</span><span class="token punctuation">[</span><span class="token punctuation">]</span> list_<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  LRUHandle<span class="token operator">*</span> <span class="token function">Lookup</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> hash<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">*</span><span class="token function">FindPointer</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> hash<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  LRUHandle<span class="token operator">*</span> <span class="token function">Insert</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> h<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    LRUHandle<span class="token operator">*</span><span class="token operator">*</span> ptr <span class="token operator">=</span> <span class="token function">FindPointer</span><span class="token punctuation">(</span>h<span class="token operator">-></span><span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> h<span class="token operator">-></span>hash<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    LRUHandle<span class="token operator">*</span> old <span class="token operator">=</span> <span class="token operator">*</span>ptr<span class="token punctuation">;</span>
+    h<span class="token operator">-></span>next_hash <span class="token operator">=</span> <span class="token punctuation">(</span>old <span class="token operator">==</span> <span class="token keyword">nullptr</span> <span class="token operator">?</span> <span class="token keyword">nullptr</span> <span class="token operator">:</span> old<span class="token operator">-></span>next_hash<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token operator">*</span>ptr <span class="token operator">=</span> h<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>old <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token operator">++</span>elems_<span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>elems_ <span class="token operator">></span> length_<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// Since each cache entry is fairly large, we aim for a small</span>
+        <span class="token comment">// average linked list length (&lt;= 1).</span>
+        <span class="token function">Resize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> old<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  LRUHandle<span class="token operator">*</span> <span class="token function">Remove</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> hash<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    LRUHandle<span class="token operator">*</span><span class="token operator">*</span> ptr <span class="token operator">=</span> <span class="token function">FindPointer</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> hash<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    LRUHandle<span class="token operator">*</span> result <span class="token operator">=</span> <span class="token operator">*</span>ptr<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>result <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token operator">*</span>ptr <span class="token operator">=</span> result<span class="token operator">-></span>next_hash<span class="token punctuation">;</span>
+      <span class="token operator">--</span>elems_<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> result<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token comment">// The table consists of an array of buckets where each bucket is</span>
+  <span class="token comment">// a linked list of cache entries that hash into the bucket.</span>
+  <span class="token keyword">uint32_t</span> length_<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> elems_<span class="token punctuation">;</span>
+  LRUHandle<span class="token operator">*</span><span class="token operator">*</span> list_<span class="token punctuation">;</span>
+
+  <span class="token comment">// Return a pointer to slot that points to a cache entry that</span>
+  <span class="token comment">// matches key/hash.  If there is no such cache entry, return a</span>
+  <span class="token comment">// pointer to the trailing slot in the corresponding linked list.</span>
+  LRUHandle<span class="token operator">*</span><span class="token operator">*</span> <span class="token function">FindPointer</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> hash<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    LRUHandle<span class="token operator">*</span><span class="token operator">*</span> ptr <span class="token operator">=</span> <span class="token operator">&amp;</span>list_<span class="token punctuation">[</span>hash <span class="token operator">&amp;</span> <span class="token punctuation">(</span>length_ <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+    <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token operator">*</span>ptr <span class="token operator">!=</span> <span class="token keyword">nullptr</span> <span class="token operator">&amp;&amp;</span> <span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token operator">*</span>ptr<span class="token punctuation">)</span><span class="token operator">-></span>hash <span class="token operator">!=</span> hash <span class="token operator">||</span> key <span class="token operator">!=</span> <span class="token punctuation">(</span><span class="token operator">*</span>ptr<span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      ptr <span class="token operator">=</span> <span class="token operator">&amp;</span><span class="token punctuation">(</span><span class="token operator">*</span>ptr<span class="token punctuation">)</span><span class="token operator">-></span>next_hash<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> ptr<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">Resize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">uint32_t</span> new_length <span class="token operator">=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+    <span class="token keyword">while</span> <span class="token punctuation">(</span>new_length <span class="token operator">&lt;</span> elems_<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      new_length <span class="token operator">*=</span> <span class="token number">2</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    LRUHandle<span class="token operator">*</span><span class="token operator">*</span> new_list <span class="token operator">=</span> <span class="token keyword">new</span> LRUHandle<span class="token operator">*</span><span class="token punctuation">[</span>new_length<span class="token punctuation">]</span><span class="token punctuation">;</span>
+    <span class="token function">memset</span><span class="token punctuation">(</span>new_list<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>new_list<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token operator">*</span> new_length<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">uint32_t</span> count <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> length_<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      LRUHandle<span class="token operator">*</span> h <span class="token operator">=</span> list_<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span>
+      <span class="token keyword">while</span> <span class="token punctuation">(</span>h <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        LRUHandle<span class="token operator">*</span> next <span class="token operator">=</span> h<span class="token operator">-></span>next_hash<span class="token punctuation">;</span>
+        <span class="token keyword">uint32_t</span> hash <span class="token operator">=</span> h<span class="token operator">-></span>hash<span class="token punctuation">;</span>
+        LRUHandle<span class="token operator">*</span><span class="token operator">*</span> ptr <span class="token operator">=</span> <span class="token operator">&amp;</span>new_list<span class="token punctuation">[</span>hash <span class="token operator">&amp;</span> <span class="token punctuation">(</span>new_length <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+        h<span class="token operator">-></span>next_hash <span class="token operator">=</span> <span class="token operator">*</span>ptr<span class="token punctuation">;</span>
+        <span class="token operator">*</span>ptr <span class="token operator">=</span> h<span class="token punctuation">;</span>
+        h <span class="token operator">=</span> next<span class="token punctuation">;</span>
+        count<span class="token operator">++</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>elems_ <span class="token operator">==</span> count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">delete</span><span class="token punctuation">[</span><span class="token punctuation">]</span> list_<span class="token punctuation">;</span>
+    list_ <span class="token operator">=</span> new_list<span class="token punctuation">;</span>
+    length_ <span class="token operator">=</span> new_length<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p>一个标准的开放式哈希实现。属性中 <code>length_</code> 存储桶的数量，<code>elems_</code> 存储哈希表中节点数，<code>list_</code> 则为桶数组。每一个桶里存储 <code>hash</code> 值相同的一系列节点，这些节点构成一个链表，通过 <code>next_hash</code> 属性连接。</p>
+<p><code>FindPointer</code> 函数返回一个二级指针。无论是 <code>list_[i]</code> 还是 <code>entry-&gt;next_hash</code>，均为 <code>LRUHandle *</code>，那么一个节点总会有一个正确的 <code>LRUHandle *</code> 变量指向它，该函数就返回这个变量的指针。说起来有点绕，仔细看懂就好。</p>
+<p>看懂后，理解 <code>Insert</code> 和 <code>Remove</code> 都不难。<code>Resize</code> 则根据存储的节点数，对哈希表进行缩放。如果不缩放，这样的结构会退化到链表的复杂度。使用 2 的幂可以规避掉哈希值的模除，同样可以加速。<code>Resize</code> 时会遍历每一个节点，将其从原位置取出，重新计算哈希值放到新位置，每次会加到桶中链表的头部。<code>Resize</code> 过程中链表需要拒绝其他请求。</p>
+<p>最后看 <code>LRUCache</code> 的实现就很简单了：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">LRUCache</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">LRUCache</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token operator">~</span><span class="token function">LRUCache</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Separate from constructor so caller can easily make an array of LRUCache</span>
+  <span class="token keyword">void</span> <span class="token function">SetCapacity</span><span class="token punctuation">(</span>size_t capacity<span class="token punctuation">)</span> <span class="token punctuation">{</span> capacity_ <span class="token operator">=</span> capacity<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">// Like Cache methods, but with an extra "hash" parameter.</span>
+  Cache<span class="token double-colon punctuation">::</span>Handle<span class="token operator">*</span> <span class="token function">Insert</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> hash<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">,</span>
+                        size_t charge<span class="token punctuation">,</span>
+                        <span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>deleter<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Cache<span class="token double-colon punctuation">::</span>Handle<span class="token operator">*</span> <span class="token function">Lookup</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> hash<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">Release</span><span class="token punctuation">(</span>Cache<span class="token double-colon punctuation">::</span>Handle<span class="token operator">*</span> handle<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">Erase</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> hash<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">Prune</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  size_t <span class="token function">TotalCharge</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    MutexLock <span class="token function">l</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> usage_<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">void</span> <span class="token function">LRU_Remove</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">LRU_Append</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> list<span class="token punctuation">,</span> LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">Ref</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">Unref</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> <span class="token function">FinishErase</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span> <span class="token function">EXCLUSIVE_LOCKS_REQUIRED</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Initialized before use.</span>
+  size_t capacity_<span class="token punctuation">;</span>
+
+  <span class="token comment">// mutex_ protects the following state.</span>
+  <span class="token keyword">mutable</span> port<span class="token double-colon punctuation">::</span>Mutex mutex_<span class="token punctuation">;</span>
+  size_t usage_ <span class="token function">GUARDED_BY</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Dummy head of LRU list.</span>
+  <span class="token comment">// lru.prev is newest entry, lru.next is oldest entry.</span>
+  <span class="token comment">// Entries have refs==1 and in_cache==true.</span>
+  LRUHandle lru_ <span class="token function">GUARDED_BY</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Dummy head of in-use list.</span>
+  <span class="token comment">// Entries are in use by clients, and have refs >= 2 and in_cache==true.</span>
+  LRUHandle in_use_ <span class="token function">GUARDED_BY</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  HandleTable table_ <span class="token function">GUARDED_BY</span><span class="token punctuation">(</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">LRUCache</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">capacity_</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">usage_</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Make empty circular linked lists.</span>
+  lru_<span class="token punctuation">.</span>next <span class="token operator">=</span> <span class="token operator">&amp;</span>lru_<span class="token punctuation">;</span>
+  lru_<span class="token punctuation">.</span>prev <span class="token operator">=</span> <span class="token operator">&amp;</span>lru_<span class="token punctuation">;</span>
+  in_use_<span class="token punctuation">.</span>next <span class="token operator">=</span> <span class="token operator">&amp;</span>in_use_<span class="token punctuation">;</span>
+  in_use_<span class="token punctuation">.</span>prev <span class="token operator">=</span> <span class="token operator">&amp;</span>in_use_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token operator">~</span><span class="token function">LRUCache</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>in_use_<span class="token punctuation">.</span>next <span class="token operator">==</span> <span class="token operator">&amp;</span>in_use_<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// Error if caller has an unreleased handle</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> e <span class="token operator">=</span> lru_<span class="token punctuation">.</span>next<span class="token punctuation">;</span> e <span class="token operator">!=</span> <span class="token operator">&amp;</span>lru_<span class="token punctuation">;</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    LRUHandle<span class="token operator">*</span> next <span class="token operator">=</span> e<span class="token operator">-></span>next<span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>e<span class="token operator">-></span>in_cache<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    e<span class="token operator">-></span>in_cache <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>e<span class="token operator">-></span>refs <span class="token operator">==</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// Invariant of lru_ list.</span>
+    <span class="token function">Unref</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    e <span class="token operator">=</span> next<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">Ref</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>e<span class="token operator">-></span>refs <span class="token operator">==</span> <span class="token number">1</span> <span class="token operator">&amp;&amp;</span> e<span class="token operator">-></span>in_cache<span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// If on lru_ list, move to in_use_ list.</span>
+    <span class="token function">LRU_Remove</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LRU_Append</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>in_use_<span class="token punctuation">,</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  e<span class="token operator">-></span>refs<span class="token operator">++</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">Unref</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>e<span class="token operator">-></span>refs <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  e<span class="token operator">-></span>refs<span class="token operator">--</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>e<span class="token operator">-></span>refs <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// Deallocate.</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>e<span class="token operator">-></span>in_cache<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">(</span><span class="token operator">*</span>e<span class="token operator">-></span>deleter<span class="token punctuation">)</span><span class="token punctuation">(</span>e<span class="token operator">-></span><span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> e<span class="token operator">-></span>value<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">free</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>e<span class="token operator">-></span>in_cache <span class="token operator">&amp;&amp;</span> e<span class="token operator">-></span>refs <span class="token operator">==</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// No longer in use; move to lru_ list.</span>
+    <span class="token function">LRU_Remove</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LRU_Append</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>lru_<span class="token punctuation">,</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">LRU_Remove</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  e<span class="token operator">-></span>next<span class="token operator">-></span>prev <span class="token operator">=</span> e<span class="token operator">-></span>prev<span class="token punctuation">;</span>
+  e<span class="token operator">-></span>prev<span class="token operator">-></span>next <span class="token operator">=</span> e<span class="token operator">-></span>next<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">LRU_Append</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> list<span class="token punctuation">,</span> LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Make "e" newest entry by inserting just before *list</span>
+  e<span class="token operator">-></span>next <span class="token operator">=</span> list<span class="token punctuation">;</span>
+  e<span class="token operator">-></span>prev <span class="token operator">=</span> list<span class="token operator">-></span>prev<span class="token punctuation">;</span>
+  e<span class="token operator">-></span>prev<span class="token operator">-></span>next <span class="token operator">=</span> e<span class="token punctuation">;</span>
+  e<span class="token operator">-></span>next<span class="token operator">-></span>prev <span class="token operator">=</span> e<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+Cache<span class="token double-colon punctuation">::</span>Handle<span class="token operator">*</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">Lookup</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> hash<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  MutexLock <span class="token function">l</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  LRUHandle<span class="token operator">*</span> e <span class="token operator">=</span> table_<span class="token punctuation">.</span><span class="token function">Lookup</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> hash<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>e <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">Ref</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>Cache<span class="token double-colon punctuation">::</span>Handle<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">Release</span><span class="token punctuation">(</span>Cache<span class="token double-colon punctuation">::</span>Handle<span class="token operator">*</span> handle<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  MutexLock <span class="token function">l</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">Unref</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>LRUHandle<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>handle<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+Cache<span class="token double-colon punctuation">::</span>Handle<span class="token operator">*</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">Insert</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> hash<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">,</span>
+                                size_t charge<span class="token punctuation">,</span>
+                                <span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>deleter<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span>
+                                                <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  MutexLock <span class="token function">l</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  LRUHandle<span class="token operator">*</span> e <span class="token operator">=</span>
+      <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>LRUHandle<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token function">malloc</span><span class="token punctuation">(</span><span class="token keyword">sizeof</span><span class="token punctuation">(</span>LRUHandle<span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">1</span> <span class="token operator">+</span> key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  e<span class="token operator">-></span>value <span class="token operator">=</span> value<span class="token punctuation">;</span>
+  e<span class="token operator">-></span>deleter <span class="token operator">=</span> deleter<span class="token punctuation">;</span>
+  e<span class="token operator">-></span>charge <span class="token operator">=</span> charge<span class="token punctuation">;</span>
+  e<span class="token operator">-></span>key_length <span class="token operator">=</span> key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  e<span class="token operator">-></span>hash <span class="token operator">=</span> hash<span class="token punctuation">;</span>
+  e<span class="token operator">-></span>in_cache <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  e<span class="token operator">-></span>refs <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>  <span class="token comment">// for the returned handle.</span>
+  <span class="token function">memcpy</span><span class="token punctuation">(</span>e<span class="token operator">-></span>key_data<span class="token punctuation">,</span> key<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>capacity_ <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    e<span class="token operator">-></span>refs<span class="token operator">++</span><span class="token punctuation">;</span>  <span class="token comment">// for the cache's reference.</span>
+    e<span class="token operator">-></span>in_cache <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token function">LRU_Append</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>in_use_<span class="token punctuation">,</span> e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    usage_ <span class="token operator">+=</span> charge<span class="token punctuation">;</span>
+    <span class="token function">FinishErase</span><span class="token punctuation">(</span>table_<span class="token punctuation">.</span><span class="token function">Insert</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>  <span class="token comment">// don't cache. (capacity_==0 is supported and turns off caching.)</span>
+    <span class="token comment">// next is read by key() in an assert, so it must be initialized</span>
+    e<span class="token operator">-></span>next <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>usage_ <span class="token operator">></span> capacity_ <span class="token operator">&amp;&amp;</span> lru_<span class="token punctuation">.</span>next <span class="token operator">!=</span> <span class="token operator">&amp;</span>lru_<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    LRUHandle<span class="token operator">*</span> old <span class="token operator">=</span> lru_<span class="token punctuation">.</span>next<span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>old<span class="token operator">-></span>refs <span class="token operator">==</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">bool</span> erased <span class="token operator">=</span> <span class="token function">FinishErase</span><span class="token punctuation">(</span>table_<span class="token punctuation">.</span><span class="token function">Remove</span><span class="token punctuation">(</span>old<span class="token operator">-></span><span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> old<span class="token operator">-></span>hash<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>erased<span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// to avoid unused variable when compiled NDEBUG</span>
+      <span class="token function">assert</span><span class="token punctuation">(</span>erased<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>Cache<span class="token double-colon punctuation">::</span>Handle<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// If e != nullptr, finish removing *e from the cache; it has already been</span>
+<span class="token comment">// removed from the hash table.  Return whether e != nullptr.</span>
+<span class="token keyword">bool</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">FinishErase</span><span class="token punctuation">(</span>LRUHandle<span class="token operator">*</span> e<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>e <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>e<span class="token operator">-></span>in_cache<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LRU_Remove</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    e<span class="token operator">-></span>in_cache <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    usage_ <span class="token operator">-=</span> e<span class="token operator">-></span>charge<span class="token punctuation">;</span>
+    <span class="token function">Unref</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> e <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">Erase</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> hash<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  MutexLock <span class="token function">l</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">FinishErase</span><span class="token punctuation">(</span>table_<span class="token punctuation">.</span><span class="token function">Remove</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> hash<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">LRUCache</span><span class="token double-colon punctuation">::</span><span class="token function">Prune</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  MutexLock <span class="token function">l</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>lru_<span class="token punctuation">.</span>next <span class="token operator">!=</span> <span class="token operator">&amp;</span>lru_<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    LRUHandle<span class="token operator">*</span> e <span class="token operator">=</span> lru_<span class="token punctuation">.</span>next<span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>e<span class="token operator">-></span>refs <span class="token operator">==</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">bool</span> erased <span class="token operator">=</span> <span class="token function">FinishErase</span><span class="token punctuation">(</span>table_<span class="token punctuation">.</span><span class="token function">Remove</span><span class="token punctuation">(</span>e<span class="token operator">-></span><span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> e<span class="token operator">-></span>hash<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>erased<span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// to avoid unused variable when compiled NDEBUG</span>
+      <span class="token function">assert</span><span class="token punctuation">(</span>erased<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>LRUCache</code> 中存储了两条链表，<code>lru_</code> 和 <code>in_use_</code>，分别记录普通节点和外部正在使用中的节点。外部正在使用中的节点是不可删除的，将二者区分开也方便做对应的清理。<code>Ref</code> 和 <code>Unref</code> 分别增删引用计数，并完成节点在 <code>lru_</code> 和 <code>in_use_</code> 的交换，以及计数为 0 时做最后的删除。</p>
+<p>双向链表，会将最新使用的节点放到链表的末端。这样在容量超标时，删除链表头部的、长时间未用的节点即可。该逻辑实现于 <code>Insert</code> 函数的结尾。</p>
+<p><code>LRUCache</code> 中在添删查操作中均使用互斥锁完成额外同步。<code>LevelDB</code> 中的锁将在后续文章中详细介绍。</p>
+<p>最后看分片 <code>ShardedLRUCache</code> 的实现：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">static</span> <span class="token keyword">const</span> <span class="token keyword">int</span> kNumShardBits <span class="token operator">=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+<span class="token keyword">static</span> <span class="token keyword">const</span> <span class="token keyword">int</span> kNumShards <span class="token operator">=</span> <span class="token number">1</span> <span class="token operator">&lt;&lt;</span> kNumShardBits<span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">ShardedLRUCache</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">Cache</span></span> <span class="token punctuation">{</span>
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  LRUCache shard_<span class="token punctuation">[</span>kNumShards<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  port<span class="token double-colon punctuation">::</span>Mutex id_mutex_<span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> last_id_<span class="token punctuation">;</span>
+
+  <span class="token keyword">static</span> <span class="token keyword">inline</span> <span class="token keyword">uint32_t</span> <span class="token function">HashSlice</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> s<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">Hash</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> s<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">static</span> <span class="token keyword">uint32_t</span> <span class="token function">Shard</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> hash<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> hash <span class="token operator">>></span> <span class="token punctuation">(</span><span class="token number">32</span> <span class="token operator">-</span> kNumShardBits<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">explicit</span> <span class="token function">ShardedLRUCache</span><span class="token punctuation">(</span>size_t capacity<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">last_id_</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> size_t per_shard <span class="token operator">=</span> <span class="token punctuation">(</span>capacity <span class="token operator">+</span> <span class="token punctuation">(</span>kNumShards <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">/</span> kNumShards<span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> s <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> s <span class="token operator">&lt;</span> kNumShards<span class="token punctuation">;</span> s<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      shard_<span class="token punctuation">[</span>s<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">SetCapacity</span><span class="token punctuation">(</span>per_shard<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token operator">~</span><span class="token function">ShardedLRUCache</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+  Handle<span class="token operator">*</span> <span class="token function">Insert</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">,</span> size_t charge<span class="token punctuation">,</span>
+                 <span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>deleter<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> <span class="token keyword">void</span><span class="token operator">*</span> value<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> hash <span class="token operator">=</span> <span class="token function">HashSlice</span><span class="token punctuation">(</span>key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> shard_<span class="token punctuation">[</span><span class="token function">Shard</span><span class="token punctuation">(</span>hash<span class="token punctuation">)</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">Insert</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> hash<span class="token punctuation">,</span> value<span class="token punctuation">,</span> charge<span class="token punctuation">,</span> deleter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  Handle<span class="token operator">*</span> <span class="token function">Lookup</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> hash <span class="token operator">=</span> <span class="token function">HashSlice</span><span class="token punctuation">(</span>key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> shard_<span class="token punctuation">[</span><span class="token function">Shard</span><span class="token punctuation">(</span>hash<span class="token punctuation">)</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">Lookup</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> hash<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">Release</span><span class="token punctuation">(</span>Handle<span class="token operator">*</span> handle<span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span>
+    LRUHandle<span class="token operator">*</span> h <span class="token operator">=</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>LRUHandle<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>handle<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    shard_<span class="token punctuation">[</span><span class="token function">Shard</span><span class="token punctuation">(</span>h<span class="token operator">-></span>hash<span class="token punctuation">)</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">Release</span><span class="token punctuation">(</span>handle<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">Erase</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> hash <span class="token operator">=</span> <span class="token function">HashSlice</span><span class="token punctuation">(</span>key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    shard_<span class="token punctuation">[</span><span class="token function">Shard</span><span class="token punctuation">(</span>hash<span class="token punctuation">)</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">Erase</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> hash<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">void</span><span class="token operator">*</span> <span class="token function">Value</span><span class="token punctuation">(</span>Handle<span class="token operator">*</span> handle<span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token generic-function"><span class="token function">reinterpret_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>LRUHandle<span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>handle<span class="token punctuation">)</span><span class="token operator">-></span>value<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">uint64_t</span> <span class="token function">NewId</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span>
+    MutexLock <span class="token function">l</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>id_mutex_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">++</span><span class="token punctuation">(</span>last_id_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">Prune</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> s <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> s <span class="token operator">&lt;</span> kNumShards<span class="token punctuation">;</span> s<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      shard_<span class="token punctuation">[</span>s<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">Prune</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  size_t <span class="token function">TotalCharge</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">override</span> <span class="token punctuation">{</span>
+    size_t total <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> s <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> s <span class="token operator">&lt;</span> kNumShards<span class="token punctuation">;</span> s<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      total <span class="token operator">+=</span> shard_<span class="token punctuation">[</span>s<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">TotalCharge</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> total<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><code>LevelDB</code> 默认将 <code>LRUCache</code> 分为 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mn>2</mn><mn>4</mn></msup></mrow><annotation encoding="application/x-tex">2^4</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span class="mord">2</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span></span></span></span></span></span></span></span></eq> 块，取哈希值的高 4 位作为分片的位置（取低 4 位的话分片基本就白做了）。分片可以提高查询和插入的速度，减少锁的压力，是提高缓存性能的常用方法。</p>
+<h3 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
+<p>本文简单介绍了 <code>LevelDB</code> 中的 <code>Slice</code>、<code>Hash</code> 和 <code>LRUCache</code> 的实现。慢慢会觉得代码中的每个细节都是有意义的，不可忽略。<code>LevelDB</code> 源代码不超过 3 万行，非常推荐学习 C++ 的同学阅读。建议可以先读 <code>util</code> 部分，这里是通用的数据结构，没有太多依赖。</p>
+<p>下一篇会继续介绍 <code>LevelDB</code> 中的其他数据结构，包括布隆过滤器、内存池和跳表。</p>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>

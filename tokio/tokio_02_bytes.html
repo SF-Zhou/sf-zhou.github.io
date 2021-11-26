@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Tokio 源码分析「二、字节流 Bytes」 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Tokio 源码分析「二、字节流 Bytes」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2020.11.12 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>网络应用的核心是处理字节流，本篇关注 Tokio 处理字节流的基础库 <a href="https://github.com/tokio-rs/bytes">bytes</a>，阅读的代码版本为 <a href="https://github.com/tokio-rs/bytes/tree/v0.6.0">v0.6.0</a>。</p>
+<figure tabindex="1"><a href="../images/5e364463cf50f41fec2e028df84f6a4a.svg"><img src="../images/5e364463cf50f41fec2e028df84f6a4a.svg" alt=""></a><figcaption>Tokio 架构图 from <a href="http://tokio.rs">tokio.rs</a></figcaption></figure>
+<h3 id="1.-概览" tabindex="-1"><a href="#1.-%E6%A6%82%E8%A7%88">1. 概览</a></h3>
+<p>Bytes 封装了对字节流的常用操作，核心特性是使用引用计数实现内存安全的 <code>string_view</code>。<code>src</code> 目录下的文件结构为：</p>
+<pre class="language-markup"><code class="language-markup">src
+├── buf                  # buffer 实现
+│   ├── buf_impl.rs
+│   ├── buf_mut.rs
+│   ├── chain.rs
+│   ├── iter.rs
+│   ├── limit.rs
+│   ├── mod.rs
+│   ├── reader.rs
+│   ├── take.rs
+│   ├── uninit_slice.rs
+│   ├── vec_deque.rs
+│   └── writer.rs
+├── bytes.rs             # bytes 实现
+├── bytes_mut.rs         # mutable bytes
+├── fmt                  # 输出格式
+│   ├── debug.rs
+│   ├── hex.rs
+│   └── mod.rs
+├── lib.rs
+├── loom.rs              # 引用计数
+└── serde.rs             # serde 序列化支持
+</code></pre>
+<p>来看一个单元测试：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token attribute attr-name">#[test]</span>
+<span class="token keyword">fn</span> <span class="token function-definition function">slice</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> a <span class="token operator">=</span> <span class="token class-name">Bytes</span><span class="token punctuation">::</span><span class="token function">from</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token string">b"hello world"</span><span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> b <span class="token operator">=</span> a<span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token number">3</span><span class="token punctuation">..</span><span class="token number">5</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">assert_eq!</span><span class="token punctuation">(</span>b<span class="token punctuation">,</span> <span class="token string">b"lo"</span><span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> b <span class="token operator">=</span> a<span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">..</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">assert_eq!</span><span class="token punctuation">(</span>b<span class="token punctuation">,</span> <span class="token string">b""</span><span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> b <span class="token operator">=</span> a<span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token number">3</span><span class="token punctuation">..</span><span class="token number">3</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">assert_eq!</span><span class="token punctuation">(</span>b<span class="token punctuation">,</span> <span class="token string">b""</span><span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> b <span class="token operator">=</span> a<span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span>a<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">..</span>a<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">assert_eq!</span><span class="token punctuation">(</span>b<span class="token punctuation">,</span> <span class="token string">b""</span><span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> b <span class="token operator">=</span> a<span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token punctuation">..</span><span class="token number">5</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">assert_eq!</span><span class="token punctuation">(</span>b<span class="token punctuation">,</span> <span class="token string">b"hello"</span><span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> b <span class="token operator">=</span> a<span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token number">3</span><span class="token punctuation">..</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">assert_eq!</span><span class="token punctuation">(</span>b<span class="token punctuation">,</span> <span class="token string">b"lo world"</span><span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="2.-buf" tabindex="-1"><a href="#2.-buf">2. Buf</a></h3>
+<p><code>Buf</code> 类似 LevelDB 中的 <code>Slice</code>，其 trait 定义在<a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/buf_impl.rs"><code>src/buf/buf_impl.rs</code></a> 中，依赖 <a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/reader.rs"><code>reader.rs</code></a> / <a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/take.rs"><code>take.rs</code></a> / <a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/chain.rs"><code>chain.rs</code></a>，依次看依赖的文件：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">// reader.rs</span>
+
+<span class="token comment">/// A `Buf` adapter which implements `io::Read` for the inner value.</span>
+<span class="token attribute attr-name">#[derive(Debug)]</span>
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Reader</span><span class="token operator">&lt;</span><span class="token class-name">B</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    buf<span class="token punctuation">:</span> <span class="token class-name">B</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">new</span><span class="token operator">&lt;</span><span class="token class-name">B</span><span class="token operator">></span><span class="token punctuation">(</span>buf<span class="token punctuation">:</span> <span class="token class-name">B</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Reader</span><span class="token operator">&lt;</span><span class="token class-name">B</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token class-name">Reader</span> <span class="token punctuation">{</span> buf <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span><span class="token operator">&lt;</span><span class="token class-name">B</span><span class="token punctuation">:</span> <span class="token class-name">Buf</span> <span class="token operator">+</span> <span class="token class-name">Sized</span><span class="token operator">></span> <span class="token namespace">io<span class="token punctuation">::</span></span><span class="token class-name">Read</span> <span class="token keyword">for</span> <span class="token class-name">Reader</span><span class="token operator">&lt;</span><span class="token class-name">B</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">read</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">,</span> dst<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token namespace">io<span class="token punctuation">::</span></span><span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token keyword">usize</span><span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> len <span class="token operator">=</span> <span class="token namespace">cmp<span class="token punctuation">::</span></span><span class="token function">min</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">.</span>buf<span class="token punctuation">.</span><span class="token function">remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> dst<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token class-name">Buf</span><span class="token punctuation">::</span><span class="token function">copy_to_slice</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">.</span>buf<span class="token punctuation">,</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> dst<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">..</span>len<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token class-name">Ok</span><span class="token punctuation">(</span>len<span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// releated functions in buf_impl.rs</span>
+<span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token class-name">Buf</span> <span class="token punctuation">{</span>
+    <span class="token attribute attr-name">#[cfg(feature = <span class="token string">"std"</span>)]</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">reader</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Reader</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span>
+    <span class="token keyword">where</span>
+        <span class="token keyword">Self</span><span class="token punctuation">:</span> <span class="token class-name">Sized</span><span class="token punctuation">,</span>
+    <span class="token punctuation">{</span>
+        <span class="token namespace">reader<span class="token punctuation">::</span></span><span class="token function">new</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">copy_to_slice</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">,</span> dst<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> off <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+        <span class="token macro property">assert!</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">>=</span> dst<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">while</span> off <span class="token operator">&lt;</span> dst<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">let</span> cnt<span class="token punctuation">;</span>
+
+            <span class="token keyword">unsafe</span> <span class="token punctuation">{</span>
+                <span class="token keyword">let</span> src <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">bytes</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+                cnt <span class="token operator">=</span> <span class="token namespace">cmp<span class="token punctuation">::</span></span><span class="token function">min</span><span class="token punctuation">(</span>src<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> dst<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> off<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+                <span class="token namespace">ptr<span class="token punctuation">::</span></span><span class="token function">copy_nonoverlapping</span><span class="token punctuation">(</span>src<span class="token punctuation">.</span><span class="token function">as_ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> dst<span class="token punctuation">[</span>off<span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">as_mut_ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> cnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+                off <span class="token operator">+=</span> cnt<span class="token punctuation">;</span>
+            <span class="token punctuation">}</span>
+
+            <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">advance</span><span class="token punctuation">(</span>cnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>Reader</code> 内部包含一个 <code>buf: B</code> 对象，执行 <code>io::Read::read</code> 时可以直接复制 <code>buf</code> 的内存到 <code>dst</code>。<code>Buf::copy_to_slice</code> 的过程中会将指针移动到复制结束的位置。<code>Buf::copy_to_slice</code> 可以换成 <code>self.buf.copy_to_slice</code>。复制过程中调用的 <code>ptr::copy_nonoverlapping</code> 是 <code>unsafe</code> 的，语义上和 <code>memcpy</code> 等价，要求 <code>src</code> 和 <code>dst</code> 指向的两段内存不存在重叠。</p>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">// take.rs</span>
+
+<span class="token comment">/// A `Buf` adapter which limits the bytes read from an underlying buffer.</span>
+<span class="token attribute attr-name">#[derive(Debug)]</span>
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Take</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    inner<span class="token punctuation">:</span> <span class="token class-name">T</span><span class="token punctuation">,</span>
+    limit<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">new</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token operator">></span><span class="token punctuation">(</span>inner<span class="token punctuation">:</span> <span class="token class-name">T</span><span class="token punctuation">,</span> limit<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Take</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token class-name">Take</span> <span class="token punctuation">{</span> inner<span class="token punctuation">,</span> limit <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token punctuation">:</span> <span class="token class-name">Buf</span><span class="token operator">></span> <span class="token class-name">Buf</span> <span class="token keyword">for</span> <span class="token class-name">Take</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">remaining</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">usize</span> <span class="token punctuation">{</span>
+        <span class="token namespace">cmp<span class="token punctuation">::</span></span><span class="token function">min</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">.</span>inner<span class="token punctuation">.</span><span class="token function">remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">self</span><span class="token punctuation">.</span>limit<span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">bytes</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token operator">&amp;</span><span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> bytes <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>inner<span class="token punctuation">.</span><span class="token function">bytes</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token operator">&amp;</span>bytes<span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token namespace">cmp<span class="token punctuation">::</span></span><span class="token function">min</span><span class="token punctuation">(</span>bytes<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">self</span><span class="token punctuation">.</span>limit<span class="token punctuation">)</span><span class="token punctuation">]</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">advance</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">,</span> cnt<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">assert!</span><span class="token punctuation">(</span>cnt <span class="token operator">&lt;=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>limit<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span>inner<span class="token punctuation">.</span><span class="token function">advance</span><span class="token punctuation">(</span>cnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span>limit <span class="token operator">-=</span> cnt<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// releated functions in buf_impl.rs</span>
+<span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token class-name">Buf</span> <span class="token punctuation">{</span>
+    <span class="token comment">/// Creates an adaptor which will read at most `limit` bytes from `self`.</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">take</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">,</span> limit<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Take</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span>
+    <span class="token keyword">where</span>
+        <span class="token keyword">Self</span><span class="token punctuation">:</span> <span class="token class-name">Sized</span><span class="token punctuation">,</span>
+    <span class="token punctuation">{</span>
+        <span class="token namespace">take<span class="token punctuation">::</span></span><span class="token function">new</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">,</span> limit<span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">/// # Examples</span>
+<span class="token comment">///</span>
+<span class="token comment">/// ```</span>
+<span class="token comment">/// use bytes::{Buf, BufMut};</span>
+<span class="token comment">///</span>
+<span class="token comment">/// let mut buf = b"hello world"[..].take(5);</span>
+<span class="token comment">/// let mut dst = vec![];</span>
+<span class="token comment">///</span>
+<span class="token comment">/// dst.put(&amp;mut buf);</span>
+<span class="token comment">/// assert_eq!(dst, b"hello");</span>
+<span class="token comment">///</span>
+<span class="token comment">/// let mut buf = buf.into_inner();</span>
+<span class="token comment">/// dst.clear();</span>
+<span class="token comment">/// dst.put(&amp;mut buf);</span>
+<span class="token comment">/// assert_eq!(dst, b" world");</span>
+<span class="token comment">/// ```</span>
+</code></pre>
+<p><code>Take</code> 内部包含一个 <code>inner: T</code> 对象以及限制长度的 <code>limit</code>。比较有意思的是 <code>Take&lt;Buf&gt;</code> 对象也是一种 <code>Buf</code>，也就是说你可以递归的调用 <code>buf.take(limit)</code>。</p>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">// chain.rs</span>
+
+<span class="token comment">/// A `Chain` sequences two buffers.</span>
+<span class="token attribute attr-name">#[derive(Debug)]</span>
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Chain</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token punctuation">,</span> <span class="token class-name">U</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    a<span class="token punctuation">:</span> <span class="token class-name">T</span><span class="token punctuation">,</span>
+    b<span class="token punctuation">:</span> <span class="token class-name">U</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token punctuation">,</span> <span class="token class-name">U</span><span class="token operator">></span> <span class="token class-name">Buf</span> <span class="token keyword">for</span> <span class="token class-name">Chain</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token punctuation">,</span> <span class="token class-name">U</span><span class="token operator">></span>
+<span class="token keyword">where</span>
+    <span class="token class-name">T</span><span class="token punctuation">:</span> <span class="token class-name">Buf</span><span class="token punctuation">,</span>
+    <span class="token class-name">U</span><span class="token punctuation">:</span> <span class="token class-name">Buf</span><span class="token punctuation">,</span>
+<span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">remaining</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">usize</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span>a<span class="token punctuation">.</span><span class="token function">remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token keyword">self</span><span class="token punctuation">.</span>b<span class="token punctuation">.</span><span class="token function">remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">bytes</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token operator">&amp;</span><span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token keyword">self</span><span class="token punctuation">.</span>a<span class="token punctuation">.</span><span class="token function">has_remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">self</span><span class="token punctuation">.</span>a<span class="token punctuation">.</span><span class="token function">bytes</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+            <span class="token keyword">self</span><span class="token punctuation">.</span>b<span class="token punctuation">.</span><span class="token function">bytes</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">advance</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">,</span> <span class="token keyword">mut</span> cnt<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> a_rem <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>a<span class="token punctuation">.</span><span class="token function">remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">if</span> a_rem <span class="token operator">!=</span> <span class="token number">0</span> <span class="token punctuation">{</span>
+            <span class="token keyword">if</span> a_rem <span class="token operator">>=</span> cnt <span class="token punctuation">{</span>
+                <span class="token keyword">self</span><span class="token punctuation">.</span>a<span class="token punctuation">.</span><span class="token function">advance</span><span class="token punctuation">(</span>cnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+                <span class="token keyword">return</span><span class="token punctuation">;</span>
+            <span class="token punctuation">}</span>
+
+            <span class="token comment">// Consume what is left of a</span>
+            <span class="token keyword">self</span><span class="token punctuation">.</span>a<span class="token punctuation">.</span><span class="token function">advance</span><span class="token punctuation">(</span>a_rem<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+            cnt <span class="token operator">-=</span> a_rem<span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">self</span><span class="token punctuation">.</span>b<span class="token punctuation">.</span><span class="token function">advance</span><span class="token punctuation">(</span>cnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token attribute attr-name">#[cfg(feature = <span class="token string">"std"</span>)]</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">bytes_vectored</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'a</span><span class="token operator">></span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token lifetime-annotation symbol">'a</span> <span class="token keyword">self</span><span class="token punctuation">,</span> dst<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token punctuation">[</span><span class="token class-name">IoSlice</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'a</span><span class="token operator">></span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">usize</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> n <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>a<span class="token punctuation">.</span><span class="token function">bytes_vectored</span><span class="token punctuation">(</span>dst<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        n <span class="token operator">+=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>b<span class="token punctuation">.</span><span class="token function">bytes_vectored</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> dst<span class="token punctuation">[</span>n<span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        n
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>Chain</code> 对象可以链接两个 <code>Buf</code> 对象，并提供两个缓冲区之间的连续视图。换句话说，可以无限的链接 <code>Buf</code> 对象，比如 <code>a.chain(b).chain(c)</code>，最终得到的类型是 <code>Chain&lt;Chain&lt;Buf, Buf&gt;, Buf&gt;</code>。</p>
+<p>看完了依赖项，可以继续看 <a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/buf_impl.rs"><code>buf_impl.rs</code></a>。<code>Buf</code> trait 中的“纯虚函数”只有下面三个：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token class-name">Buf</span> <span class="token punctuation">{</span>
+    <span class="token comment">/// Returns the number of bytes between the current position and the end of</span>
+    <span class="token comment">/// the buffer.</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">remaining</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">usize</span><span class="token punctuation">;</span>
+
+    <span class="token comment">/// Returns a slice starting at the current position and of length between 0</span>
+    <span class="token comment">/// and `Buf::remaining()`. Note that this *can* return shorter slice (this allows</span>
+    <span class="token comment">/// non-continuous internal representation)</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">bytes</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token operator">&amp;</span><span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+    <span class="token comment">/// Fills `dst` with potentially multiple slices starting at `self`'s</span>
+    <span class="token comment">/// current position.</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">advance</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">,</span> cnt<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>实现这三个纯虚函数就可以实现 <code>Buf</code> trait，比如：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">impl</span> <span class="token class-name">Buf</span> <span class="token keyword">for</span> <span class="token operator">&amp;</span><span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span> <span class="token punctuation">{</span>
+    <span class="token attribute attr-name">#[inline]</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">remaining</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">usize</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token attribute attr-name">#[inline]</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">bytes</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token operator">&amp;</span><span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token attribute attr-name">#[inline]</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">advance</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">,</span> cnt<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token operator">*</span><span class="token keyword">self</span> <span class="token operator">=</span> <span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">[</span>cnt<span class="token punctuation">..</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>通过这几个接口，可以实现 <code>Buf</code> 的迭代器：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">// iter.rs</span>
+
+<span class="token comment">/// Iterator over the bytes contained by the buffer.</span>
+<span class="token attribute attr-name">#[derive(Debug)]</span>
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">IntoIter</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    inner<span class="token punctuation">:</span> <span class="token class-name">T</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token punctuation">:</span> <span class="token class-name">Buf</span><span class="token operator">></span> <span class="token class-name">Iterator</span> <span class="token keyword">for</span> <span class="token class-name">IntoIter</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token keyword">type</span> <span class="token class-name">Item</span> <span class="token operator">=</span> <span class="token keyword">u8</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">next</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Option</span><span class="token operator">&lt;</span><span class="token keyword">u8</span><span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token operator">!</span><span class="token keyword">self</span><span class="token punctuation">.</span>inner<span class="token punctuation">.</span><span class="token function">has_remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">return</span> <span class="token class-name">None</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">let</span> b <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>inner<span class="token punctuation">.</span><span class="token function">bytes</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span>inner<span class="token punctuation">.</span><span class="token function">advance</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token class-name">Some</span><span class="token punctuation">(</span>b<span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">size_hint</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token punctuation">(</span><span class="token keyword">usize</span><span class="token punctuation">,</span> <span class="token class-name">Option</span><span class="token operator">&lt;</span><span class="token keyword">usize</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> rem <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>inner<span class="token punctuation">.</span><span class="token function">remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">(</span>rem<span class="token punctuation">,</span> <span class="token class-name">Some</span><span class="token punctuation">(</span>rem<span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>Buf</code> 也有可写的版本 <code>BufMut</code>，实现上大同小异，不再赘述。</p>
+<h3 id="3.-bytes" tabindex="-1"><a href="#3.-bytes">3. Bytes</a></h3>
+<p><code>Bytes</code>，一种低开销的可复制、可切片的连续内存块。通过引用计数保证原始内存块的生命周期，通过 <code>&lt;ptr, len&gt;</code> 声明当前指向的位置和大小。一个 <code>Bytes</code> 对象的内存布局如下：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">/// A cheaply cloneable and sliceable chunk of contiguous memory.</span>
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Bytes</span> <span class="token punctuation">{</span>
+    ptr<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span>
+    len<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">,</span>
+    <span class="token comment">// inlined "trait object"</span>
+    data<span class="token punctuation">:</span> <span class="token class-name">AtomicPtr</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">,</span>
+    vtable<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token lifetime-annotation symbol">'static</span> <span class="token class-name">Vtable</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">pub</span><span class="token punctuation">(</span><span class="token keyword">crate</span><span class="token punctuation">)</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Vtable</span> <span class="token punctuation">{</span>
+    <span class="token comment">/// fn(data, ptr, len)</span>
+    <span class="token keyword">pub</span> clone<span class="token punctuation">:</span> <span class="token keyword">unsafe</span> <span class="token keyword">fn</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token class-name">AtomicPtr</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">,</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Bytes</span><span class="token punctuation">,</span>
+    <span class="token comment">/// fn(data, ptr, len)</span>
+    <span class="token keyword">pub</span> drop<span class="token punctuation">:</span> <span class="token keyword">unsafe</span> <span class="token keyword">fn</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token class-name">AtomicPtr</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">,</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> <span class="token keyword">usize</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>Bytes</code> 自然会实现 <code>Buf</code> trait：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">impl</span> <span class="token class-name">Buf</span> <span class="token keyword">for</span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+    <span class="token attribute attr-name">#[inline]</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">remaining</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">usize</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token attribute attr-name">#[inline]</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">bytes</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token operator">&amp;</span><span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">as_slice</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token attribute attr-name">#[inline]</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">advance</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">,</span> cnt<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">assert!</span><span class="token punctuation">(</span>
+            cnt <span class="token operator">&lt;=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token string">"cannot advance past `remaining`: {:?} &lt;= {:?}"</span><span class="token punctuation">,</span>
+            cnt<span class="token punctuation">,</span>
+            <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">unsafe</span> <span class="token punctuation">{</span>
+            <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">inc_start</span><span class="token punctuation">(</span>cnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">copy_to_bytes</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">,</span> len<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">crate</span><span class="token punctuation">::</span><span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> len <span class="token operator">==</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token namespace">core<span class="token punctuation">::</span>mem<span class="token punctuation">::</span></span><span class="token function">replace</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">,</span> <span class="token class-name">Bytes</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+        <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+            <span class="token keyword">let</span> ret <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token punctuation">..</span>len<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">advance</span><span class="token punctuation">(</span>len<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            ret
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>Bytes</code> 的切片操作实现也很简单，通过 <code>clone</code> 获得一个新的对象，再修改该对象的指向和长度：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">impl</span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">slice</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> range<span class="token punctuation">:</span> <span class="token keyword">impl</span> <span class="token class-name">RangeBounds</span><span class="token operator">&lt;</span><span class="token keyword">usize</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+        <span class="token keyword">use</span> <span class="token namespace">core<span class="token punctuation">::</span>ops<span class="token punctuation">::</span></span><span class="token class-name">Bound</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">let</span> len <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">let</span> begin <span class="token operator">=</span> <span class="token keyword">match</span> range<span class="token punctuation">.</span><span class="token function">start_bound</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token class-name">Bound</span><span class="token punctuation">::</span><span class="token class-name">Included</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>n<span class="token punctuation">)</span> <span class="token operator">=></span> n<span class="token punctuation">,</span>
+            <span class="token class-name">Bound</span><span class="token punctuation">::</span><span class="token class-name">Excluded</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>n<span class="token punctuation">)</span> <span class="token operator">=></span> n <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span>
+            <span class="token class-name">Bound</span><span class="token punctuation">::</span><span class="token class-name">Unbounded</span> <span class="token operator">=></span> <span class="token number">0</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">let</span> end <span class="token operator">=</span> <span class="token keyword">match</span> range<span class="token punctuation">.</span><span class="token function">end_bound</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token class-name">Bound</span><span class="token punctuation">::</span><span class="token class-name">Included</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>n<span class="token punctuation">)</span> <span class="token operator">=></span> n<span class="token punctuation">.</span><span class="token function">checked_add</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">expect</span><span class="token punctuation">(</span><span class="token string">"out of range"</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token class-name">Bound</span><span class="token punctuation">::</span><span class="token class-name">Excluded</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>n<span class="token punctuation">)</span> <span class="token operator">=></span> n<span class="token punctuation">,</span>
+            <span class="token class-name">Bound</span><span class="token punctuation">::</span><span class="token class-name">Unbounded</span> <span class="token operator">=></span> len<span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+        <span class="token macro property">assert!</span><span class="token punctuation">(</span>
+            begin <span class="token operator">&lt;=</span> end<span class="token punctuation">,</span>
+            <span class="token string">"range start must not be greater than end: {:?} &lt;= {:?}"</span><span class="token punctuation">,</span>
+            begin<span class="token punctuation">,</span>
+            end<span class="token punctuation">,</span>
+        <span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token macro property">assert!</span><span class="token punctuation">(</span>
+            end <span class="token operator">&lt;=</span> len<span class="token punctuation">,</span>
+            <span class="token string">"range end out of bounds: {:?} &lt;= {:?}"</span><span class="token punctuation">,</span>
+            end<span class="token punctuation">,</span>
+            len<span class="token punctuation">,</span>
+        <span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">if</span> end <span class="token operator">==</span> begin <span class="token punctuation">{</span>
+            <span class="token keyword">return</span> <span class="token class-name">Bytes</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> ret <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        ret<span class="token punctuation">.</span>len <span class="token operator">=</span> end <span class="token operator">-</span> begin<span class="token punctuation">;</span>
+        ret<span class="token punctuation">.</span>ptr <span class="token operator">=</span> <span class="token keyword">unsafe</span> <span class="token punctuation">{</span> ret<span class="token punctuation">.</span>ptr<span class="token punctuation">.</span><span class="token function">offset</span><span class="token punctuation">(</span>begin <span class="token keyword">as</span> <span class="token keyword">isize</span><span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+        ret
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>为了保证低开销，<code>clone</code> 操作有不同的实现方式。对于编译器确定的静态内存块，直接复制 <code>ptr</code> 和 <code>len</code> 就可以，不需要额外管理析构：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token comment">// ===== impl StaticVtable =====</span>
+<span class="token keyword">const</span> <span class="token constant">STATIC_VTABLE</span><span class="token punctuation">:</span> <span class="token class-name">Vtable</span> <span class="token operator">=</span> <span class="token class-name">Vtable</span> <span class="token punctuation">{</span>
+    clone<span class="token punctuation">:</span> static_clone<span class="token punctuation">,</span>
+    drop<span class="token punctuation">:</span> static_drop<span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">static_clone</span><span class="token punctuation">(</span>_<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">AtomicPtr</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">,</span> ptr<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> len<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> slice <span class="token operator">=</span> <span class="token namespace">slice<span class="token punctuation">::</span></span><span class="token function">from_raw_parts</span><span class="token punctuation">(</span>ptr<span class="token punctuation">,</span> len<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token class-name">Bytes</span><span class="token punctuation">::</span><span class="token function">from_static</span><span class="token punctuation">(</span>slice<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">static_drop</span><span class="token punctuation">(</span>_<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token class-name">AtomicPtr</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">,</span> _<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> _<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// nothing to drop for &amp;'static [u8]</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">from_static</span><span class="token punctuation">(</span>bytes<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token lifetime-annotation symbol">'static</span> <span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+        <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+            ptr<span class="token punctuation">:</span> bytes<span class="token punctuation">.</span><span class="token function">as_ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            len<span class="token punctuation">:</span> bytes<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            data<span class="token punctuation">:</span> <span class="token class-name">AtomicPtr</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token namespace">ptr<span class="token punctuation">::</span></span><span class="token function">null_mut</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            vtable<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token constant">STATIC_VTABLE</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>对于动态申请的内存块，则需要实现引用计数：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">struct</span> <span class="token type-definition class-name">Shared</span> <span class="token punctuation">{</span>
+    <span class="token comment">// holds vec for drop, but otherwise doesnt access it</span>
+    _vec<span class="token punctuation">:</span> <span class="token class-name">Vec</span><span class="token operator">&lt;</span><span class="token keyword">u8</span><span class="token operator">></span><span class="token punctuation">,</span>
+    ref_cnt<span class="token punctuation">:</span> <span class="token class-name">AtomicUsize</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">const</span> _<span class="token punctuation">:</span> <span class="token punctuation">[</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token number">0</span> <span class="token operator">-</span> <span class="token namespace">mem<span class="token punctuation">::</span></span><span class="token function">align_of</span><span class="token punctuation">::</span><span class="token operator">&lt;</span><span class="token class-name">Shared</span><span class="token operator">></span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">%</span> <span class="token number">2</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token comment">// Assert that the alignment of `Shared` is divisible by 2.</span>
+
+<span class="token keyword">static</span> <span class="token constant">SHARED_VTABLE</span><span class="token punctuation">:</span> <span class="token class-name">Vtable</span> <span class="token operator">=</span> <span class="token class-name">Vtable</span> <span class="token punctuation">{</span>
+    clone<span class="token punctuation">:</span> shared_clone<span class="token punctuation">,</span>
+    drop<span class="token punctuation">:</span> shared_drop<span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">shared_clone</span><span class="token punctuation">(</span>data<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">AtomicPtr</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">,</span> ptr<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> len<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> shared <span class="token operator">=</span> data<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token class-name">Ordering</span><span class="token punctuation">::</span><span class="token class-name">Relaxed</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">shallow_clone_arc</span><span class="token punctuation">(</span>shared <span class="token keyword">as</span> _<span class="token punctuation">,</span> ptr<span class="token punctuation">,</span> len<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">shared_drop</span><span class="token punctuation">(</span>data<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token class-name">AtomicPtr</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">,</span> _ptr<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> _len<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    data<span class="token punctuation">.</span><span class="token function">with_mut</span><span class="token punctuation">(</span><span class="token closure-params"><span class="token closure-punctuation punctuation">|</span>shared<span class="token closure-punctuation punctuation">|</span></span> <span class="token punctuation">{</span>
+        <span class="token function">release_shared</span><span class="token punctuation">(</span><span class="token operator">*</span>shared <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">mut</span> <span class="token class-name">Shared</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">shallow_clone_arc</span><span class="token punctuation">(</span>shared<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">mut</span> <span class="token class-name">Shared</span><span class="token punctuation">,</span> ptr<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> len<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> old_size <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token operator">*</span>shared<span class="token punctuation">)</span><span class="token punctuation">.</span>ref_cnt<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token class-name">Ordering</span><span class="token punctuation">::</span><span class="token class-name">Relaxed</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> old_size <span class="token operator">></span> <span class="token keyword">usize</span><span class="token punctuation">::</span><span class="token constant">MAX</span> <span class="token operator">>></span> <span class="token number">1</span> <span class="token punctuation">{</span>
+        <span class="token keyword">crate</span><span class="token module-declaration namespace"><span class="token punctuation">::</span>abort</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+        ptr<span class="token punctuation">,</span>
+        len<span class="token punctuation">,</span>
+        data<span class="token punctuation">:</span> <span class="token class-name">AtomicPtr</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span>shared <span class="token keyword">as</span> _<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        vtable<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token constant">SHARED_VTABLE</span><span class="token punctuation">,</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">release_shared</span><span class="token punctuation">(</span>ptr<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">mut</span> <span class="token class-name">Shared</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// `Shared` storage... follow the drop steps from Arc.</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">*</span>ptr<span class="token punctuation">)</span><span class="token punctuation">.</span>ref_cnt<span class="token punctuation">.</span><span class="token function">fetch_sub</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token class-name">Ordering</span><span class="token punctuation">::</span><span class="token class-name">Release</span><span class="token punctuation">)</span> <span class="token operator">!=</span> <span class="token number">1</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token namespace">atomic<span class="token punctuation">::</span></span><span class="token function">fence</span><span class="token punctuation">(</span><span class="token class-name">Ordering</span><span class="token punctuation">::</span><span class="token class-name">Acquire</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token class-name">Box</span><span class="token punctuation">::</span><span class="token function">from_raw</span><span class="token punctuation">(</span>ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>这里实现地比较复杂的是从 <code>Vec&lt;u8&gt;</code> 转到 <code>Bytes</code>。从 <code>Vec&lt;u8&gt;</code> 转到 <code>Bytes</code> 时，会将原子指针 <code>data</code> 指向该 <code>Vec&lt;u8&gt;</code> 的堆内存，并且将最低位设为 1 用以区分指向 <code>Shared</code> 对象的原子指针。当发生 <code>clone</code> 时，将会使用 <code>data</code> 指向的堆内存构建 <code>Shared</code> 对象，并将原子指针 <code>data</code> 使用 CAS 指向新的 <code>Shared</code> 对象，以保证该提升操作只会发生一次。可以学习下这里 <code>from_raw</code> / <code>into_raw</code> / <code>mem::forget</code> 等关于内存的去糖操作。</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">impl</span> <span class="token class-name">From</span><span class="token operator">&lt;</span><span class="token class-name">Vec</span><span class="token operator">&lt;</span><span class="token keyword">u8</span><span class="token operator">>></span> <span class="token keyword">for</span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">from</span><span class="token punctuation">(</span>vec<span class="token punctuation">:</span> <span class="token class-name">Vec</span><span class="token operator">&lt;</span><span class="token keyword">u8</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+        <span class="token comment">// into_boxed_slice doesn't return a heap allocation for empty vectors,</span>
+        <span class="token comment">// so the pointer isn't aligned enough for the KIND_VEC stashing to</span>
+        <span class="token comment">// work.</span>
+        <span class="token keyword">if</span> vec<span class="token punctuation">.</span><span class="token function">is_empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">return</span> <span class="token class-name">Bytes</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">let</span> slice <span class="token operator">=</span> vec<span class="token punctuation">.</span><span class="token function">into_boxed_slice</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">let</span> len <span class="token operator">=</span> slice<span class="token punctuation">.</span><span class="token function">len</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">let</span> ptr <span class="token operator">=</span> slice<span class="token punctuation">.</span><span class="token function">as_ptr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">drop</span><span class="token punctuation">(</span><span class="token class-name">Box</span><span class="token punctuation">::</span><span class="token function">into_raw</span><span class="token punctuation">(</span>slice<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// drop box with remaining memory</span>
+
+        <span class="token keyword">if</span> ptr <span class="token keyword">as</span> <span class="token keyword">usize</span> <span class="token operator">&amp;</span> <span class="token number">0x1</span> <span class="token operator">==</span> <span class="token number">0</span> <span class="token punctuation">{</span>
+            <span class="token keyword">let</span> data <span class="token operator">=</span> ptr <span class="token keyword">as</span> <span class="token keyword">usize</span> <span class="token operator">|</span> <span class="token constant">KIND_VEC</span><span class="token punctuation">;</span>
+            <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+                ptr<span class="token punctuation">,</span>
+                len<span class="token punctuation">,</span>
+                data<span class="token punctuation">:</span> <span class="token class-name">AtomicPtr</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span>data <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">mut</span> _<span class="token punctuation">)</span><span class="token punctuation">,</span>
+                vtable<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token constant">PROMOTABLE_EVEN_VTABLE</span><span class="token punctuation">,</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+            <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+                ptr<span class="token punctuation">,</span>
+                len<span class="token punctuation">,</span>
+                data<span class="token punctuation">:</span> <span class="token class-name">AtomicPtr</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span>ptr <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">mut</span> _<span class="token punctuation">)</span><span class="token punctuation">,</span>
+                vtable<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token constant">PROMOTABLE_ODD_VTABLE</span><span class="token punctuation">,</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">static</span> <span class="token constant">PROMOTABLE_EVEN_VTABLE</span><span class="token punctuation">:</span> <span class="token class-name">Vtable</span> <span class="token operator">=</span> <span class="token class-name">Vtable</span> <span class="token punctuation">{</span>
+    clone<span class="token punctuation">:</span> promotable_even_clone<span class="token punctuation">,</span>
+    drop<span class="token punctuation">:</span> promotable_even_drop<span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">promotable_even_clone</span><span class="token punctuation">(</span>data<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">AtomicPtr</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">,</span> ptr<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> len<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> shared <span class="token operator">=</span> data<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token class-name">Ordering</span><span class="token punctuation">::</span><span class="token class-name">Acquire</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">let</span> kind <span class="token operator">=</span> shared <span class="token keyword">as</span> <span class="token keyword">usize</span> <span class="token operator">&amp;</span> <span class="token constant">KIND_MASK</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> kind <span class="token operator">==</span> <span class="token constant">KIND_ARC</span> <span class="token punctuation">{</span>
+        <span class="token function">shallow_clone_arc</span><span class="token punctuation">(</span>shared <span class="token keyword">as</span> _<span class="token punctuation">,</span> ptr<span class="token punctuation">,</span> len<span class="token punctuation">)</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token macro property">debug_assert_eq!</span><span class="token punctuation">(</span>kind<span class="token punctuation">,</span> <span class="token constant">KIND_VEC</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">let</span> buf <span class="token operator">=</span> <span class="token punctuation">(</span>shared <span class="token keyword">as</span> <span class="token keyword">usize</span> <span class="token operator">&amp;</span> <span class="token operator">!</span><span class="token constant">KIND_MASK</span><span class="token punctuation">)</span> <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">mut</span> <span class="token keyword">u8</span><span class="token punctuation">;</span>
+        <span class="token function">shallow_clone_vec</span><span class="token punctuation">(</span>data<span class="token punctuation">,</span> shared<span class="token punctuation">,</span> buf<span class="token punctuation">,</span> ptr<span class="token punctuation">,</span> len<span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">rebuild_boxed_slice</span><span class="token punctuation">(</span>buf<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">mut</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> offset<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span> len<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Box</span><span class="token operator">&lt;</span><span class="token punctuation">[</span><span class="token keyword">u8</span><span class="token punctuation">]</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> cap <span class="token operator">=</span> <span class="token punctuation">(</span>offset <span class="token keyword">as</span> <span class="token keyword">usize</span> <span class="token operator">-</span> buf <span class="token keyword">as</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token operator">+</span> len<span class="token punctuation">;</span>
+    <span class="token class-name">Box</span><span class="token punctuation">::</span><span class="token function">from_raw</span><span class="token punctuation">(</span><span class="token namespace">slice<span class="token punctuation">::</span></span><span class="token function">from_raw_parts_mut</span><span class="token punctuation">(</span>buf<span class="token punctuation">,</span> cap<span class="token punctuation">)</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token attribute attr-name">#[cold]</span>
+<span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">shallow_clone_vec</span><span class="token punctuation">(</span>
+    atom<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">AtomicPtr</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span><span class="token punctuation">,</span>
+    ptr<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+    buf<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">mut</span> <span class="token keyword">u8</span><span class="token punctuation">,</span>
+    offset<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token keyword">u8</span><span class="token punctuation">,</span>
+    len<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">,</span>
+<span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+    <span class="token comment">// If  the buffer is still tracked in a `Vec&lt;u8>`. It is time to</span>
+    <span class="token comment">// promote the vec to an `Arc`. This could potentially be called</span>
+    <span class="token comment">// concurrently, so some care must be taken.</span>
+
+    <span class="token comment">// First, allocate a new `Shared` instance containing the</span>
+    <span class="token comment">// `Vec` fields. It's important to note that `ptr`, `len`,</span>
+    <span class="token comment">// and `cap` cannot be mutated without having `&amp;mut self`.</span>
+    <span class="token comment">// This means that these fields will not be concurrently</span>
+    <span class="token comment">// updated and since the buffer hasn't been promoted to an</span>
+    <span class="token comment">// `Arc`, those three fields still are the components of the</span>
+    <span class="token comment">// vector.</span>
+    <span class="token keyword">let</span> vec <span class="token operator">=</span> <span class="token function">rebuild_boxed_slice</span><span class="token punctuation">(</span>buf<span class="token punctuation">,</span> offset<span class="token punctuation">,</span> len<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">into_vec</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">let</span> shared <span class="token operator">=</span> <span class="token class-name">Box</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token class-name">Shared</span> <span class="token punctuation">{</span>
+        _vec<span class="token punctuation">:</span> vec<span class="token punctuation">,</span>
+        <span class="token comment">// Initialize refcount to 2. One for this reference, and one</span>
+        <span class="token comment">// for the new clone that will be returned from</span>
+        <span class="token comment">// `shallow_clone`.</span>
+        ref_cnt<span class="token punctuation">:</span> <span class="token class-name">AtomicUsize</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+    <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> shared <span class="token operator">=</span> <span class="token class-name">Box</span><span class="token punctuation">::</span><span class="token function">into_raw</span><span class="token punctuation">(</span>shared<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// The pointer should be aligned, so this assert should</span>
+    <span class="token comment">// always succeed.</span>
+    <span class="token macro property">debug_assert!</span><span class="token punctuation">(</span>
+        <span class="token number">0</span> <span class="token operator">==</span> <span class="token punctuation">(</span>shared <span class="token keyword">as</span> <span class="token keyword">usize</span> <span class="token operator">&amp;</span> <span class="token constant">KIND_MASK</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token string">"internal: Box&lt;Shared> should have an aligned pointer"</span><span class="token punctuation">,</span>
+    <span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// Try compare &amp; swapping the pointer into the `arc` field.</span>
+    <span class="token comment">// `Release` is used synchronize with other threads that</span>
+    <span class="token comment">// will load the `arc` field.</span>
+    <span class="token comment">//</span>
+    <span class="token comment">// If the `compare_and_swap` fails, then the thread lost the</span>
+    <span class="token comment">// race to promote the buffer to shared. The `Acquire`</span>
+    <span class="token comment">// ordering will synchronize with the `compare_and_swap`</span>
+    <span class="token comment">// that happened in the other thread and the `Shared`</span>
+    <span class="token comment">// pointed to by `actual` will be visible.</span>
+    <span class="token keyword">let</span> actual <span class="token operator">=</span> atom<span class="token punctuation">.</span><span class="token function">compare_and_swap</span><span class="token punctuation">(</span>ptr <span class="token keyword">as</span> _<span class="token punctuation">,</span> shared <span class="token keyword">as</span> _<span class="token punctuation">,</span> <span class="token class-name">Ordering</span><span class="token punctuation">::</span><span class="token class-name">AcqRel</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> actual <span class="token keyword">as</span> <span class="token keyword">usize</span> <span class="token operator">==</span> ptr <span class="token keyword">as</span> <span class="token keyword">usize</span> <span class="token punctuation">{</span>
+        <span class="token comment">// The upgrade was successful, the new handle can be</span>
+        <span class="token comment">// returned.</span>
+        <span class="token keyword">return</span> <span class="token class-name">Bytes</span> <span class="token punctuation">{</span>
+            ptr<span class="token punctuation">:</span> offset<span class="token punctuation">,</span>
+            len<span class="token punctuation">,</span>
+            data<span class="token punctuation">:</span> <span class="token class-name">AtomicPtr</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span>shared <span class="token keyword">as</span> _<span class="token punctuation">)</span><span class="token punctuation">,</span>
+            vtable<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token constant">SHARED_VTABLE</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// The upgrade failed, a concurrent clone happened. Release</span>
+    <span class="token comment">// the allocation that was made in this thread, it will not</span>
+    <span class="token comment">// be needed.</span>
+    <span class="token keyword">let</span> shared <span class="token operator">=</span> <span class="token class-name">Box</span><span class="token punctuation">::</span><span class="token function">from_raw</span><span class="token punctuation">(</span>shared<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token namespace">mem<span class="token punctuation">::</span></span><span class="token function">forget</span><span class="token punctuation">(</span><span class="token operator">*</span>shared<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// Buffer already promoted to shared storage, so increment ref</span>
+    <span class="token comment">// count.</span>
+    <span class="token function">shallow_clone_arc</span><span class="token punctuation">(</span>actual <span class="token keyword">as</span> _<span class="token punctuation">,</span> offset<span class="token punctuation">,</span> len<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>

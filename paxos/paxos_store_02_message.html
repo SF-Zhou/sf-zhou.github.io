@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>PaxosStore 源码分析「二、消息传递」 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> PaxosStore 源码分析「二、消息传递」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2020.02.16 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p><a href="/#/Paxos">本系列</a>的<a href="/paxos/paxos_store_01_network.html">上一篇</a>分析了 PaxosStore 中网络通信部分的实现，本篇将聚焦 PaxosStore 中模块间消息的传递。</p>
+<h3 id="1.-消息概览" tabindex="-1"><a href="#1.-%E6%B6%88%E6%81%AF%E6%A6%82%E8%A7%88">1. 消息概览</a></h3>
+<p>PaxosStore 中定义了一种名为 <code>Command</code> 的消息，模块间的通信通过 <code>Command</code> 的传递实现。消息传递的方式有两种，一种是通过消息队列传递，一种是使用 Protobuf 序列化后通过网络收发。</p>
+<p><code>Command</code> 消息的基类 <code>clsCmdBase</code> 定义于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/Command.h"><code>src/Command.h</code></a>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">IOTracker_t</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> iFD<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iFDID<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iIOWorkerID<span class="token punctuation">;</span>
+
+  <span class="token function">IOTracker_t</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">iFD</span><span class="token punctuation">(</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">iFDID</span><span class="token punctuation">(</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">iIOWorkerID</span><span class="token punctuation">(</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token function">IOTracker_t</span><span class="token punctuation">(</span><span class="token keyword">int</span> iArgFD<span class="token punctuation">,</span> <span class="token keyword">int</span> iArgFDID<span class="token punctuation">,</span> <span class="token keyword">int</span> iArgIOWorkerID<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">iFD</span><span class="token punctuation">(</span>iArgFD<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">iFDID</span><span class="token punctuation">(</span>iArgFDID<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">iIOWorkerID</span><span class="token punctuation">(</span>iArgIOWorkerID<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// Command 基类，包含 UUID / 类型 / EntityID / Entry / IOTracker / 时间戳 / CRC32 / Result</span>
+<span class="token comment">// 实现了 Command 头部的序列化，派生了 PaxosCmd / ClientCmd / WriteBatchCmd / RecoverCmd</span>
+<span class="token keyword">class</span> <span class="token class-name">clsCmdBase</span> <span class="token punctuation">{</span>
+ <span class="token keyword">protected</span><span class="token operator">:</span>
+  <span class="token keyword">uint64_t</span> m_iUUID<span class="token punctuation">;</span>
+  <span class="token keyword">uint16_t</span> m_hCmdID<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint64_t</span> m_iEntityID<span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> m_iEntry<span class="token punctuation">;</span>
+
+  IOTracker_t m_tIOTracker<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint64_t</span> m_iTimestampUS<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iRspPkgCRC32<span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> m_iResult<span class="token punctuation">;</span>
+
+  <span class="token comment">// 与 proto:Header 之间的序列化</span>
+  <span class="token keyword">void</span> <span class="token function">SetFromHeader</span><span class="token punctuation">(</span><span class="token keyword">const</span> CertainPB<span class="token double-colon punctuation">::</span>CmdHeader <span class="token operator">*</span>poHeader<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iUUID <span class="token operator">=</span> poHeader<span class="token operator">-></span><span class="token function">uuid</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iEntityID <span class="token operator">=</span> poHeader<span class="token operator">-></span><span class="token function">entity_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iEntry <span class="token operator">=</span> poHeader<span class="token operator">-></span><span class="token function">entry</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iResult <span class="token operator">=</span> poHeader<span class="token operator">-></span><span class="token function">result</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 与 proto:Header 之间的序列化</span>
+  <span class="token keyword">void</span> <span class="token function">SetToHeader</span><span class="token punctuation">(</span>CertainPB<span class="token double-colon punctuation">::</span>CmdHeader <span class="token operator">*</span>poHeader<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    poHeader<span class="token operator">-></span><span class="token function">set_uuid</span><span class="token punctuation">(</span>m_iUUID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    poHeader<span class="token operator">-></span><span class="token function">set_entity_id</span><span class="token punctuation">(</span>m_iEntityID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    poHeader<span class="token operator">-></span><span class="token function">set_entry</span><span class="token punctuation">(</span>m_iEntry<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    poHeader<span class="token operator">-></span><span class="token function">set_result</span><span class="token punctuation">(</span>m_iResult<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+ <span class="token comment">// 三个接口，序列化与反序列化</span>
+  <span class="token keyword">virtual</span> string <span class="token function">GetTextCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token keyword">int</span> <span class="token function">ParseFromArray</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLen<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token keyword">int</span> <span class="token function">SerializeToArray</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLen<span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">virtual</span> <span class="token keyword">void</span> <span class="token function">CalcEntityID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">// 构造</span>
+  <span class="token function">clsCmdBase</span><span class="token punctuation">(</span><span class="token keyword">uint16_t</span> hCmdID<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">m_hCmdID</span><span class="token punctuation">(</span>hCmdID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iUUID <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+    m_iEntityID <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+    m_iEntry <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+
+    m_iTimestampUS <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    m_iRspPkgCRC32 <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+    m_iResult <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">virtual</span> <span class="token operator">~</span><span class="token function">clsCmdBase</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token keyword">uint16_t</span> <span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> m_hCmdID<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">uint64_t</span> <span class="token function">GetUUID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> m_iUUID<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">SetUUID</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> iUUID<span class="token punctuation">)</span> <span class="token punctuation">{</span> m_iUUID <span class="token operator">=</span> iUUID<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token function">TYPE_GET_SET</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">,</span> EntityID<span class="token punctuation">,</span> iEntityID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">TYPE_GET_SET</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">,</span> Entry<span class="token punctuation">,</span> iEntry<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  IOTracker_t <span class="token function">GetIOTracker</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> m_tIOTracker<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">SetIOTracker</span><span class="token punctuation">(</span><span class="token keyword">const</span> IOTracker_t tIOTracker<span class="token punctuation">)</span> <span class="token punctuation">{</span> m_tIOTracker <span class="token operator">=</span> tIOTracker<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token function">TYPE_GET_SET</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">,</span> TimestampUS<span class="token punctuation">,</span> iTimestampUS<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">TYPE_GET_SET</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span><span class="token punctuation">,</span> RspPkgCRC32<span class="token punctuation">,</span> iRspPkgCRC32<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">TYPE_GET_SET</span><span class="token punctuation">(</span><span class="token keyword">int</span><span class="token punctuation">,</span> Result<span class="token punctuation">,</span> iResult<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">virtual</span> <span class="token keyword">int</span> <span class="token function">GenRspPkg</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLen<span class="token punctuation">,</span> <span class="token keyword">bool</span> bCheckSum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// 序列化，数据头写入 Command 类型 / 校验等基本信息</span>
+<span class="token keyword">int</span> clsCmdBase<span class="token double-colon punctuation">::</span><span class="token function">GenRspPkg</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLen<span class="token punctuation">,</span> <span class="token keyword">bool</span> bCheckSum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iLen <span class="token operator">&lt;</span> RP_HEADER_SIZE<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">int</span> iRet <span class="token operator">=</span> <span class="token function">SerializeToArray</span><span class="token punctuation">(</span>pcBuffer <span class="token operator">+</span> RP_HEADER_SIZE<span class="token punctuation">,</span> iLen <span class="token operator">-</span> RP_HEADER_SIZE<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"SerializeToArray ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  RawPacket_t <span class="token operator">*</span>lp <span class="token operator">=</span> <span class="token punctuation">(</span>RawPacket_t <span class="token operator">*</span><span class="token punctuation">)</span>pcBuffer<span class="token punctuation">;</span>
+  lp<span class="token operator">-></span>hMagicNum <span class="token operator">=</span> RP_MAGIC_NUM<span class="token punctuation">;</span>
+  lp<span class="token operator">-></span>hVersion <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  lp<span class="token operator">-></span>hCmdID <span class="token operator">=</span> <span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  lp<span class="token operator">-></span>hReserve <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  lp<span class="token operator">-></span>iLen <span class="token operator">=</span> iRet<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iRspPkgCRC32 <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>bCheckSum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      m_iRspPkgCRC32 <span class="token operator">=</span> <span class="token function">CRC32</span><span class="token punctuation">(</span>lp<span class="token operator">-></span>pcData<span class="token punctuation">,</span> lp<span class="token operator">-></span>iLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  lp<span class="token operator">-></span>iCheckSum <span class="token operator">=</span> m_iRspPkgCRC32<span class="token punctuation">;</span>
+
+  <span class="token function">ConvertToNetOrder</span><span class="token punctuation">(</span>lp<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">return</span> iRet <span class="token operator">+</span> RP_HEADER_SIZE<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>其中 <code>CertainPB::CmdHeader</code> 由 Protobuf 生成，定义于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/Certain.proto"><code>src/Certain.proto</code></a>：</p>
+<pre class="language-protobuf"><code class="language-protobuf"><span class="token keyword">package</span> CertainPB<span class="token punctuation">;</span>
+
+<span class="token keyword">message</span> <span class="token class-name">EntryRecord</span> <span class="token punctuation">{</span>
+    <span class="token keyword">optional</span> <span class="token builtin">uint32</span> prepared_num <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token keyword">optional</span> <span class="token builtin">uint32</span> promised_num <span class="token operator">=</span> <span class="token number">2</span><span class="token punctuation">;</span>
+    <span class="token keyword">optional</span> <span class="token builtin">uint32</span> accepted_num <span class="token operator">=</span> <span class="token number">3</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">optional</span> <span class="token builtin">uint64</span> value_id <span class="token operator">=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+    <span class="token keyword">repeated</span> <span class="token builtin">uint64</span> value_uuid <span class="token operator">=</span> <span class="token number">5</span><span class="token punctuation">;</span>
+    <span class="token keyword">optional</span> <span class="token builtin">bytes</span> value <span class="token operator">=</span> <span class="token number">6</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">optional</span> <span class="token builtin">bool</span> chosen <span class="token operator">=</span> <span class="token number">7</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">message</span> <span class="token class-name">CmdHeader</span> <span class="token punctuation">{</span>
+    <span class="token keyword">optional</span> <span class="token builtin">uint64</span> uuid <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">optional</span> <span class="token builtin">uint64</span> entity_id <span class="token operator">=</span> <span class="token number">2</span><span class="token punctuation">;</span>
+    <span class="token keyword">optional</span> <span class="token builtin">uint64</span> entry <span class="token operator">=</span> <span class="token number">3</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">optional</span> <span class="token builtin">int32</span> result <span class="token operator">=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">message</span> <span class="token class-name">PaxosCmd</span> <span class="token punctuation">{</span>
+    <span class="token keyword">optional</span> <span class="token positional-class-name class-name">CmdHeader</span> header <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">optional</span> <span class="token builtin">uint32</span> src_acceptor_id <span class="token operator">=</span> <span class="token number">2</span><span class="token punctuation">;</span>
+    <span class="token keyword">optional</span> <span class="token builtin">uint32</span> dest_acceptor_id <span class="token operator">=</span> <span class="token number">3</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">optional</span> <span class="token positional-class-name class-name">EntryRecord</span> src_record <span class="token operator">=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+    <span class="token keyword">optional</span> <span class="token positional-class-name class-name">EntryRecord</span> dest_record <span class="token operator">=</span> <span class="token number">5</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">optional</span> <span class="token builtin">uint64</span> max_chosen_entry <span class="token operator">=</span> <span class="token number">6</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">optional</span> <span class="token builtin">bool</span> check_empty <span class="token operator">=</span> <span class="token number">7</span><span class="token punctuation">;</span>
+    <span class="token keyword">optional</span> <span class="token builtin">bool</span> quick_rsp <span class="token operator">=</span> <span class="token number">8</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">message</span> <span class="token class-name">DBEntityMeta</span> <span class="token punctuation">{</span>
+    <span class="token keyword">optional</span> <span class="token builtin">uint32</span> flag <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token keyword">optional</span> <span class="token builtin">uint64</span> max_commited_entry <span class="token operator">=</span> <span class="token number">2</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">message</span> <span class="token class-name">PLogEntityMeta</span> <span class="token punctuation">{</span>
+    <span class="token keyword">optional</span> <span class="token builtin">uint64</span> max_plog_entry <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><code>clsPaxosCmd</code> 派生了 <code>clsPaxosCmd</code> / <code>clsClientCMd</code> / <code>clsWriteBatchCmd</code> / <code>clsRecoverCmd</code> 四种类型的 <code>Command</code> 消息，其中只有 <code>clsPaxosCmd</code> 会经过网络传收发：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">clsPaxosCmd</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsCmdBase</span></span> <span class="token punctuation">{</span>
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">bool</span> m_bCheckEmpty<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> m_bQuickRsp<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> m_bPLogError<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> m_bPLogReturn<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> m_bPLogLoad<span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> m_bCheckHasMore<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> m_bHasMore<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> m_iSrcAcceptorID<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iDestAcceptorID<span class="token punctuation">;</span>
+
+  EntryRecord_t m_tSrcRecord<span class="token punctuation">;</span>
+  EntryRecord_t m_tDestRecord<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint64_t</span> m_iMaxChosenEntry<span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> m_iMaxPLogEntry<span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">Init</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntityID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntry<span class="token punctuation">,</span> <span class="token keyword">const</span> EntryRecord_t <span class="token operator">*</span>ptSrc<span class="token punctuation">,</span>
+            <span class="token keyword">const</span> EntryRecord_t <span class="token operator">*</span>ptDest<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">ConvertFromPB</span><span class="token punctuation">(</span>EntryRecord_t <span class="token operator">&amp;</span>tEntryRecord<span class="token punctuation">,</span> <span class="token keyword">const</span> CertainPB<span class="token double-colon punctuation">::</span>EntryRecord <span class="token operator">*</span>poRecord<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">ConvertToPB</span><span class="token punctuation">(</span><span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tEntryRecord<span class="token punctuation">,</span> CertainPB<span class="token double-colon punctuation">::</span>EntryRecord <span class="token operator">*</span>poRecord<span class="token punctuation">,</span>
+                   <span class="token keyword">bool</span> bCopyValue<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">clsPaxosCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">clsCmdBase</span><span class="token punctuation">(</span>kPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">Init</span><span class="token punctuation">(</span>INVALID_ACCEPTOR_ID<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token function">clsPaxosCmd</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntityID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntry<span class="token punctuation">,</span> <span class="token keyword">const</span> EntryRecord_t <span class="token operator">*</span>ptSrc<span class="token punctuation">,</span>
+              <span class="token keyword">const</span> EntryRecord_t <span class="token operator">*</span>ptDest<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">clsCmdBase</span><span class="token punctuation">(</span>kPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">Init</span><span class="token punctuation">(</span>iAcceptorID<span class="token punctuation">,</span> iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> ptSrc<span class="token punctuation">,</span> ptDest<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">clsPaxosCmd</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iAcceptorID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntityID<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> iEntry<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">clsCmdBase</span><span class="token punctuation">(</span>kPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">Init</span><span class="token punctuation">(</span>iAcceptorID<span class="token punctuation">,</span> iEntityID<span class="token punctuation">,</span> iEntry<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_bCheckEmpty <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>  <span class="token comment">// For Read Opt.</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">virtual</span> <span class="token operator">~</span><span class="token function">clsPaxosCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token keyword">virtual</span> string <span class="token function">GetTextCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token keyword">int</span> <span class="token function">ParseFromArray</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">virtual</span> <span class="token keyword">int</span> <span class="token function">SerializeToArray</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> <span class="token function">CalcSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>clsPaxosCmd<span class="token punctuation">)</span> <span class="token operator">+</span> m_tSrcRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span>
+           m_tDestRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">BOOLEN_IS_SET</span><span class="token punctuation">(</span>PLogError<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">BOOLEN_IS_SET</span><span class="token punctuation">(</span>PLogReturn<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">BOOLEN_IS_SET</span><span class="token punctuation">(</span>PLogLoad<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">BOOLEN_IS_SET</span><span class="token punctuation">(</span>CheckHasMore<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">BOOLEN_IS_SET</span><span class="token punctuation">(</span>HasMore<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">BOOLEN_IS_SET</span><span class="token punctuation">(</span>QuickRsp<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">UINT32_GET_SET</span><span class="token punctuation">(</span>SrcAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">UINT32_GET_SET</span><span class="token punctuation">(</span>DestAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">TYPE_GET_SET</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">,</span> MaxChosenEntry<span class="token punctuation">,</span> iMaxChosenEntry<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">TYPE_GET_SET</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span><span class="token punctuation">,</span> MaxPLogEntry<span class="token punctuation">,</span> iMaxPLogEntry<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span><span class="token function">GetSrcRecord</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> m_tSrcRecord<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">SetSrcRecord</span><span class="token punctuation">(</span><span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tSrcRecord<span class="token punctuation">)</span> <span class="token punctuation">{</span> m_tSrcRecord <span class="token operator">=</span> tSrcRecord<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span><span class="token function">GetDestRecord</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> m_tDestRecord<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><code>clsPaxosCmd</code> 通过 Protobuf 实现序列化和反序列化：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">static</span> <span class="token keyword">int</span> <span class="token function">SerializeMsgToArray</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token double-colon punctuation">::</span>google<span class="token double-colon punctuation">::</span>protobuf<span class="token double-colon punctuation">::</span>Message <span class="token operator">&amp;</span>pbMsg<span class="token punctuation">,</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span>
+                               <span class="token keyword">uint32_t</span> iLen<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int32_t</span> iRealLen <span class="token operator">=</span> pbMsg<span class="token punctuation">.</span><span class="token function">ByteSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span><span class="token punctuation">(</span>iRealLen<span class="token punctuation">)</span> <span class="token operator">></span> iLen<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"SerializeToArray iRealLen %d iLen %u"</span><span class="token punctuation">,</span> iRealLen<span class="token punctuation">,</span> iLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>pbMsg<span class="token punctuation">.</span><span class="token function">SerializeToArray</span><span class="token punctuation">(</span>pcBuffer<span class="token punctuation">,</span> iRealLen<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"SerializeToArray fail"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> iRealLen<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> clsPaxosCmd<span class="token double-colon punctuation">::</span><span class="token function">ConvertFromPB</span><span class="token punctuation">(</span>EntryRecord_t <span class="token operator">&amp;</span>tEntryRecord<span class="token punctuation">,</span>
+                                <span class="token keyword">const</span> CertainPB<span class="token double-colon punctuation">::</span>EntryRecord <span class="token operator">*</span>poRecord<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  tEntryRecord<span class="token punctuation">.</span>iPreparedNum <span class="token operator">=</span> poRecord<span class="token operator">-></span><span class="token function">prepared_num</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  tEntryRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">=</span> poRecord<span class="token operator">-></span><span class="token function">promised_num</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  tEntryRecord<span class="token punctuation">.</span>iAcceptedNum <span class="token operator">=</span> poRecord<span class="token operator">-></span><span class="token function">accepted_num</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  vector<span class="token operator">&lt;</span><span class="token keyword">uint64_t</span><span class="token operator">></span> vecValueUUID<span class="token punctuation">;</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> poRecord<span class="token operator">-></span><span class="token function">value_uuid_size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    vecValueUUID<span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>poRecord<span class="token operator">-></span><span class="token function">value_uuid</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  tEntryRecord<span class="token punctuation">.</span>tValue <span class="token operator">=</span>
+      <span class="token function">PaxosValue_t</span><span class="token punctuation">(</span>poRecord<span class="token operator">-></span><span class="token function">value_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> vecValueUUID<span class="token punctuation">,</span> poRecord<span class="token operator">-></span><span class="token function">has_value</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> poRecord<span class="token operator">-></span><span class="token function">value</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  tEntryRecord<span class="token punctuation">.</span>bChosen <span class="token operator">=</span> poRecord<span class="token operator">-></span><span class="token function">chosen</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  tEntryRecord<span class="token punctuation">.</span>bCheckedEmpty <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  tEntryRecord<span class="token punctuation">.</span>iStoredValueID <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> clsPaxosCmd<span class="token double-colon punctuation">::</span>clsPaxosCmd<span class="token double-colon punctuation">::</span><span class="token function">ConvertToPB</span><span class="token punctuation">(</span><span class="token keyword">const</span> EntryRecord_t <span class="token operator">&amp;</span>tEntryRecord<span class="token punctuation">,</span>
+                                           CertainPB<span class="token double-colon punctuation">::</span>EntryRecord <span class="token operator">*</span>poRecord<span class="token punctuation">,</span> <span class="token keyword">bool</span> bCopyValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  poRecord<span class="token operator">-></span><span class="token function">set_prepared_num</span><span class="token punctuation">(</span>tEntryRecord<span class="token punctuation">.</span>iPreparedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  poRecord<span class="token operator">-></span><span class="token function">set_promised_num</span><span class="token punctuation">(</span>tEntryRecord<span class="token punctuation">.</span>iPromisedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  poRecord<span class="token operator">-></span><span class="token function">set_accepted_num</span><span class="token punctuation">(</span>tEntryRecord<span class="token punctuation">.</span>iAcceptedNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  poRecord<span class="token operator">-></span><span class="token function">set_value_id</span><span class="token punctuation">(</span>tEntryRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>bCopyValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">AssertEqual</span><span class="token punctuation">(</span>poRecord<span class="token operator">-></span><span class="token function">value_uuid_size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> tEntryRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>vecValueUUID<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      poRecord<span class="token operator">-></span><span class="token function">add_value_uuid</span><span class="token punctuation">(</span>tEntryRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>vecValueUUID<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    poRecord<span class="token operator">-></span><span class="token function">set_value</span><span class="token punctuation">(</span>tEntryRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>strValue<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  poRecord<span class="token operator">-></span><span class="token function">set_chosen</span><span class="token punctuation">(</span>tEntryRecord<span class="token punctuation">.</span>bChosen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 反序列化</span>
+<span class="token keyword">int</span> clsPaxosCmd<span class="token double-colon punctuation">::</span><span class="token function">ParseFromArray</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLen<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  CertainPB<span class="token double-colon punctuation">::</span>PaxosCmd oPaxosCmd<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>oPaxosCmd<span class="token punctuation">.</span><span class="token function">ParseFromArray</span><span class="token punctuation">(</span>pcBuffer<span class="token punctuation">,</span> iLen<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"ParseFromArray fail"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">SetFromHeader</span><span class="token punctuation">(</span>oPaxosCmd<span class="token punctuation">.</span><span class="token function">mutable_header</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  m_iSrcAcceptorID <span class="token operator">=</span> oPaxosCmd<span class="token punctuation">.</span><span class="token function">src_acceptor_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  m_iDestAcceptorID <span class="token operator">=</span> oPaxosCmd<span class="token punctuation">.</span><span class="token function">dest_acceptor_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">ConvertFromPB</span><span class="token punctuation">(</span>m_tSrcRecord<span class="token punctuation">,</span> <span class="token operator">&amp;</span>oPaxosCmd<span class="token punctuation">.</span><span class="token function">src_record</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">ConvertFromPB</span><span class="token punctuation">(</span>m_tDestRecord<span class="token punctuation">,</span> <span class="token operator">&amp;</span>oPaxosCmd<span class="token punctuation">.</span><span class="token function">dest_record</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>oPaxosCmd<span class="token punctuation">.</span><span class="token function">check_empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">Assert</span><span class="token punctuation">(</span><span class="token function">IsEntryRecordEmpty</span><span class="token punctuation">(</span>m_tSrcRecord<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">Assert</span><span class="token punctuation">(</span><span class="token function">IsEntryRecordEmpty</span><span class="token punctuation">(</span>m_tDestRecord<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_tDestRecord<span class="token punctuation">.</span>iPromisedNum <span class="token operator">=</span> INVALID_PROPOSAL_NUM<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  m_bQuickRsp <span class="token operator">=</span> oPaxosCmd<span class="token punctuation">.</span><span class="token function">quick_rsp</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  m_iMaxChosenEntry <span class="token operator">=</span> oPaxosCmd<span class="token punctuation">.</span><span class="token function">max_chosen_entry</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Paxos 序列化</span>
+<span class="token keyword">int</span> clsPaxosCmd<span class="token double-colon punctuation">::</span><span class="token function">SerializeToArray</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iLen<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  CertainPB<span class="token double-colon punctuation">::</span>PaxosCmd oPaxosCmd<span class="token punctuation">;</span>
+
+  <span class="token function">SetToHeader</span><span class="token punctuation">(</span>oPaxosCmd<span class="token punctuation">.</span><span class="token function">mutable_header</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  oPaxosCmd<span class="token punctuation">.</span><span class="token function">set_src_acceptor_id</span><span class="token punctuation">(</span>m_iSrcAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  oPaxosCmd<span class="token punctuation">.</span><span class="token function">set_dest_acceptor_id</span><span class="token punctuation">(</span>m_iDestAcceptorID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> bCopyValue <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_tSrcRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">!=</span> m_tDestRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>iValueID <span class="token operator">&amp;&amp;</span>
+      m_tSrcRecord<span class="token punctuation">.</span>tValue<span class="token punctuation">.</span>bHasValue<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    bCopyValue <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">IsEntryRecordEmpty</span><span class="token punctuation">(</span>m_tSrcRecord<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">ConvertToPB</span><span class="token punctuation">(</span>m_tSrcRecord<span class="token punctuation">,</span> oPaxosCmd<span class="token punctuation">.</span><span class="token function">mutable_src_record</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> bCopyValue<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">Assert</span><span class="token punctuation">(</span>oPaxosCmd<span class="token punctuation">.</span><span class="token function">src_record</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">has_value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> bCopyValue<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">IsEntryRecordEmpty</span><span class="token punctuation">(</span>m_tDestRecord<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">ConvertToPB</span><span class="token punctuation">(</span>m_tDestRecord<span class="token punctuation">,</span> oPaxosCmd<span class="token punctuation">.</span><span class="token function">mutable_dest_record</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_bCheckEmpty<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    oPaxosCmd<span class="token punctuation">.</span><span class="token function">set_check_empty</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  oPaxosCmd<span class="token punctuation">.</span><span class="token function">set_quick_rsp</span><span class="token punctuation">(</span>m_bQuickRsp<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iMaxChosenEntry <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    oPaxosCmd<span class="token punctuation">.</span><span class="token function">set_max_chosen_entry</span><span class="token punctuation">(</span>m_iMaxChosenEntry<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token function">SerializeMsgToArray</span><span class="token punctuation">(</span>oPaxosCmd<span class="token punctuation">,</span> pcBuffer<span class="token punctuation">,</span> iLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="2.-消息队列" tabindex="-1"><a href="#2.-%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97">2. 消息队列</a></h3>
+<p>PaxosStore 中线程间消息的传递通过消息队列实现。这里消息队列由循环队列 <code>clsCircleQueue</code> 实现，定义于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/utils/CircleQueue.h">utils/CircleQueue.h</a>，通过 CAS 实现多线程下的并发写入：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">Type</span><span class="token operator">></span>
+<span class="token keyword">int</span> <span class="token class-name">clsCircleQueue</span><span class="token operator">&lt;</span>Type<span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">TakeByOneThread</span><span class="token punctuation">(</span>Type <span class="token operator">*</span>ptElt<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">AssertNotEqual</span><span class="token punctuation">(</span>m_iSize<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>m_ulHead <span class="token operator">&lt;=</span> m_ulTail<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token operator">*</span>ptElt <span class="token operator">=</span> m_ptElt<span class="token punctuation">[</span>m_ulTail <span class="token operator">%</span> m_iSize<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">*</span>ptElt <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  m_ptElt<span class="token punctuation">[</span>m_ulTail <span class="token operator">%</span> m_iSize<span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+  m_ulTail<span class="token operator">++</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">Type</span><span class="token operator">></span>
+<span class="token keyword">int</span> <span class="token class-name">clsCircleQueue</span><span class="token operator">&lt;</span>Type<span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">PushByMultiThread</span><span class="token punctuation">(</span>Type tElt<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iRetryTime<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">if</span> <span class="token expression">CERTAIN_DEBUG</span></span>
+  <span class="token keyword">static</span> __thread clsRandom <span class="token operator">*</span>__poRandom <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">clsRandom</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span><span class="token punctuation">(</span><span class="token function">pthread_self</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>__poRandom<span class="token operator">-></span><span class="token function">Next</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">%</span> <span class="token number">10</span> <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">7999</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span></span>
+
+  <span class="token keyword">int</span> iFinalRet <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> iRetryTime<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">int</span> iRet <span class="token operator">=</span> <span class="token function">PushByMultiThreadInner</span><span class="token punctuation">(</span>tElt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">==</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      iFinalRet <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> iFinalRet<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">Type</span><span class="token operator">></span>
+<span class="token keyword">int</span> <span class="token class-name">clsCircleQueue</span><span class="token operator">&lt;</span>Type<span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">PushByMultiThreadInner</span><span class="token punctuation">(</span>Type tElt<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">AssertNotEqual</span><span class="token punctuation">(</span>m_iSize<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">AssertNotEqual</span><span class="token punctuation">(</span>tElt<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">volatile</span> <span class="token keyword">unsigned</span> <span class="token keyword">long</span> ulHead <span class="token operator">=</span> m_ulHead<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>ulHead <span class="token operator">>=</span> m_iSize <span class="token operator">+</span> m_ulTail<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">__sync_bool_compare_and_swap</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>m_ulHead<span class="token punctuation">,</span> ulHead<span class="token punctuation">,</span> ulHead <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_ptElt<span class="token punctuation">[</span>ulHead <span class="token operator">%</span> m_iSize<span class="token punctuation">]</span> <span class="token operator">=</span> tElt<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>PaxosStore 定义了一个全局的消息队列单例 <code>clsAsyncQueueMng</code>，统一管理各个组件使用的消息队列，定义于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/AsyncQueueMng.h">src/AsyncQueueMng.h</a>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">clsCmdBase</span><span class="token punctuation">;</span>
+<span class="token keyword">class</span> <span class="token class-name">clsClientCmd</span><span class="token punctuation">;</span>
+<span class="token keyword">class</span> <span class="token class-name">clsPaxosCmd</span><span class="token punctuation">;</span>
+
+<span class="token keyword">typedef</span> clsCircleQueue<span class="token operator">&lt;</span>clsCmdBase <span class="token operator">*</span><span class="token operator">></span> clsIOReqQueue<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> clsCircleQueue<span class="token operator">&lt;</span>clsCmdBase <span class="token operator">*</span><span class="token operator">></span> clsIORspQueue<span class="token punctuation">;</span>
+
+<span class="token keyword">typedef</span> clsCircleQueue<span class="token operator">&lt;</span>clsCmdBase <span class="token operator">*</span><span class="token operator">></span> clsPLogReqQueue<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> clsCircleQueue<span class="token operator">&lt;</span>clsCmdBase <span class="token operator">*</span><span class="token operator">></span> clsPLogRspQueue<span class="token punctuation">;</span>
+
+<span class="token keyword">typedef</span> clsCircleQueue<span class="token operator">&lt;</span>clsClientCmd <span class="token operator">*</span><span class="token operator">></span> clsDBReqQueue<span class="token punctuation">;</span>
+
+<span class="token keyword">typedef</span> clsCircleQueue<span class="token operator">&lt;</span>clsPaxosCmd <span class="token operator">*</span><span class="token operator">></span> clsGetAllReqQueue<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> clsCircleQueue<span class="token operator">&lt;</span>clsPaxosCmd <span class="token operator">*</span><span class="token operator">></span> clsGetAllRspQueue<span class="token punctuation">;</span>
+
+<span class="token keyword">typedef</span> clsCircleQueue<span class="token operator">&lt;</span>clsPaxosCmd <span class="token operator">*</span><span class="token operator">></span> clsCatchUpReqQueue<span class="token punctuation">;</span>
+
+<span class="token keyword">typedef</span> clsCircleQueue<span class="token operator">&lt;</span>clsPaxosCmd <span class="token operator">*</span><span class="token operator">></span> clsPLogWriteReqQueue<span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">clsAsyncQueueMng</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">clsSingleton</span><span class="token operator">&lt;</span><span class="token class-name">clsAsyncQueueMng</span><span class="token operator">></span></span> <span class="token punctuation">{</span>
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">uint32_t</span> m_iIOWorkerNum<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iEntityWorkerNum<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iPLogWorkerNum<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iDBWorkerNum<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iGetAllWorkerNum<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iPLogWriteWorkerNum<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> m_iIOQueueSize<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iPLogQueueSize<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iDBQueueSize<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iCatchUpQueueSize<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iGetAllQueueSize<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> m_iPLogWriteQueueSize<span class="token punctuation">;</span>
+
+  clsIOReqQueue <span class="token operator">*</span><span class="token operator">*</span>m_ppIOReqQueue<span class="token punctuation">;</span>
+  clsIORspQueue <span class="token operator">*</span><span class="token operator">*</span>m_ppIORspQueue<span class="token punctuation">;</span>
+
+  clsPLogReqQueue <span class="token operator">*</span><span class="token operator">*</span>m_ppPLogReqQueue<span class="token punctuation">;</span>
+  clsPLogRspQueue <span class="token operator">*</span><span class="token operator">*</span>m_ppPLogRspQueue<span class="token punctuation">;</span>
+
+  clsDBReqQueue <span class="token operator">*</span><span class="token operator">*</span>m_ppDBReqQueue<span class="token punctuation">;</span>
+
+  clsGetAllReqQueue <span class="token operator">*</span><span class="token operator">*</span>m_ppGetAllReqQueue<span class="token punctuation">;</span>
+  clsGetAllRspQueue <span class="token operator">*</span><span class="token operator">*</span>m_ppGetAllRspQueue<span class="token punctuation">;</span>
+
+  clsCatchUpReqQueue <span class="token operator">*</span><span class="token operator">*</span>m_ppCatchUpReqQueue<span class="token punctuation">;</span>
+
+  clsPLogWriteReqQueue <span class="token operator">*</span><span class="token operator">*</span>m_ppPLogWriteReqQueue<span class="token punctuation">;</span>
+
+  <span class="token comment">// No outside instance allowed</span>
+  <span class="token keyword">friend</span> <span class="token keyword">class</span> <span class="token class-name">clsSingleton</span><span class="token operator">&lt;</span>clsAsyncQueueMng<span class="token operator">></span><span class="token punctuation">;</span>
+  <span class="token function">clsAsyncQueueMng</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">m_ppIOReqQueue</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">m_ppIORspQueue</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">m_ppPLogReqQueue</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">m_ppPLogRspQueue</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">m_ppDBReqQueue</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">m_ppGetAllReqQueue</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">m_ppGetAllRspQueue</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">m_ppPLogWriteReqQueue</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">virtual</span> <span class="token operator">~</span><span class="token function">clsAsyncQueueMng</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name function">NEW_QUEUE_ARRAY</span><span class="token expression"><span class="token punctuation">(</span>name<span class="token punctuation">,</span> arr_size<span class="token punctuation">,</span> que_size<span class="token punctuation">)</span> </span><span class="token punctuation">\</span>
+  <span class="token expression"><span class="token keyword">do</span> <span class="token punctuation">{</span>                                            </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token function">assert</span><span class="token punctuation">(</span>m_pp</span><span class="token punctuation">##</span><span class="token expression">name <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>                   </span><span class="token punctuation">\</span>
+    <span class="token expression">m_pp</span><span class="token punctuation">##</span><span class="token expression">name <span class="token operator">=</span> <span class="token keyword">new</span> cls</span><span class="token punctuation">##</span><span class="token expression">name <span class="token operator">*</span><span class="token punctuation">[</span>arr_size<span class="token punctuation">]</span><span class="token punctuation">;</span>       </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> arr_size<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>     </span><span class="token punctuation">\</span>
+      <span class="token expression">m_pp</span><span class="token punctuation">##</span><span class="token expression">name<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token keyword">new</span> cls</span><span class="token punctuation">##</span><span class="token expression"><span class="token function">name</span><span class="token punctuation">(</span>que_size<span class="token punctuation">)</span><span class="token punctuation">;</span>    </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token punctuation">}</span>                                             </span><span class="token punctuation">\</span>
+  <span class="token expression"><span class="token punctuation">}</span> <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span></span>
+
+  <span class="token keyword">void</span> <span class="token function">PrintAllStat</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> <span class="token function">Init</span><span class="token punctuation">(</span>clsConfigure <span class="token operator">*</span>poConf<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_iIOWorkerNum <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetIOWorkerNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iEntityWorkerNum <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetEntityWorkerNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iPLogWorkerNum <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetPLogWorkerNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iDBWorkerNum <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetDBWorkerNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iGetAllWorkerNum <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetGetAllWorkerNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iPLogWriteWorkerNum <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetPLogWriteWorkerNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    m_iIOQueueSize <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetIOQueueSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iPLogQueueSize <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetPLogQueueSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iDBQueueSize <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetDBQueueSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iCatchUpQueueSize <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetCatchUpQueueSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iGetAllQueueSize <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetGetAllQueueSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iPLogWriteQueueSize <span class="token operator">=</span> poConf<span class="token operator">-></span><span class="token function">GetPLogWriteQueueSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In IO Worker</span>
+    <span class="token function">NEW_QUEUE_ARRAY</span><span class="token punctuation">(</span>IORspQueue<span class="token punctuation">,</span> m_iIOWorkerNum<span class="token punctuation">,</span> m_iIOQueueSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In Entity Worker</span>
+    <span class="token function">NEW_QUEUE_ARRAY</span><span class="token punctuation">(</span>IOReqQueue<span class="token punctuation">,</span> m_iEntityWorkerNum<span class="token punctuation">,</span> m_iIOQueueSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">NEW_QUEUE_ARRAY</span><span class="token punctuation">(</span>PLogRspQueue<span class="token punctuation">,</span> m_iEntityWorkerNum<span class="token punctuation">,</span> m_iPLogQueueSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">NEW_QUEUE_ARRAY</span><span class="token punctuation">(</span>GetAllRspQueue<span class="token punctuation">,</span> m_iEntityWorkerNum<span class="token punctuation">,</span> m_iGetAllQueueSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In PLog Worker</span>
+    <span class="token function">NEW_QUEUE_ARRAY</span><span class="token punctuation">(</span>PLogReqQueue<span class="token punctuation">,</span> m_iPLogWorkerNum<span class="token punctuation">,</span> m_iPLogQueueSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In DB Worker</span>
+    <span class="token function">NEW_QUEUE_ARRAY</span><span class="token punctuation">(</span>DBReqQueue<span class="token punctuation">,</span> m_iDBWorkerNum<span class="token punctuation">,</span> m_iDBQueueSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In GetAll Worker</span>
+    <span class="token function">NEW_QUEUE_ARRAY</span><span class="token punctuation">(</span>GetAllReqQueue<span class="token punctuation">,</span> m_iGetAllWorkerNum<span class="token punctuation">,</span> m_iGetAllQueueSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In CatchUp Worker</span>
+    <span class="token function">NEW_QUEUE_ARRAY</span><span class="token punctuation">(</span>CatchUpReqQueue<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">,</span> m_iCatchUpQueueSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In PLogWrite Worker</span>
+    <span class="token function">NEW_QUEUE_ARRAY</span><span class="token punctuation">(</span>PLogWriteReqQueue<span class="token punctuation">,</span> m_iPLogWriteWorkerNum<span class="token punctuation">,</span> m_iPLogWriteQueueSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name function">DELETE_QUEUE_ARRAY</span><span class="token expression"><span class="token punctuation">(</span>name<span class="token punctuation">,</span> arr_size<span class="token punctuation">)</span>        </span><span class="token punctuation">\</span>
+  <span class="token expression"><span class="token keyword">do</span> <span class="token punctuation">{</span>                                            </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token function">assert</span><span class="token punctuation">(</span>m_pp</span><span class="token punctuation">##</span><span class="token expression">name <span class="token operator">!=</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>                   </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> arr_size<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>     </span><span class="token punctuation">\</span>
+      <span class="token expression"><span class="token function">assert</span><span class="token punctuation">(</span>m_pp</span><span class="token punctuation">##</span><span class="token expression">name<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">!=</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>              </span><span class="token punctuation">\</span>
+      <span class="token expression"><span class="token keyword">delete</span> m_pp</span><span class="token punctuation">##</span><span class="token expression">name<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">,</span> m_pp</span><span class="token punctuation">##</span><span class="token expression">name<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span> </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token punctuation">}</span>                                             </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token keyword">delete</span> m_pp</span><span class="token punctuation">##</span><span class="token expression">name<span class="token punctuation">,</span> m_pp</span><span class="token punctuation">##</span><span class="token expression">name <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>         </span><span class="token punctuation">\</span>
+  <span class="token expression"><span class="token punctuation">}</span> <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span></span>
+
+  <span class="token keyword">void</span> <span class="token function">Destroy</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// In IO Worker</span>
+    <span class="token function">DELETE_QUEUE_ARRAY</span><span class="token punctuation">(</span>IORspQueue<span class="token punctuation">,</span> m_iIOWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In Entity Worker</span>
+    <span class="token function">DELETE_QUEUE_ARRAY</span><span class="token punctuation">(</span>IOReqQueue<span class="token punctuation">,</span> m_iEntityWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">DELETE_QUEUE_ARRAY</span><span class="token punctuation">(</span>PLogRspQueue<span class="token punctuation">,</span> m_iEntityWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">DELETE_QUEUE_ARRAY</span><span class="token punctuation">(</span>GetAllRspQueue<span class="token punctuation">,</span> m_iEntityWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In PLog Worker</span>
+    <span class="token function">DELETE_QUEUE_ARRAY</span><span class="token punctuation">(</span>PLogReqQueue<span class="token punctuation">,</span> m_iPLogWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In DB Worker</span>
+    <span class="token function">DELETE_QUEUE_ARRAY</span><span class="token punctuation">(</span>DBReqQueue<span class="token punctuation">,</span> m_iDBWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In GetAll Worker</span>
+    <span class="token function">DELETE_QUEUE_ARRAY</span><span class="token punctuation">(</span>GetAllReqQueue<span class="token punctuation">,</span> m_iGetAllWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In CatchUp Worker</span>
+    <span class="token function">DELETE_QUEUE_ARRAY</span><span class="token punctuation">(</span>CatchUpReqQueue<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// In PLogWrite Worker</span>
+    <span class="token function">DELETE_QUEUE_ARRAY</span><span class="token punctuation">(</span>PLogWriteReqQueue<span class="token punctuation">,</span> m_iPLogWriteWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name function">GET_QUEUE_FUNC</span><span class="token expression"><span class="token punctuation">(</span>name<span class="token punctuation">,</span> iQueueNum<span class="token punctuation">)</span> </span><span class="token punctuation">\</span>
+  <span class="token expression">cls</span><span class="token punctuation">##</span><span class="token expression">name <span class="token operator">*</span>Get</span><span class="token punctuation">##</span><span class="token expression"><span class="token function">name</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iID<span class="token punctuation">)</span> <span class="token punctuation">{</span>  </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token function">AssertLess</span><span class="token punctuation">(</span>iID<span class="token punctuation">,</span> iQueueNum<span class="token punctuation">)</span><span class="token punctuation">;</span>         </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token keyword">return</span> m_pp</span><span class="token punctuation">##</span><span class="token expression">name<span class="token punctuation">[</span>iID<span class="token punctuation">]</span><span class="token punctuation">;</span>             </span><span class="token punctuation">\</span>
+  <span class="token expression"><span class="token punctuation">}</span></span></span>
+
+  <span class="token function">GET_QUEUE_FUNC</span><span class="token punctuation">(</span>IORspQueue<span class="token punctuation">,</span> m_iIOWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">GET_QUEUE_FUNC</span><span class="token punctuation">(</span>IOReqQueue<span class="token punctuation">,</span> m_iEntityWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">GET_QUEUE_FUNC</span><span class="token punctuation">(</span>PLogRspQueue<span class="token punctuation">,</span> m_iEntityWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">GET_QUEUE_FUNC</span><span class="token punctuation">(</span>GetAllRspQueue<span class="token punctuation">,</span> m_iEntityWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">GET_QUEUE_FUNC</span><span class="token punctuation">(</span>PLogReqQueue<span class="token punctuation">,</span> m_iPLogWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">GET_QUEUE_FUNC</span><span class="token punctuation">(</span>DBReqQueue<span class="token punctuation">,</span> m_iDBWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">GET_QUEUE_FUNC</span><span class="token punctuation">(</span>GetAllReqQueue<span class="token punctuation">,</span> m_iGetAllWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">GET_QUEUE_FUNC</span><span class="token punctuation">(</span>CatchUpReqQueue<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">GET_QUEUE_FUNC</span><span class="token punctuation">(</span>PLogWriteReqQueue<span class="token punctuation">,</span> m_iPLogWriteWorkerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p>单例的好处是全局可见，如果希望给某个组件发消息，则可以通过单例获取组件对应的队列、调用 <code>PushByMultiThread</code> 将消息推入其中即可。使用消息队列也使得组件之间逻辑解耦。</p>
+<h3 id="3.-网络收发" tabindex="-1"><a href="#3.-%E7%BD%91%E7%BB%9C%E6%94%B6%E5%8F%91">3. 网络收发</a></h3>
+<p>PaxosStore 中进程间消息的传递通过 Socket 实现，包括收和发两个数据方向。收消息是将从 <code>IOChannel</code> 中读取到的字节流反序列化为 <code>Command</code> 命令、推入 <code>IOReqQueue</code> 队列中；发则是将 <code>IORsqQueue</code> 队列中的 <code>Command</code> 命令取出、序列化为字节流后通过 <code>IOChannel</code> 发送。其代码位于 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/IOWorker.h"><code>src/IOWorker.h</code></a>，流程图如下所示：</p>
+<figure tabindex="1"><a href="../images/e657768e7c88cce0d0f93e38a3ad7caa.svg"><img src="../images/e657768e7c88cce0d0f93e38a3ad7caa.svg" alt=""></a><figcaption>IOWorker 收发流程图</figcaption></figure>
+<p>首先来看收消息的过程。<code>clsIOWorker</code> 继承 <code>clsIOHandlerBase</code>，当 <code>IOChannel</code> 有新数据可读时会调用 <code>clsIOWorker::HandleRead</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">HandleRead</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> iRet<span class="token punctuation">,</span> iBytes<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> iFD <span class="token operator">=</span> poFD<span class="token operator">-></span><span class="token function">GetFD</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  clsIOChannel <span class="token operator">*</span>poChannel <span class="token operator">=</span> <span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsIOChannel <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poFD<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  iRet <span class="token operator">=</span> poChannel<span class="token operator">-></span><span class="token function">Read</span><span class="token punctuation">(</span>m_pcIOBuffer<span class="token punctuation">,</span> CERTAIN_IO_BUFFER_SIZE<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    iBytes <span class="token operator">=</span> <span class="token function">ParseIOBuffer</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">,</span> m_pcIOBuffer<span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">AssertNotMore</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> iBytes<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">AssertNotMore</span><span class="token punctuation">(</span>iBytes<span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    poChannel<span class="token operator">-></span><span class="token function">AppendReadBytes</span><span class="token punctuation">(</span>m_pcIOBuffer <span class="token operator">+</span> iBytes<span class="token punctuation">,</span> iRet <span class="token operator">-</span> iBytes<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>poChannel<span class="token operator">-></span><span class="token function">IsBroken</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> poChannel<span class="token operator">-></span><span class="token function">IsReadable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 连接未中断，且仍然可读，说明此时还有数据没有读完</span>
+      <span class="token comment">// 由于 Epoll 使用边缘触发模式，先删除再添加使下次 epoll_wait 时仍然可以获取到该 FD 对象</span>
+      poChannel<span class="token operator">-></span><span class="token function">SetReadable</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">AssertEqual</span><span class="token punctuation">(</span>iRet<span class="token punctuation">,</span> CERTAIN_IO_BUFFER_SIZE<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">AssertEqual</span><span class="token punctuation">(</span>m_poEpollIO<span class="token operator">-></span><span class="token function">Remove</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">AssertEqual</span><span class="token punctuation">(</span>m_poEpollIO<span class="token operator">-></span><span class="token function">Add</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"BUG maybe Check conn %s"</span><span class="token punctuation">,</span> poChannel<span class="token operator">-></span><span class="token function">GetConnInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"poChannel->Read fd %d, ret %d"</span><span class="token punctuation">,</span> iFD<span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>poChannel<span class="token operator">-></span><span class="token function">IsBroken</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CleanBrokenChannel</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 解析接收到的 Command，并推到 IO Req Queue 中</span>
+<span class="token keyword">int</span> clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">ParseIOBuffer</span><span class="token punctuation">(</span>clsIOChannel <span class="token operator">*</span>poChannel<span class="token punctuation">,</span> <span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint32_t</span> iCmdCnt <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iErrorSkipped <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">,</span> iCurr <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  clsCmdBase <span class="token operator">*</span>poCmd<span class="token punctuation">;</span>
+
+  <span class="token function">CertainLogDebug</span><span class="token punctuation">(</span><span class="token string">"conn %s iSize %u"</span><span class="token punctuation">,</span> poChannel<span class="token operator">-></span><span class="token function">GetConnInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> iSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  clsCmdFactory <span class="token operator">*</span>poCmdFactory <span class="token operator">=</span> clsCmdFactory<span class="token double-colon punctuation">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>iCurr <span class="token operator">&lt;</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iCurr <span class="token operator">+</span> RP_HEADER_SIZE <span class="token operator">></span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    RawPacket_t <span class="token operator">*</span>ptRP <span class="token operator">=</span> <span class="token punctuation">(</span>RawPacket_t <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">(</span>pcBuffer <span class="token operator">+</span> iCurr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">ConvertToHostOrder</span><span class="token punctuation">(</span>ptRP<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>ptRP<span class="token operator">-></span>hMagicNum <span class="token operator">!=</span> RP_MAGIC_NUM<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">ConvertToNetOrder</span><span class="token punctuation">(</span>ptRP<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">CERTAIN_IOWORKER_IO_ERROR_SKIP</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">uint32_t</span> iTotalLen <span class="token operator">=</span> RP_HEADER_SIZE <span class="token operator">+</span> ptRP<span class="token operator">-></span>iLen<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iCurr <span class="token operator">+</span> iTotalLen <span class="token operator">></span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">ConvertToNetOrder</span><span class="token punctuation">(</span>ptRP<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>m_poConf<span class="token operator">-></span><span class="token function">GetEnableCheckSum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>ptRP<span class="token operator">-></span>iCheckSum <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// (TODO)rock: add one bit for bHasCheckSum</span>
+        <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"Check if CheckSum disable online"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>ptRP<span class="token operator">-></span>iCheckSum <span class="token operator">!=</span> <span class="token function">CRC32</span><span class="token punctuation">(</span>ptRP<span class="token operator">-></span>pcData<span class="token punctuation">,</span> ptRP<span class="token operator">-></span>iLen<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">CertainLogFatal</span><span class="token punctuation">(</span><span class="token string">"BUG checksum err conn: %s"</span><span class="token punctuation">,</span> poChannel<span class="token operator">-></span><span class="token function">GetConnInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">ConvertToNetOrder</span><span class="token punctuation">(</span>ptRP<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">CERTAIN_IOWORKER_IO_ERROR_SKIP</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">continue</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    poCmd <span class="token operator">=</span> poCmdFactory<span class="token operator">-></span><span class="token function">CreateCmd</span><span class="token punctuation">(</span>pcBuffer <span class="token operator">+</span> iCurr<span class="token punctuation">,</span> iTotalLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>poCmd <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">CERTAIN_IOWORKER_IO_ERROR_SKIP</span><span class="token punctuation">(</span>iTotalLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    poCmd<span class="token operator">-></span><span class="token function">CalcEntityID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>poCmd<span class="token operator">-></span><span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">!=</span> kPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      poCmd<span class="token operator">-></span><span class="token function">SetUUID</span><span class="token punctuation">(</span>poCmdFactory<span class="token operator">-></span><span class="token function">GetNextUUID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    poCmd<span class="token operator">-></span><span class="token function">SetTimestampUS</span><span class="token punctuation">(</span><span class="token function">GetCurrTimeUS</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">int</span> iRet <span class="token operator">=</span> <span class="token function">PutToIOReqQueue</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">,</span> poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">CERTAIN_IOWORKER_IO_ERROR_SKIP</span><span class="token punctuation">(</span>iTotalLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">delete</span> poCmd<span class="token punctuation">,</span> poCmd <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      iCmdCnt<span class="token operator">++</span><span class="token punctuation">;</span>
+      <span class="token function">CERTAIN_IOWORKER_IO_SKIP</span><span class="token punctuation">(</span>iTotalLen<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iErrorSkipped <span class="token operator">></span> <span class="token number">0</span> <span class="token operator">||</span> iCmdCnt <span class="token operator">></span> <span class="token number">50</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"iCmdCnt %u iCurr %d iErrorSkipped %u iSize %u"</span><span class="token punctuation">,</span> iCmdCnt<span class="token punctuation">,</span> iCurr<span class="token punctuation">,</span> iErrorSkipped<span class="token punctuation">,</span>
+                    iSize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> iCurr<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>再来看发消息的过程。<code>ConsumeIORspQueue</code> 从 <code>IORsqQueue</code> 队列中取出 <code>Command</code> 并执行序列化，拿到对应的 <code>IOChannel</code> 执行 <code>AppendWriteBytes</code> 写入缓存中；Epoll 对可写的 <code>IOChannel</code> 执行 Flush。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 从 IO Rsp 队列中获取 Command，并序列化，通过 Channel 发送出去</span>
+<span class="token keyword">void</span> clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">ConsumeIORspQueue</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
+  clsIORspQueue <span class="token operator">*</span>poIORspQueue <span class="token operator">=</span> m_poQueueMng<span class="token operator">-></span><span class="token function">GetIORspQueue</span><span class="token punctuation">(</span>m_iWorkerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">class</span> <span class="token class-name">clsSerializeCB</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> clsIOChannel<span class="token double-colon punctuation">::</span><span class="token class-name">clsSerializeCBBase</span></span> <span class="token punctuation">{</span>
+   <span class="token keyword">private</span><span class="token operator">:</span>
+    clsCmdBase <span class="token operator">*</span>m_poCmd<span class="token punctuation">;</span>
+    <span class="token keyword">int</span> m_iByteSize<span class="token punctuation">;</span>
+    <span class="token keyword">bool</span> m_bCheckSum<span class="token punctuation">;</span>
+
+   <span class="token keyword">public</span><span class="token operator">:</span>
+    <span class="token function">clsSerializeCB</span><span class="token punctuation">(</span>clsCmdBase <span class="token operator">*</span>poCmd<span class="token punctuation">,</span> <span class="token keyword">bool</span> bCheckSum<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">m_poCmd</span><span class="token punctuation">(</span>poCmd<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">m_bCheckSum</span><span class="token punctuation">(</span>bCheckSum<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+    <span class="token keyword">virtual</span> <span class="token operator">~</span><span class="token function">clsSerializeCB</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+    <span class="token keyword">virtual</span> <span class="token keyword">int</span> <span class="token function">Call</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span>pcBuffer<span class="token punctuation">,</span> <span class="token keyword">uint32_t</span> iSize<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      m_iByteSize <span class="token operator">=</span> m_poCmd<span class="token operator">-></span><span class="token function">GenRspPkg</span><span class="token punctuation">(</span>pcBuffer<span class="token punctuation">,</span> iSize<span class="token punctuation">,</span> m_bCheckSum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span> m_iByteSize<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">int</span> <span class="token function">GetByteSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> m_iByteSize<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    clsCmdBase <span class="token operator">*</span>poCmd <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+    iRet <span class="token operator">=</span> poIORspQueue<span class="token operator">-></span><span class="token function">TakeByOneThread</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>poCmd<span class="token operator">-></span><span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> kWriteBatchCmd <span class="token operator">||</span> poCmd<span class="token operator">-></span><span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> kRecoverCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      clsClientCmd <span class="token operator">*</span>poClientCmd <span class="token operator">=</span> <span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsClientCmd <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">uint64_t</span> iUseTimeUS <span class="token operator">=</span> <span class="token function">GetCurrTimeUS</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> poCmd<span class="token operator">-></span><span class="token function">GetTimestampUS</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>poClientCmd<span class="token operator">-></span><span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> kRecoverCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        s_poRecoverCmdTimeStat<span class="token operator">-></span><span class="token function">Update</span><span class="token punctuation">(</span>iUseTimeUS<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>poClientCmd<span class="token operator">-></span><span class="token function">IsReadOnly</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        s_poReadTimeStat<span class="token operator">-></span><span class="token function">Update</span><span class="token punctuation">(</span>iUseTimeUS<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        s_poWriteTimeStat<span class="token operator">-></span><span class="token function">Update</span><span class="token punctuation">(</span>iUseTimeUS<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>poClientCmd<span class="token operator">-></span><span class="token function">GetResult</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">CertainLogInfo</span><span class="token punctuation">(</span><span class="token string">"use_time_us %lu cmd: %s res: %d"</span><span class="token punctuation">,</span> iUseTimeUS<span class="token punctuation">,</span>
+                       poClientCmd<span class="token operator">-></span><span class="token function">GetTextCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> poClientCmd<span class="token operator">-></span><span class="token function">GetResult</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"use_time_us %lu cmd: %s res: %d"</span><span class="token punctuation">,</span> iUseTimeUS<span class="token punctuation">,</span>
+                        poClientCmd<span class="token operator">-></span><span class="token function">GetTextCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> poClientCmd<span class="token operator">-></span><span class="token function">GetResult</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+
+      <span class="token comment">// 本进程内的 Command 消息，唤醒其等待管道即可</span>
+      <span class="token keyword">uint32_t</span> iPipeIdx <span class="token operator">=</span> poClientCmd<span class="token operator">-></span><span class="token function">GetPipeIdx</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      iRet <span class="token operator">=</span> clsAsyncPipeMng<span class="token double-colon punctuation">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">SyncWriteByPipeIdx</span><span class="token punctuation">(</span>iPipeIdx<span class="token punctuation">,</span> <span class="token function">uintptr_t</span><span class="token punctuation">(</span>poClientCmd<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">AssertEqual</span><span class="token punctuation">(</span>iRet<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    clsAutoDelete<span class="token operator">&lt;</span>clsCmdBase<span class="token operator">></span> <span class="token function">oAuto</span><span class="token punctuation">(</span>poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>poCmd<span class="token operator">-></span><span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> kPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      clsPaxosCmd <span class="token operator">*</span>poPaxosCmd <span class="token operator">=</span> <span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsPaxosCmd <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>poPaxosCmd<span class="token operator">-></span><span class="token function">GetDestAcceptorID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> INVALID_ACCEPTOR_ID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// 发送给其他所有 Acceptor</span>
+        <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> m_poConf<span class="token operator">-></span><span class="token function">GetAcceptorNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">if</span> <span class="token punctuation">(</span>i <span class="token operator">==</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetSrcAcceptorID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">continue</span><span class="token punctuation">;</span>
+          <span class="token punctuation">}</span>
+
+          poPaxosCmd<span class="token operator">-></span><span class="token function">SetDestAcceptorID</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+          clsIOChannel <span class="token operator">*</span>poChannel <span class="token operator">=</span> <span class="token function">GetIOChannel</span><span class="token punctuation">(</span>poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">if</span> <span class="token punctuation">(</span>poChannel <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token function">CertainLogDebug</span><span class="token punctuation">(</span><span class="token string">"cmd_id %d GetIOChannel NULL"</span><span class="token punctuation">,</span> poCmd<span class="token operator">-></span><span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">continue</span><span class="token punctuation">;</span>
+          <span class="token punctuation">}</span>
+
+          <span class="token keyword">const</span> ConnInfo_t <span class="token operator">&amp;</span>tConnInfo <span class="token operator">=</span> poChannel<span class="token operator">-></span><span class="token function">GetConnInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+          poPaxosCmd<span class="token operator">-></span><span class="token function">SetDestAcceptorID</span><span class="token punctuation">(</span>INVALID_SERVER_ID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          clsSerializeCB <span class="token function">oCB</span><span class="token punctuation">(</span>poCmd<span class="token punctuation">,</span> m_poConf<span class="token operator">-></span><span class="token function">GetEnableCheckSum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          poChannel<span class="token operator">-></span><span class="token function">AppendWriteBytes</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>oCB<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">if</span> <span class="token punctuation">(</span>poChannel<span class="token operator">-></span><span class="token function">IsWritable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            m_tWritableChannelSet<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token punctuation">}</span>
+
+          <span class="token function">CertainLogInfo</span><span class="token punctuation">(</span><span class="token string">"conn %s cmd: %s packet_size %d"</span><span class="token punctuation">,</span> tConnInfo<span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                         poCmd<span class="token operator">-></span><span class="token function">GetTextCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> oCB<span class="token punctuation">.</span><span class="token function">GetByteSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">continue</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 发送给指定 Acceptor</span>
+    clsIOChannel <span class="token operator">*</span>poChannel <span class="token operator">=</span> <span class="token function">GetIOChannel</span><span class="token punctuation">(</span>poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>poChannel <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">CertainLogDebug</span><span class="token punctuation">(</span><span class="token string">"cmd_id %d GetIOChannel NULL"</span><span class="token punctuation">,</span> poCmd<span class="token operator">-></span><span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">const</span> ConnInfo_t <span class="token operator">&amp;</span>tConnInfo <span class="token operator">=</span> poChannel<span class="token operator">-></span><span class="token function">GetConnInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    clsSerializeCB <span class="token function">oCB</span><span class="token punctuation">(</span>poCmd<span class="token punctuation">,</span> m_poConf<span class="token operator">-></span><span class="token function">GetEnableCheckSum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    poChannel<span class="token operator">-></span><span class="token function">AppendWriteBytes</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>oCB<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// 当前已经可写的 Channel，加入 Set 中</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>poChannel<span class="token operator">-></span><span class="token function">IsWritable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      m_tWritableChannelSet<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>poCmd<span class="token operator">-></span><span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">!=</span> kPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      clsClientCmd <span class="token operator">*</span>poClientCmd <span class="token operator">=</span> <span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsClientCmd <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">uint64_t</span> iUseTimeUS <span class="token operator">=</span> <span class="token function">GetCurrTimeUS</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> poCmd<span class="token operator">-></span><span class="token function">GetTimestampUS</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token function">CertainLogInfo</span><span class="token punctuation">(</span>
+          <span class="token string">"use_time_us %lu conn %s cmd: %s "</span>
+          <span class="token string">"res %d packet_size %d"</span><span class="token punctuation">,</span>
+          iUseTimeUS<span class="token punctuation">,</span> tConnInfo<span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> poClientCmd<span class="token operator">-></span><span class="token function">GetTextCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+          poClientCmd<span class="token operator">-></span><span class="token function">GetResult</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> oCB<span class="token punctuation">.</span><span class="token function">GetByteSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token function">CertainLogInfo</span><span class="token punctuation">(</span><span class="token string">"cmd: %s packet_size %d"</span><span class="token punctuation">,</span> poCmd<span class="token operator">-></span><span class="token function">GetTextCmd</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> oCB<span class="token punctuation">.</span><span class="token function">GetByteSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">FlushWritableChannel</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 遍历所有可写的 Channel 执行 Flush</span>
+<span class="token keyword">void</span> clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">FlushWritableChannel</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint64_t</span> iFlushTimeoutUS <span class="token operator">=</span> m_poConf<span class="token operator">-></span><span class="token function">GetFlushTimeoutUS</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iFlushTimeoutUS <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">uint64_t</span> iCurrTimeUS <span class="token operator">=</span> <span class="token function">GetCurrTimeUS</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>m_iNextFlushTimeUS <span class="token operator">></span> iCurrTimeUS<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    m_iNextFlushTimeUS <span class="token operator">=</span> iCurrTimeUS <span class="token operator">+</span> iFlushTimeoutUS<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    m_iNextFlushTimeUS <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  set<span class="token operator">&lt;</span>clsIOChannel <span class="token operator">*</span><span class="token operator">></span> tNewChannelSet<span class="token punctuation">;</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>m_tWritableChannelSet<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    clsIOChannel <span class="token operator">*</span>poChannel <span class="token operator">=</span> <span class="token operator">*</span>m_tWritableChannelSet<span class="token punctuation">.</span><span class="token function">begin</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_tWritableChannelSet<span class="token punctuation">.</span><span class="token function">erase</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token function">Assert</span><span class="token punctuation">(</span><span class="token operator">!</span>poChannel<span class="token operator">-></span><span class="token function">IsBroken</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> poChannel<span class="token operator">-></span><span class="token function">IsWritable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">int</span> iRet <span class="token operator">=</span> poChannel<span class="token operator">-></span><span class="token function">FlushWriteBuffer</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">int</span> iFD <span class="token operator">=</span> poChannel<span class="token operator">-></span><span class="token function">GetFD</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"poChannel->Write fd %d ret %d"</span><span class="token punctuation">,</span> iFD<span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>poChannel<span class="token operator">-></span><span class="token function">IsBroken</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">CleanBrokenChannel</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>poChannel<span class="token operator">-></span><span class="token function">IsWritable</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> poChannel<span class="token operator">-></span><span class="token function">GetWriteByteSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      tNewChannelSet<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  m_tWritableChannelSet <span class="token operator">=</span> tNewChannelSet<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Epoll 检查到 Channel 可写时调用，执行 Flush</span>
+<span class="token keyword">int</span> clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">HandleWrite</span><span class="token punctuation">(</span>clsFDBase <span class="token operator">*</span>poFD<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> iFD <span class="token operator">=</span> poFD<span class="token operator">-></span><span class="token function">GetFD</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  clsIOChannel <span class="token operator">*</span>poChannel <span class="token operator">=</span> <span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsIOChannel <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poFD<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  iRet <span class="token operator">=</span> poChannel<span class="token operator">-></span><span class="token function">FlushWriteBuffer</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"poChannel->Write fd %d, ret %d"</span><span class="token punctuation">,</span> iFD<span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>poChannel<span class="token operator">-></span><span class="token function">IsBroken</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CleanBrokenChannel</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>poChannel<span class="token operator">-></span><span class="token function">IsWritable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    m_tWritableChannelSet<span class="token punctuation">.</span><span class="token function">erase</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>注意代码中 <code>m_tWritableChannelSet</code> 的使用。仍然由于边缘触发的原因，需要将当前可写的 <code>IOChannel</code> 加入该集合中，通过 <code>FlushWritableChannel</code> 执行 Flush。读写两部分都因为边缘触发的原因做了特殊化处理，理论上应该有更好的解决方案。</p>
+<p>最后来看下 <code>IOChannel</code> 的建立和获取的过程。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 作为 Client 创建与其他 Server 通信的 IOChannel</span>
+<span class="token keyword">int</span> clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">MakeSrvConn</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint64_t</span> iCurrTimeMS <span class="token operator">=</span> <span class="token function">GetCurrTimeMS</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iReconnIntvMS <span class="token operator">=</span> m_poConf<span class="token operator">-></span><span class="token function">GetReconnIntvMS</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iCurrTimeMS <span class="token operator">&lt;</span> m_iLastMakeSrvConnTimeMS <span class="token operator">+</span> iReconnIntvMS<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  m_iLastMakeSrvConnTimeMS <span class="token operator">=</span> iCurrTimeMS<span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iFailCnt <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// only server with min num to connect</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> m_iServerNum<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>i <span class="token operator">==</span> m_iLocalServerID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// Compatable to the very old version</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>m_poConf<span class="token operator">-></span><span class="token function">GetEnableConnectAll</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span> i <span class="token operator">&lt;</span> m_iLocalServerID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> j <span class="token operator">=</span> m_vecIntChannel<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> j <span class="token operator">&lt;</span> m_iIntConnLimit<span class="token punctuation">;</span> <span class="token operator">++</span>j<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      iRet <span class="token operator">=</span> <span class="token function">MakeSingleSrvConn</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        iFailCnt<span class="token operator">++</span><span class="token punctuation">;</span>
+        <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"InitSingleSrvConn ret %d iServerID %u"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">,</span> i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iFailCnt <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"iFailCnt %u"</span><span class="token punctuation">,</span> iFailCnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 作为 Client 连接 ServerID 对应的 Server</span>
+<span class="token keyword">int</span> clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">MakeSingleSrvConn</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iServerID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> iFD <span class="token operator">=</span> <span class="token function">CreateSocket</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iFD <span class="token operator">==</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"CreateSocket ret %d"</span><span class="token punctuation">,</span> iFD<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  ConnInfo_t tConnInfo<span class="token punctuation">;</span>
+  tConnInfo<span class="token punctuation">.</span>iFD <span class="token operator">=</span> iFD<span class="token punctuation">;</span>
+
+  <span class="token keyword">uint32_t</span> iLocalServerID <span class="token operator">=</span> m_poConf<span class="token operator">-></span><span class="token function">GetLocalServerID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  tConnInfo<span class="token punctuation">.</span>tLocalAddr <span class="token operator">=</span> m_vecServerAddr<span class="token punctuation">[</span>iLocalServerID<span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+  tConnInfo<span class="token punctuation">.</span>tPeerAddr <span class="token operator">=</span> m_vecServerAddr<span class="token punctuation">[</span>iServerID<span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+  iRet <span class="token operator">=</span> <span class="token function">Connect</span><span class="token punctuation">(</span>iFD<span class="token punctuation">,</span> tConnInfo<span class="token punctuation">.</span>tPeerAddr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"Connect ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">CertainLogDebug</span><span class="token punctuation">(</span><span class="token string">"try conn: %s"</span><span class="token punctuation">,</span> tConnInfo<span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  clsIOChannel <span class="token operator">*</span>poChannel <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">clsIOChannel</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">,</span> tConnInfo<span class="token punctuation">,</span> iServerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Flush nego msg when it's writable auto.</span>
+  <span class="token keyword">uint8_t</span> acNego<span class="token punctuation">[</span><span class="token number">3</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token operator">*</span><span class="token punctuation">(</span><span class="token keyword">uint16_t</span> <span class="token operator">*</span><span class="token punctuation">)</span>acNego <span class="token operator">=</span> <span class="token function">htons</span><span class="token punctuation">(</span>RP_MAGIC_NUM<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  acNego<span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token keyword">uint8_t</span><span class="token punctuation">(</span>m_iLocalServerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  poChannel<span class="token operator">-></span><span class="token function">AppendWriteBytes</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token keyword">char</span> <span class="token operator">*</span><span class="token punctuation">)</span>acNego<span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  iRet <span class="token operator">=</span> m_poEpollIO<span class="token operator">-></span><span class="token function">Add</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"m_poEpollIO->Add ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">delete</span> poChannel<span class="token punctuation">,</span> poChannel <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">3</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token function">AssertNotEqual</span><span class="token punctuation">(</span>iServerID<span class="token punctuation">,</span> INVALID_SERVER_ID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_vecIntChannel<span class="token punctuation">[</span>iServerID<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    clsIOWorkerRouter<span class="token double-colon punctuation">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">GetAndAddIntChannelCnt</span><span class="token punctuation">(</span>m_iWorkerID<span class="token punctuation">,</span> iServerID<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 作为 Server 创建与 Client 通信的 IOChannel</span>
+<span class="token keyword">void</span> clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">ServeNewConn</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int</span> iRet<span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iConnCnt <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">,</span> iFailCnt <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">,</span> iServerID<span class="token punctuation">;</span>
+  ConnInfo_t tConnInfo<span class="token punctuation">;</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    iRet <span class="token operator">=</span> m_poConnMng<span class="token operator">-></span><span class="token function">TakeByMultiThread</span><span class="token punctuation">(</span>m_iWorkerID<span class="token punctuation">,</span> m_vecIntChannel<span class="token punctuation">,</span> tConnInfo<span class="token punctuation">,</span> iServerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    iConnCnt<span class="token operator">++</span><span class="token punctuation">;</span>
+
+    clsIOChannel <span class="token operator">*</span>poChannel <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">clsIOChannel</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">,</span> tConnInfo<span class="token punctuation">,</span> iServerID<span class="token punctuation">,</span> m_iNextFDID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    m_iNextFDID <span class="token operator">+=</span> m_poConf<span class="token operator">-></span><span class="token function">GetIOWorkerNum</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token function">CertainLogImpt</span><span class="token punctuation">(</span><span class="token string">"m_iWorkerID %u Serve new conn %s"</span><span class="token punctuation">,</span> m_iWorkerID<span class="token punctuation">,</span> tConnInfo<span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">int</span> iRet <span class="token operator">=</span> m_poEpollIO<span class="token operator">-></span><span class="token function">Add</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iRet <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"m_poEpollIO->Add ret %d"</span><span class="token punctuation">,</span> iRet<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">delete</span> poChannel<span class="token punctuation">,</span> poChannel <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+
+      iFailCnt<span class="token operator">++</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>iServerID <span class="token operator">!=</span> INVALID_SERVER_ID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">AssertLess</span><span class="token punctuation">(</span>iServerID<span class="token punctuation">,</span> m_iServerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      m_vecIntChannel<span class="token punctuation">[</span>iServerID<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">int32_t</span> iCurrCnt <span class="token operator">=</span>
+          clsIOWorkerRouter<span class="token double-colon punctuation">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">GetAndAddIntChannelCnt</span><span class="token punctuation">(</span>m_iWorkerID<span class="token punctuation">,</span> iServerID<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span><span class="token punctuation">(</span>iCurrCnt<span class="token punctuation">)</span> <span class="token operator">>=</span> m_iIntConnLimit<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">CertainLogZero</span><span class="token punctuation">(</span><span class="token string">"m_iWorkerID %u iCurrCnt %d add peer iServerID %u conn %s"</span><span class="token punctuation">,</span> m_iWorkerID<span class="token punctuation">,</span>
+                       iCurrCnt<span class="token punctuation">,</span> iServerID<span class="token punctuation">,</span> tConnInfo<span class="token punctuation">.</span><span class="token function">ToString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Update s_aaIdleWorkerMap</span>
+  <span class="token comment">// 检查当前所有连接，如果 buffer 使用小于 1/8，定义为 Idle</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> m_vecIntChannel<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    clsIOWorkerRouter<span class="token double-colon punctuation">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">SetIdleWorkerMap</span><span class="token punctuation">(</span>m_iWorkerID<span class="token punctuation">,</span> i<span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">uint32_t</span> j <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> j <span class="token operator">&lt;</span> m_vecIntChannel<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token operator">++</span>j<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>m_vecIntChannel<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">[</span>j<span class="token punctuation">]</span><span class="token operator">-></span><span class="token function">IsBufferBusy</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        clsIOWorkerRouter<span class="token double-colon punctuation">::</span><span class="token function">GetInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">SetIdleWorkerMap</span><span class="token punctuation">(</span>m_iWorkerID<span class="token punctuation">,</span> i<span class="token punctuation">,</span> <span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">break</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iConnCnt <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogImpt</span><span class="token punctuation">(</span><span class="token string">"iConnCnt %u iFailCnt %u"</span><span class="token punctuation">,</span> iConnCnt<span class="token punctuation">,</span> iFailCnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iFailCnt <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"iConnCnt %u iFailCnt %u"</span><span class="token punctuation">,</span> iConnCnt<span class="token punctuation">,</span> iFailCnt<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 根据 ServerID 获取 Channel</span>
+clsIOChannel <span class="token operator">*</span>clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">GetIOChannelByServerID</span><span class="token punctuation">(</span><span class="token keyword">uint32_t</span> iServerID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">AssertLess</span><span class="token punctuation">(</span>iServerID<span class="token punctuation">,</span> m_iServerNum<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> iSize <span class="token operator">=</span> m_vecIntChannel<span class="token punctuation">[</span>iServerID<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iSize <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Avoid too many log when a acceptor down.</span>
+    <span class="token function">CertainLogDebug</span><span class="token punctuation">(</span><span class="token string">"iServerID %u iSize 0"</span><span class="token punctuation">,</span> iServerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">uint32_t</span> iChannelSelected <span class="token operator">=</span> m_vecChannelRouter<span class="token punctuation">[</span>iServerID<span class="token punctuation">]</span><span class="token operator">++</span><span class="token punctuation">;</span>
+  iChannelSelected <span class="token operator">%=</span> iSize<span class="token punctuation">;</span>
+
+  clsIOChannel <span class="token operator">*</span>poChannel <span class="token operator">=</span> m_vecIntChannel<span class="token punctuation">[</span>iServerID<span class="token punctuation">]</span><span class="token punctuation">[</span>iChannelSelected<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token function">AssertNotEqual</span><span class="token punctuation">(</span>poChannel<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">return</span> poChannel<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 根据 Command 获取 Channel</span>
+clsIOChannel <span class="token operator">*</span>clsIOWorker<span class="token double-colon punctuation">::</span><span class="token function">GetIOChannel</span><span class="token punctuation">(</span>clsCmdBase <span class="token operator">*</span>poCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>poCmd<span class="token operator">-></span><span class="token function">GetCmdID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">==</span> kPaxosCmd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    clsPaxosCmd <span class="token operator">*</span>poPaxosCmd <span class="token operator">=</span> <span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsPaxosCmd <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poCmd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">uint32_t</span> iDestAcceptorID <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetDestAcceptorID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">uint64_t</span> iEntityID <span class="token operator">=</span> poPaxosCmd<span class="token operator">-></span><span class="token function">GetEntityID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">uint32_t</span> iServerID <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+
+    <span class="token function">AssertEqual</span><span class="token punctuation">(</span>m_poCertainUser<span class="token operator">-></span><span class="token function">GetServerID</span><span class="token punctuation">(</span>iEntityID<span class="token punctuation">,</span> iDestAcceptorID<span class="token punctuation">,</span> iServerID<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> <span class="token function">GetIOChannelByServerID</span><span class="token punctuation">(</span>iServerID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> IOTracker_t <span class="token operator">&amp;</span>tIOTracker <span class="token operator">=</span> poCmd<span class="token operator">-></span><span class="token function">GetIOTracker</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    clsFDBase <span class="token operator">*</span>poFD <span class="token operator">=</span> m_poEpollIO<span class="token operator">-></span><span class="token function">GetFDBase</span><span class="token punctuation">(</span>tIOTracker<span class="token punctuation">.</span>iFD<span class="token punctuation">,</span> tIOTracker<span class="token punctuation">.</span>iFDID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>poFD <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">CertainLogError</span><span class="token punctuation">(</span><span class="token string">"GetFDBase error fd %d fd_id %u"</span><span class="token punctuation">,</span> tIOTracker<span class="token punctuation">.</span>iFD<span class="token punctuation">,</span> tIOTracker<span class="token punctuation">.</span>iFDID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> <span class="token generic-function"><span class="token function">dynamic_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>clsIOChannel <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>poFD<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="4.-总结" tabindex="-1"><a href="#4.-%E6%80%BB%E7%BB%93">4. 总结</a></h3>
+<p>PaxosStore 单个 Server 进程内会启动多个 Worker 线程，线程间通过消息队列传递消息；而多个 Server 进程间则通过 Protobuf + Socket 传递消息。通信部分由于使用 Epoll 边缘触发的原因，对仍然可读可写的 fd 都做了特殊化处理。至此 PaxosStore 中消息传递的代码分析完毕，下一篇将继续分析组件间消息传递实现的 Paxos 协议过程。</p>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://github.com/Tencent/paxosstore">&quot;Tencent/PaxosStore&quot;, <em>GitHub</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>

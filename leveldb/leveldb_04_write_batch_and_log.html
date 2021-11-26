@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>LevelDB 源码分析「四、高性能写操作续」 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> LevelDB 源码分析「四、高性能写操作续」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2019.08.10 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>本系列的<a href="/leveldb/leveldb_03_write_batch_and_log.html">上一篇</a>介绍了 LevelDB 写操作中构造的 <code>WriteBatch</code>，以及写操作的第一步：追加日志。本篇将继续介绍写操作的第二步：插入内存数据库。</p>
+<h3 id="3.-内存数据库-memtable" tabindex="-1"><a href="#3.-%E5%86%85%E5%AD%98%E6%95%B0%E6%8D%AE%E5%BA%93-memtable">3. 内存数据库 MemTable</a></h3>
+<p>MemTable 即为在内存中建立的 KV 数据库，基于跳表，定义于 <a href="https://github.com/google/leveldb/blob/master/db/memtable.h"><code>db/memtable.h</code></a>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string></span></span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"db/dbformat.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"db/skiplist.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"leveldb/db.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"util/arena.h"</span></span>
+
+<span class="token keyword">namespace</span> leveldb <span class="token punctuation">{</span>
+
+<span class="token keyword">class</span> <span class="token class-name">InternalKeyComparator</span><span class="token punctuation">;</span>
+<span class="token keyword">class</span> <span class="token class-name">MemTableIterator</span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">MemTable</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">// MemTables are reference counted.  The initial reference count</span>
+  <span class="token comment">// is zero and the caller must call Ref() at least once.</span>
+  <span class="token keyword">explicit</span> <span class="token function">MemTable</span><span class="token punctuation">(</span><span class="token keyword">const</span> InternalKeyComparator<span class="token operator">&amp;</span> comparator<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">MemTable</span><span class="token punctuation">(</span><span class="token keyword">const</span> MemTable<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+  MemTable<span class="token operator">&amp;</span> <span class="token keyword">operator</span><span class="token operator">=</span><span class="token punctuation">(</span><span class="token keyword">const</span> MemTable<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Increase reference count.</span>
+  <span class="token keyword">void</span> <span class="token function">Ref</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">++</span>refs_<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">// Drop reference count.  Delete if no more references exist.</span>
+  <span class="token keyword">void</span> <span class="token function">Unref</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token operator">--</span>refs_<span class="token punctuation">;</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span>refs_ <span class="token operator">>=</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>refs_ <span class="token operator">&lt;=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">delete</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Returns an estimate of the number of bytes of data in use by this</span>
+  <span class="token comment">// data structure. It is safe to call when MemTable is being modified.</span>
+  size_t <span class="token function">ApproximateMemoryUsage</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Return an iterator that yields the contents of the memtable.</span>
+  <span class="token comment">//</span>
+  <span class="token comment">// The caller must ensure that the underlying MemTable remains live</span>
+  <span class="token comment">// while the returned iterator is live.  The keys returned by this</span>
+  <span class="token comment">// iterator are internal keys encoded by AppendInternalKey in the</span>
+  <span class="token comment">// db/format.{h,cc} module.</span>
+  Iterator<span class="token operator">*</span> <span class="token function">NewIterator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Add an entry into memtable that maps key to value at the</span>
+  <span class="token comment">// specified sequence number and with the specified type.</span>
+  <span class="token comment">// Typically value will be empty if type==kTypeDeletion.</span>
+  <span class="token keyword">void</span> <span class="token function">Add</span><span class="token punctuation">(</span>SequenceNumber seq<span class="token punctuation">,</span> ValueType type<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span>
+           <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> value<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// If memtable contains a value for key, store it in *value and return true.</span>
+  <span class="token comment">// If memtable contains a deletion for key, store a NotFound() error</span>
+  <span class="token comment">// in *status and return true.</span>
+  <span class="token comment">// Else, return false.</span>
+  <span class="token keyword">bool</span> <span class="token function">Get</span><span class="token punctuation">(</span><span class="token keyword">const</span> LookupKey<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">*</span> value<span class="token punctuation">,</span> Status<span class="token operator">*</span> s<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">friend</span> <span class="token keyword">class</span> <span class="token class-name">MemTableIterator</span><span class="token punctuation">;</span>
+  <span class="token keyword">friend</span> <span class="token keyword">class</span> <span class="token class-name">MemTableBackwardIterator</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">struct</span> <span class="token class-name">KeyComparator</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> InternalKeyComparator comparator<span class="token punctuation">;</span>
+    <span class="token keyword">explicit</span> <span class="token function">KeyComparator</span><span class="token punctuation">(</span><span class="token keyword">const</span> InternalKeyComparator<span class="token operator">&amp;</span> c<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">comparator</span><span class="token punctuation">(</span>c<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+    <span class="token keyword">int</span> <span class="token keyword">operator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> a<span class="token punctuation">,</span> <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> b<span class="token punctuation">)</span> <span class="token keyword">const</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">typedef</span> SkipList<span class="token operator">&lt;</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span><span class="token punctuation">,</span> KeyComparator<span class="token operator">></span> Table<span class="token punctuation">;</span>
+
+  <span class="token operator">~</span><span class="token function">MemTable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// Private since only Unref() should be used to delete it</span>
+
+  KeyComparator comparator_<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> refs_<span class="token punctuation">;</span>
+  Arena arena_<span class="token punctuation">;</span>
+  Table table_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token punctuation">}</span>  <span class="token comment">// namespace leveldb</span>
+</code></pre>
+<p>MemTable 包含比较器 <code>comparator_</code> 、引用计数 <code>refs_</code>、内存池 <code>arena_</code> 和跳表 <code>table_</code> 四个成员变量。代码中首先前置声明了 <code>InternalKeyComparator</code> 类，该类的对象是 MemTable 的构造函数参数。该类定义为 <code>db/dbformat.h</code> 中，将在下文中介绍。随后 MemTable 禁止了拷贝构造和赋值操作符，不允许拷贝操作，这应该是内存池的副作用。MemTable 使用引用计数管理自己的生命周期，甚至其析构函数都是私有的。而接口 <code>ApproximateMemoryUsage</code> 实际上返回的是内存池中的内存使用量。接口方面提供了读写接口和迭代器接口。内部定义了结构体 <code>KeyComparator</code>，对 <code>InternalKeyComparator</code> 进行了封装。为了弄清楚 <code>InternalKeyComparator</code> 到底是什么，我们先转到 <a href="https://github.com/google/leveldb/blob/master/db/dbformat.h"><code>db/dbformat.h</code></a> 查看其定义：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">enum</span> <span class="token class-name">ValueType</span> <span class="token punctuation">{</span> kTypeDeletion <span class="token operator">=</span> <span class="token number">0x0</span><span class="token punctuation">,</span> kTypeValue <span class="token operator">=</span> <span class="token number">0x1</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">static</span> <span class="token keyword">const</span> ValueType kValueTypeForSeek <span class="token operator">=</span> kTypeValue<span class="token punctuation">;</span>
+
+<span class="token keyword">typedef</span> <span class="token keyword">uint64_t</span> SequenceNumber<span class="token punctuation">;</span>
+<span class="token keyword">static</span> <span class="token keyword">const</span> SequenceNumber kMaxSequenceNumber <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token number">0x1ull</span> <span class="token operator">&lt;&lt;</span> <span class="token number">56</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">ParsedInternalKey</span> <span class="token punctuation">{</span>
+  Slice user_key<span class="token punctuation">;</span>
+  SequenceNumber sequence<span class="token punctuation">;</span>
+  ValueType type<span class="token punctuation">;</span>
+
+  <span class="token function">ParsedInternalKey</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>  <span class="token comment">// Intentionally left uninitialized (for speed)</span>
+  <span class="token function">ParsedInternalKey</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> u<span class="token punctuation">,</span> <span class="token keyword">const</span> SequenceNumber<span class="token operator">&amp;</span> seq<span class="token punctuation">,</span> ValueType t<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">user_key</span><span class="token punctuation">(</span>u<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">sequence</span><span class="token punctuation">(</span>seq<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">type</span><span class="token punctuation">(</span>t<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+  std<span class="token double-colon punctuation">::</span>string <span class="token function">DebugString</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// Return the length of the encoding of "key".</span>
+<span class="token keyword">inline</span> size_t <span class="token function">InternalKeyEncodingLength</span><span class="token punctuation">(</span><span class="token keyword">const</span> ParsedInternalKey<span class="token operator">&amp;</span> key<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> key<span class="token punctuation">.</span>user_key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">8</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">static</span> <span class="token keyword">uint64_t</span> <span class="token function">PackSequenceAndType</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> seq<span class="token punctuation">,</span> ValueType t<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>seq <span class="token operator">&lt;=</span> kMaxSequenceNumber<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>t <span class="token operator">&lt;=</span> kValueTypeForSeek<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token punctuation">(</span>seq <span class="token operator">&lt;&lt;</span> <span class="token number">8</span><span class="token punctuation">)</span> <span class="token operator">|</span> t<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token function">AppendInternalKey</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string<span class="token operator">*</span> result<span class="token punctuation">,</span> <span class="token keyword">const</span> ParsedInternalKey<span class="token operator">&amp;</span> key<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  result<span class="token operator">-></span><span class="token function">append</span><span class="token punctuation">(</span>key<span class="token punctuation">.</span>user_key<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> key<span class="token punctuation">.</span>user_key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">PutFixed64</span><span class="token punctuation">(</span>result<span class="token punctuation">,</span> <span class="token function">PackSequenceAndType</span><span class="token punctuation">(</span>key<span class="token punctuation">.</span>sequence<span class="token punctuation">,</span> key<span class="token punctuation">.</span>type<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">bool</span> <span class="token function">ParseInternalKey</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> internal_key<span class="token punctuation">,</span>
+                             ParsedInternalKey<span class="token operator">*</span> result<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> size_t n <span class="token operator">=</span> internal_key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>n <span class="token operator">&lt;</span> <span class="token number">8</span><span class="token punctuation">)</span> <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint64_t</span> num <span class="token operator">=</span> <span class="token function">DecodeFixed64</span><span class="token punctuation">(</span>internal_key<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> n <span class="token operator">-</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint8_t</span> c <span class="token operator">=</span> num <span class="token operator">&amp;</span> <span class="token number">0xff</span><span class="token punctuation">;</span>
+  result<span class="token operator">-></span>sequence <span class="token operator">=</span> num <span class="token operator">>></span> <span class="token number">8</span><span class="token punctuation">;</span>
+  result<span class="token operator">-></span>type <span class="token operator">=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>ValueType<span class="token operator">></span></span></span><span class="token punctuation">(</span>c<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  result<span class="token operator">-></span>user_key <span class="token operator">=</span> <span class="token function">Slice</span><span class="token punctuation">(</span>internal_key<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> n <span class="token operator">-</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token punctuation">(</span>c <span class="token operator">&lt;=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">uint8_t</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>kTypeValue<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> Slice <span class="token function">ExtractUserKey</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> internal_key<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>internal_key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">>=</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token function">Slice</span><span class="token punctuation">(</span>internal_key<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> internal_key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>为了方便阅读这里对函数进行了重排。首先定义了两种值类型 <code>kTypeDeletion</code> 和 <code>kTypeValue</code>，注意 <code>kTypeDeletion</code> 值较小。然后定义了 <code>SequenceNumber</code> 为 64 位无符号数，并且定义了其最大值为 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mn>2</mn><mn>56</mn></msup><mo>−</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">2^{56}-1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8974em;vertical-align:-0.0833em;"></span><span class="mord"><span class="mord">2</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">56</span></span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span></eq>。然后是 <code>ParsedInternalKey</code> 结构体的定义，其内部包括 <code>user_key</code>、<code>sequence</code> 和 <code>type</code>。根据类的名字就可以猜到一点了，Internal Key 应该是对 User Key 的封装，在其基础上加入了序列号 <code>sequence</code> 和值类型 <code>type</code>。函数 <code>PackSequenceAndType</code> 中可以发现， <code>sequence</code> 占用 56bit，剩下 8bit 给 <code>type</code>，一共组成 64 位无符号数，下文称之为合成序列号。所以 <code>InternalKeyEncodingLength</code> 计算的长度是 User Key 的长度加 8。函数 <code>AppendInternalKey</code> 可以将 <code>ParsedInternalKey</code> 转为字符串，先将 User Key 编码进去，再将 64 位合成序列号加入，对应的解析函数 <code>ParseInternalKey</code> 为逆过程。继续：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">InternalKeyComparator</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">Comparator</span></span> <span class="token punctuation">{</span>
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">const</span> Comparator<span class="token operator">*</span> user_comparator_<span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">explicit</span> <span class="token function">InternalKeyComparator</span><span class="token punctuation">(</span><span class="token keyword">const</span> Comparator<span class="token operator">*</span> c<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">user_comparator_</span><span class="token punctuation">(</span>c<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> <span class="token function">Name</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">override</span><span class="token punctuation">;</span>
+  <span class="token keyword">int</span> <span class="token function">Compare</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> a<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> b<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">override</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">FindShortestSeparator</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string<span class="token operator">*</span> start<span class="token punctuation">,</span>
+                             <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> limit<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">override</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">FindShortSuccessor</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string<span class="token operator">*</span> key<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">override</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">const</span> Comparator<span class="token operator">*</span> <span class="token function">user_comparator</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> user_comparator_<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">int</span> <span class="token function">Compare</span><span class="token punctuation">(</span><span class="token keyword">const</span> InternalKey<span class="token operator">&amp;</span> a<span class="token punctuation">,</span> <span class="token keyword">const</span> InternalKey<span class="token operator">&amp;</span> b<span class="token punctuation">)</span> <span class="token keyword">const</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> <span class="token class-name">InternalKeyComparator</span><span class="token double-colon punctuation">::</span><span class="token function">Name</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token string">"leveldb.InternalKeyComparator"</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token class-name">InternalKeyComparator</span><span class="token double-colon punctuation">::</span><span class="token function">Compare</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> akey<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> bkey<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Order by:</span>
+  <span class="token comment">//    increasing user key (according to user-supplied comparator)</span>
+  <span class="token comment">//    decreasing sequence number</span>
+  <span class="token comment">//    decreasing type (though sequence# should be enough to disambiguate)</span>
+  <span class="token keyword">int</span> r <span class="token operator">=</span> user_comparator_<span class="token operator">-></span><span class="token function">Compare</span><span class="token punctuation">(</span><span class="token function">ExtractUserKey</span><span class="token punctuation">(</span>akey<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">ExtractUserKey</span><span class="token punctuation">(</span>bkey<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>r <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> anum <span class="token operator">=</span> <span class="token function">DecodeFixed64</span><span class="token punctuation">(</span>akey<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> akey<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> bnum <span class="token operator">=</span> <span class="token function">DecodeFixed64</span><span class="token punctuation">(</span>bkey<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> bkey<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>anum <span class="token operator">></span> bnum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      r <span class="token operator">=</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>anum <span class="token operator">&lt;</span> bnum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      r <span class="token operator">=</span> <span class="token operator">+</span><span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> r<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>InternalKeyComparator</code> 继承于 LevelDB 中定义的比较器 <code>Comparator</code>，其源码位于 <a href="https://github.com/google/leveldb/blob/master/include/leveldb/comparator.h"><code>include/leveldb/comparator.h</code> </a>，有兴趣自己阅读。其核心函数即为 <code>Compare</code>，比较两个 <code>Key</code> 的大小。<code>InternalKeyComparator</code> 对 <code>user_comparator_</code> 进行了封装，当比较 <code>InternalKey</code> 时，首先使用 <code>user_comparator_</code> 对 User Key 进行比较，如果相等，则抽取合成序列号进行比较，序列号大的反而在顺序上更小，即降序排列。继续看 <code>InternalKey</code> 的定义：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">InternalKey</span> <span class="token punctuation">{</span>
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  std<span class="token double-colon punctuation">::</span>string rep_<span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">InternalKey</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>  <span class="token comment">// Leave rep_ as empty to indicate it is invalid</span>
+  <span class="token function">InternalKey</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> user_key<span class="token punctuation">,</span> SequenceNumber s<span class="token punctuation">,</span> ValueType t<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">AppendInternalKey</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>rep_<span class="token punctuation">,</span> <span class="token function">ParsedInternalKey</span><span class="token punctuation">(</span>user_key<span class="token punctuation">,</span> s<span class="token punctuation">,</span> t<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token function">DecodeFrom</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> s<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    rep_<span class="token punctuation">.</span><span class="token function">assign</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> s<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">!</span>rep_<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  Slice <span class="token function">Encode</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>rep_<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> rep_<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  Slice <span class="token function">user_key</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">ExtractUserKey</span><span class="token punctuation">(</span>rep_<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">SetFrom</span><span class="token punctuation">(</span><span class="token keyword">const</span> ParsedInternalKey<span class="token operator">&amp;</span> p<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    rep_<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">AppendInternalKey</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>rep_<span class="token punctuation">,</span> p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">Clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> rep_<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  std<span class="token double-colon punctuation">::</span>string <span class="token function">DebugString</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">int</span> <span class="token class-name">InternalKeyComparator</span><span class="token double-colon punctuation">::</span><span class="token function">Compare</span><span class="token punctuation">(</span><span class="token keyword">const</span> InternalKey<span class="token operator">&amp;</span> a<span class="token punctuation">,</span>
+                                          <span class="token keyword">const</span> InternalKey<span class="token operator">&amp;</span> b<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token function">Compare</span><span class="token punctuation">(</span>a<span class="token punctuation">.</span><span class="token function">Encode</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> b<span class="token punctuation">.</span><span class="token function">Encode</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>InternalKey</code> 存储的信息和 <code>ParseInternalKey</code> 一致，只是存储形式不同，前者直接使用字符串 <code>rep_</code> 存储 User Key 和合成序列号，对应的比较函数则直接使用 <code>InternalKeyComparator</code> 对 <code>rep_</code> 进行解析后的比较。该文件中还有 <code>InternalFilterPolicy</code> 的定义，同样是从 Internal Key 解析出 User Key 进行操作。继续看 <code>LookupKey</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// A helper class useful for DBImpl::Get()</span>
+<span class="token keyword">class</span> <span class="token class-name">LookupKey</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">// Initialize *this for looking up user_key at a snapshot with</span>
+  <span class="token comment">// the specified sequence number.</span>
+  <span class="token function">LookupKey</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> user_key<span class="token punctuation">,</span> SequenceNumber sequence<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">LookupKey</span><span class="token punctuation">(</span><span class="token keyword">const</span> LookupKey<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+  LookupKey<span class="token operator">&amp;</span> <span class="token keyword">operator</span><span class="token operator">=</span><span class="token punctuation">(</span><span class="token keyword">const</span> LookupKey<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+
+  <span class="token operator">~</span><span class="token function">LookupKey</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Return a key suitable for lookup in a MemTable.</span>
+  Slice <span class="token function">memtable_key</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">Slice</span><span class="token punctuation">(</span>start_<span class="token punctuation">,</span> end_ <span class="token operator">-</span> start_<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">// Return an internal key (suitable for passing to an internal iterator)</span>
+  Slice <span class="token function">internal_key</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">Slice</span><span class="token punctuation">(</span>kstart_<span class="token punctuation">,</span> end_ <span class="token operator">-</span> kstart_<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">// Return the user key</span>
+  Slice <span class="token function">user_key</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">Slice</span><span class="token punctuation">(</span>kstart_<span class="token punctuation">,</span> end_ <span class="token operator">-</span> kstart_ <span class="token operator">-</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token comment">// We construct a char array of the form:</span>
+  <span class="token comment">//    klength  varint32               &lt;-- start_</span>
+  <span class="token comment">//    userkey  char[klength]          &lt;-- kstart_</span>
+  <span class="token comment">//    tag      uint64</span>
+  <span class="token comment">//                                    &lt;-- end_</span>
+  <span class="token comment">// The array is a suitable MemTable key.</span>
+  <span class="token comment">// The suffix starting with "userkey" can be used as an InternalKey.</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> start_<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> kstart_<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> end_<span class="token punctuation">;</span>
+  <span class="token keyword">char</span> space_<span class="token punctuation">[</span><span class="token number">200</span><span class="token punctuation">]</span><span class="token punctuation">;</span>  <span class="token comment">// Avoid allocation for short keys</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token class-name">LookupKey</span><span class="token double-colon punctuation">::</span><span class="token function">LookupKey</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> user_key<span class="token punctuation">,</span> SequenceNumber s<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  size_t usize <span class="token operator">=</span> user_key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  size_t needed <span class="token operator">=</span> usize <span class="token operator">+</span> <span class="token number">13</span><span class="token punctuation">;</span>  <span class="token comment">// A conservative estimate</span>
+  <span class="token keyword">char</span><span class="token operator">*</span> dst<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>needed <span class="token operator">&lt;=</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>space_<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    dst <span class="token operator">=</span> space_<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    dst <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token keyword">char</span><span class="token punctuation">[</span>needed<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  start_ <span class="token operator">=</span> dst<span class="token punctuation">;</span>
+  dst <span class="token operator">=</span> <span class="token function">EncodeVarint32</span><span class="token punctuation">(</span>dst<span class="token punctuation">,</span> usize <span class="token operator">+</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  kstart_ <span class="token operator">=</span> dst<span class="token punctuation">;</span>
+  <span class="token function">memcpy</span><span class="token punctuation">(</span>dst<span class="token punctuation">,</span> user_key<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> usize<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  dst <span class="token operator">+=</span> usize<span class="token punctuation">;</span>
+  <span class="token function">EncodeFixed64</span><span class="token punctuation">(</span>dst<span class="token punctuation">,</span> <span class="token function">PackSequenceAndType</span><span class="token punctuation">(</span>s<span class="token punctuation">,</span> kValueTypeForSeek<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  dst <span class="token operator">+=</span> <span class="token number">8</span><span class="token punctuation">;</span>
+  end_ <span class="token operator">=</span> dst<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>在 <code>LookupKey</code> 中可以返回三种 Key，画图理理关系：</p>
+<pre class="language-markup"><code class="language-markup">+-----------------------------------------------------+
+|        +------------------------------------------+ |
+|        |               Internal Key               | |
+| Length +------------------------+----------+------+ |
+|        |        User Key        | Sequence | Type | |
+|        +------------------------+----------+------+ |
++-----------------------------------------------------+
+</code></pre>
+<p>回到内存数据库的定义中，<code>KeyComparator</code> 对 <code>InternalKeyComparator</code> 又进行了一次封装，来看下其具体函数定义：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">static</span> Slice <span class="token function">GetLengthPrefixedSlice</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> data<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">uint32_t</span> len<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> p <span class="token operator">=</span> data<span class="token punctuation">;</span>
+  p <span class="token operator">=</span> <span class="token function">GetVarint32Ptr</span><span class="token punctuation">(</span>p<span class="token punctuation">,</span> p <span class="token operator">+</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>len<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// +5: we assume "p" is not corrupted</span>
+  <span class="token keyword">return</span> <span class="token function">Slice</span><span class="token punctuation">(</span>p<span class="token punctuation">,</span> len<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> MemTable<span class="token double-colon punctuation">::</span><span class="token class-name">KeyComparator</span><span class="token double-colon punctuation">::</span><span class="token keyword">operator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> aptr<span class="token punctuation">,</span>
+                                        <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> bptr<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Internal keys are encoded as length-prefixed strings.</span>
+  Slice a <span class="token operator">=</span> <span class="token function">GetLengthPrefixedSlice</span><span class="token punctuation">(</span>aptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Slice b <span class="token operator">=</span> <span class="token function">GetLengthPrefixedSlice</span><span class="token punctuation">(</span>bptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> comparator<span class="token punctuation">.</span><span class="token function">Compare</span><span class="token punctuation">(</span>a<span class="token punctuation">,</span> b<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>这里的 <code>comparator</code> 自然是 <code>InternalKeyComparator</code>，从 <code>GetLengthPrefixedSlice</code> 推测该函数的参数为 MemTable Key。继续看 <code>MemTable::Add</code> 和 <code>MemTable::Get</code> 的实现：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">MemTable</span><span class="token double-colon punctuation">::</span><span class="token function">Add</span><span class="token punctuation">(</span>SequenceNumber s<span class="token punctuation">,</span> ValueType type<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> key<span class="token punctuation">,</span>
+                   <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> value<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Format of an entry is concatenation of:</span>
+  <span class="token comment">//  key_size     : varint32 of internal_key.size()</span>
+  <span class="token comment">//  key bytes    : char[internal_key.size()]</span>
+  <span class="token comment">//  value_size   : varint32 of value.size()</span>
+  <span class="token comment">//  value bytes  : char[value.size()]</span>
+  size_t key_size <span class="token operator">=</span> key<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  size_t val_size <span class="token operator">=</span> value<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  size_t internal_key_size <span class="token operator">=</span> key_size <span class="token operator">+</span> <span class="token number">8</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> size_t encoded_len <span class="token operator">=</span> <span class="token function">VarintLength</span><span class="token punctuation">(</span>internal_key_size<span class="token punctuation">)</span> <span class="token operator">+</span>
+                             internal_key_size <span class="token operator">+</span> <span class="token function">VarintLength</span><span class="token punctuation">(</span>val_size<span class="token punctuation">)</span> <span class="token operator">+</span>
+                             val_size<span class="token punctuation">;</span>
+  <span class="token keyword">char</span><span class="token operator">*</span> buf <span class="token operator">=</span> arena_<span class="token punctuation">.</span><span class="token function">Allocate</span><span class="token punctuation">(</span>encoded_len<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">char</span><span class="token operator">*</span> p <span class="token operator">=</span> <span class="token function">EncodeVarint32</span><span class="token punctuation">(</span>buf<span class="token punctuation">,</span> internal_key_size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">memcpy</span><span class="token punctuation">(</span>p<span class="token punctuation">,</span> key<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> key_size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  p <span class="token operator">+=</span> key_size<span class="token punctuation">;</span>
+  <span class="token function">EncodeFixed64</span><span class="token punctuation">(</span>p<span class="token punctuation">,</span> <span class="token punctuation">(</span>s <span class="token operator">&lt;&lt;</span> <span class="token number">8</span><span class="token punctuation">)</span> <span class="token operator">|</span> type<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  p <span class="token operator">+=</span> <span class="token number">8</span><span class="token punctuation">;</span>
+  p <span class="token operator">=</span> <span class="token function">EncodeVarint32</span><span class="token punctuation">(</span>p<span class="token punctuation">,</span> val_size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">memcpy</span><span class="token punctuation">(</span>p<span class="token punctuation">,</span> value<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> val_size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>p <span class="token operator">+</span> val_size <span class="token operator">==</span> buf <span class="token operator">+</span> encoded_len<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  table_<span class="token punctuation">.</span><span class="token function">Insert</span><span class="token punctuation">(</span>buf<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">bool</span> <span class="token class-name">MemTable</span><span class="token double-colon punctuation">::</span><span class="token function">Get</span><span class="token punctuation">(</span><span class="token keyword">const</span> LookupKey<span class="token operator">&amp;</span> key<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">*</span> value<span class="token punctuation">,</span> Status<span class="token operator">*</span> s<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  Slice memkey <span class="token operator">=</span> key<span class="token punctuation">.</span><span class="token function">memtable_key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Table<span class="token double-colon punctuation">::</span>Iterator <span class="token function">iter</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>table_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  iter<span class="token punctuation">.</span><span class="token function">Seek</span><span class="token punctuation">(</span>memkey<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iter<span class="token punctuation">.</span><span class="token function">Valid</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// entry format is:</span>
+    <span class="token comment">//    klength  varint32</span>
+    <span class="token comment">//    userkey  char[klength]</span>
+    <span class="token comment">//    tag      uint64</span>
+    <span class="token comment">//    vlength  varint32</span>
+    <span class="token comment">//    value    char[vlength]</span>
+    <span class="token comment">// Check that it belongs to same user key.  We do not check the</span>
+    <span class="token comment">// sequence number since the Seek() call above should have skipped</span>
+    <span class="token comment">// all entries with overly large sequence numbers.</span>
+    <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> entry <span class="token operator">=</span> iter<span class="token punctuation">.</span><span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">uint32_t</span> key_length<span class="token punctuation">;</span>
+    <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> key_ptr <span class="token operator">=</span> <span class="token function">GetVarint32Ptr</span><span class="token punctuation">(</span>entry<span class="token punctuation">,</span> entry <span class="token operator">+</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>key_length<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>comparator_<span class="token punctuation">.</span>comparator<span class="token punctuation">.</span><span class="token function">user_comparator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">Compare</span><span class="token punctuation">(</span>
+            <span class="token function">Slice</span><span class="token punctuation">(</span>key_ptr<span class="token punctuation">,</span> key_length <span class="token operator">-</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">,</span> key<span class="token punctuation">.</span><span class="token function">user_key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// Correct user key</span>
+      <span class="token keyword">const</span> <span class="token keyword">uint64_t</span> tag <span class="token operator">=</span> <span class="token function">DecodeFixed64</span><span class="token punctuation">(</span>key_ptr <span class="token operator">+</span> key_length <span class="token operator">-</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">switch</span> <span class="token punctuation">(</span><span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>ValueType<span class="token operator">></span></span></span><span class="token punctuation">(</span>tag <span class="token operator">&amp;</span> <span class="token number">0xff</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">case</span> kTypeValue<span class="token operator">:</span> <span class="token punctuation">{</span>
+          Slice v <span class="token operator">=</span> <span class="token function">GetLengthPrefixedSlice</span><span class="token punctuation">(</span>key_ptr <span class="token operator">+</span> key_length<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          value<span class="token operator">-></span><span class="token function">assign</span><span class="token punctuation">(</span>v<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> v<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+        <span class="token keyword">case</span> kTypeDeletion<span class="token operator">:</span>
+          <span class="token operator">*</span>s <span class="token operator">=</span> <span class="token class-name">Status</span><span class="token double-colon punctuation">::</span><span class="token function">NotFound</span><span class="token punctuation">(</span><span class="token function">Slice</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>MemTable::Add</code> 的注释中写明了条目的格式，除了图中 <code>Key</code> 部分的存储外，条目还包括 <code>Value</code> 的存储，打包好后插入跳表中。<code>MemTable::Get</code> 中则根据 MemTable Key 查找对应的条目，查到后使用 <code>user_comparator</code> 进一步比较两者的 User Key 是否一致，如果完全一致并且值类型不是删除，就把条目中的 <code>Value</code> 读出来放到结果中。最后看下迭代器的实现：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">static</span> <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> <span class="token function">EncodeKey</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string<span class="token operator">*</span> scratch<span class="token punctuation">,</span> <span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> target<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  scratch<span class="token operator">-></span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">PutVarint32</span><span class="token punctuation">(</span>scratch<span class="token punctuation">,</span> target<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  scratch<span class="token operator">-></span><span class="token function">append</span><span class="token punctuation">(</span>target<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> target<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> scratch<span class="token operator">-></span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">class</span> <span class="token class-name">MemTableIterator</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">Iterator</span></span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">explicit</span> <span class="token function">MemTableIterator</span><span class="token punctuation">(</span>MemTable<span class="token double-colon punctuation">::</span>Table<span class="token operator">*</span> table<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">iter_</span><span class="token punctuation">(</span>table<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token function">MemTableIterator</span><span class="token punctuation">(</span><span class="token keyword">const</span> MemTableIterator<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+  MemTableIterator<span class="token operator">&amp;</span> <span class="token keyword">operator</span><span class="token operator">=</span><span class="token punctuation">(</span><span class="token keyword">const</span> MemTableIterator<span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+
+  <span class="token operator">~</span><span class="token function">MemTableIterator</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token operator">=</span> <span class="token keyword">default</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">Valid</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">override</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> iter_<span class="token punctuation">.</span><span class="token function">Valid</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">Seek</span><span class="token punctuation">(</span><span class="token keyword">const</span> Slice<span class="token operator">&amp;</span> k<span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span> iter_<span class="token punctuation">.</span><span class="token function">Seek</span><span class="token punctuation">(</span><span class="token function">EncodeKey</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>tmp_<span class="token punctuation">,</span> k<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">SeekToFirst</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span> iter_<span class="token punctuation">.</span><span class="token function">SeekToFirst</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">SeekToLast</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span> iter_<span class="token punctuation">.</span><span class="token function">SeekToLast</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">Next</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span> iter_<span class="token punctuation">.</span><span class="token function">Next</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  <span class="token keyword">void</span> <span class="token function">Prev</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">override</span> <span class="token punctuation">{</span> iter_<span class="token punctuation">.</span><span class="token function">Prev</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  Slice <span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">override</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token function">GetLengthPrefixedSlice</span><span class="token punctuation">(</span>iter_<span class="token punctuation">.</span><span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+  Slice <span class="token function">value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">override</span> <span class="token punctuation">{</span>
+    Slice key_slice <span class="token operator">=</span> <span class="token function">GetLengthPrefixedSlice</span><span class="token punctuation">(</span>iter_<span class="token punctuation">.</span><span class="token function">key</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token function">GetLengthPrefixedSlice</span><span class="token punctuation">(</span>key_slice<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> key_slice<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  Status <span class="token function">status</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">override</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token class-name">Status</span><span class="token double-colon punctuation">::</span><span class="token function">OK</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  MemTable<span class="token double-colon punctuation">::</span>Table<span class="token double-colon punctuation">::</span>Iterator iter_<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>string tmp_<span class="token punctuation">;</span>  <span class="token comment">// For passing to EncodeKey</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+Iterator<span class="token operator">*</span> <span class="token class-name">MemTable</span><span class="token double-colon punctuation">::</span><span class="token function">NewIterator</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token keyword">new</span> <span class="token function">MemTableIterator</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>table_<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+</code></pre>
+<p><code>MemTableIterator</code> 对跳表的迭代器进行了一层封装，跳表的条目中编码了 <code>Key</code> 和 <code>Value</code>，<code>MemTableIterator</code> 中对其进行了对应的解析。至此，内存数据库的代码就分析完了。</p>
+<h3 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
+<p>上一篇和本篇分析了 LevelDB 写操作的具体过程，分析了 <code>WriteBatch</code>、<code>Log</code> 和 <code>MemTable</code> 的代码，理解了高性能写操作的原理。不过内存数据库的大小毕竟是有限的，总会需要把内存中的数据持久化到硬盘中，并且还需要提供高速的硬盘数据查询操作，这些又是怎样实现的呢？且听下回分解！</p>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>

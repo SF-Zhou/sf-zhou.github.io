@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>bRPC 源码分析「四、协程调度」 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> bRPC 源码分析「四、协程调度」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2021.03.10 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-parking-lot" tabindex="-1"><a href="#1.-parking-lot">1. Parking Lot</a></h3>
+<p>bthread 内实现了 <code>ParkingLot</code> 用以管理工作线程的挂起和唤醒：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// parking_lot.h</span>
+<span class="token comment">// Park idle workers.</span>
+<span class="token keyword">class</span> <span class="token class-name">BAIDU_CACHELINE_ALIGNMENT</span> ParkingLot <span class="token punctuation">{</span>
+<span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">class</span> <span class="token class-name">State</span> <span class="token punctuation">{</span>
+  <span class="token keyword">public</span><span class="token operator">:</span>
+    <span class="token function">State</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">val</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+    <span class="token keyword">bool</span> <span class="token function">stopped</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> val <span class="token operator">&amp;</span> <span class="token number">1</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">private</span><span class="token operator">:</span>
+    <span class="token keyword">friend</span> <span class="token keyword">class</span> <span class="token class-name">ParkingLot</span><span class="token punctuation">;</span>
+    <span class="token function">State</span><span class="token punctuation">(</span><span class="token keyword">int</span> val<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">val</span><span class="token punctuation">(</span>val<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+    <span class="token keyword">int</span> val<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token function">ParkingLot</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">_pending_signal</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token comment">// Wake up at most `num_task' workers.</span>
+  <span class="token comment">// Returns #workers woken up.</span>
+  <span class="token comment">// 唤醒至多 num_task 个等待的线程</span>
+  <span class="token comment">// 注意 _pending_signal 增加了 num_task * 2，因为最后一位用来表示是否 stop</span>
+  <span class="token keyword">int</span> <span class="token function">signal</span><span class="token punctuation">(</span><span class="token keyword">int</span> num_task<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    _pending_signal<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span><span class="token punctuation">(</span>num_task <span class="token operator">&lt;&lt;</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">,</span> butil<span class="token double-colon punctuation">::</span>memory_order_release<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token function">futex_wake_private</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>_pending_signal<span class="token punctuation">,</span> num_task<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Get a state for later wait().</span>
+  State <span class="token function">get_state</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> _pending_signal<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Wait for tasks.</span>
+  <span class="token comment">// If the `expected_state' does not match, wait() may finish directly.</span>
+  <span class="token comment">// 工作线程尝试挂起等待，此时会检查 _pending_signal 的数值，若不一致则挂起，继续执行</span>
+  <span class="token keyword">void</span> <span class="token function">wait</span><span class="token punctuation">(</span><span class="token keyword">const</span> State <span class="token operator">&amp;</span>expected_state<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">futex_wait_private</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>_pending_signal<span class="token punctuation">,</span> expected_state<span class="token punctuation">.</span>val<span class="token punctuation">,</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Wakeup suspended wait() and make them unwaitable ever.</span>
+  <span class="token keyword">void</span> <span class="token function">stop</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    _pending_signal<span class="token punctuation">.</span><span class="token function">fetch_or</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// 将 _pending_signal 设为 stop，唤醒所有等待的工作线程，触发结束</span>
+    <span class="token function">futex_wake_private</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>_pending_signal<span class="token punctuation">,</span> <span class="token number">10000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+<span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token comment">// higher 31 bits for signalling, LSB for stopping.</span>
+  butil<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">int</span><span class="token operator">></span> _pending_signal<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><code>TaskControl</code> 中包含一组 <code>ParkingLot</code> 对象，<code>TaskGroup</code> 初始化时会哈希打散使用这些对象：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// task_control.h</span>
+<span class="token keyword">class</span> <span class="token class-name">TaskControl</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+  <span class="token keyword">static</span> <span class="token keyword">const</span> <span class="token keyword">int</span> PARKING_LOT_NUM <span class="token operator">=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+  ParkingLot _pl<span class="token punctuation">[</span>PARKING_LOT_NUM<span class="token punctuation">]</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// task_group.cpp</span>
+<span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">TaskGroup</span><span class="token punctuation">(</span>TaskControl <span class="token operator">*</span>c<span class="token punctuation">)</span>
+    <span class="token operator">:</span> <span class="token function">_cur_meta</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_control</span><span class="token punctuation">(</span>c<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_num_nosignal</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_nsignaled</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token function">_last_run_ns</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span><span class="token function">cpuwide_time_ns</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_cumulated_cputime_ns</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token function">_nswitch</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_last_context_remained</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token function">_last_context_remained_arg</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_pl</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_main_stack</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token function">_main_tid</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_remote_num_nosignal</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">_remote_nsignaled</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  _steal_seed <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token function">fast_rand</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  _steal_offset <span class="token operator">=</span> OFFSET_TABLE<span class="token punctuation">[</span>_steal_seed <span class="token operator">%</span> <span class="token function">ARRAY_SIZE</span><span class="token punctuation">(</span>OFFSET_TABLE<span class="token punctuation">)</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token comment">// 根据线程号哈希到某个 ParkingLot 对象上</span>
+  _pl <span class="token operator">=</span> <span class="token operator">&amp;</span>c<span class="token operator">-></span>_pl<span class="token punctuation">[</span>butil<span class="token double-colon punctuation">::</span><span class="token function">fmix64</span><span class="token punctuation">(</span><span class="token function">pthread_numeric_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">%</span>
+                TaskControl<span class="token double-colon punctuation">::</span>PARKING_LOT_NUM<span class="token punctuation">]</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span>c<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>当前工作线程在窃取任务前会先取一次 <code>ParkingLot</code> 的状态，当状态发生改变时会直接跳过 <code>wait</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">bool</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">wait_task</span><span class="token punctuation">(</span>bthread_t <span class="token operator">*</span>tid<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">do</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>_last_pl_state<span class="token punctuation">.</span><span class="token function">stopped</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 如果已经 stop</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">// 根据当前的 _last_pl_state 状态判断是否挂起</span>
+    _pl<span class="token operator">-></span><span class="token function">wait</span><span class="token punctuation">(</span>_last_pl_state<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">steal_task</span><span class="token punctuation">(</span>tid<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">bool</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">steal_task</span><span class="token punctuation">(</span>bthread_t <span class="token operator">*</span>tid<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>_remote_rq<span class="token punctuation">.</span><span class="token function">pop</span><span class="token punctuation">(</span>tid<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token comment">// _last_pl_state 的状态在这里进行更新</span>
+  <span class="token comment">// _last_pl_state 发生变化时 wait_task 中的 wait 会直接跳过</span>
+  <span class="token comment">// 这里容忍 false postive，增加的开销是多一次尝试 steal_task</span>
+  _last_pl_state <span class="token operator">=</span> _pl<span class="token operator">-></span><span class="token function">get_state</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> _control<span class="token operator">-></span><span class="token function">steal_task</span><span class="token punctuation">(</span>tid<span class="token punctuation">,</span> <span class="token operator">&amp;</span>_steal_seed<span class="token punctuation">,</span> _steal_offset<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>当有新任务加入时，则调用 <code>TaskControl::signal_task</code> 通过 <code>ParkingLog</code> 唤醒等待的工作线程：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">TaskControl</span><span class="token double-colon punctuation">::</span><span class="token function">signal_task</span><span class="token punctuation">(</span><span class="token keyword">int</span> num_task<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>num_task <span class="token operator">&lt;=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token comment">// TODO(gejun): Current algorithm does not guarantee enough threads will</span>
+  <span class="token comment">// be created to match caller's requests. But in another side, there's also</span>
+  <span class="token comment">// many useless signalings according to current impl. Capping the concurrency</span>
+  <span class="token comment">// is a good balance between performance and timeliness of scheduling.</span>
+  <span class="token comment">// 上方的官方注释也写明了，限制并发可以更好地平衡性能和调度及时性，这里直接将唤醒的上限设为 2</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>num_task <span class="token operator">></span> <span class="token number">2</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    num_task <span class="token operator">=</span> <span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">int</span> start_index <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token function">fmix64</span><span class="token punctuation">(</span><span class="token function">pthread_numeric_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">%</span> PARKING_LOT_NUM<span class="token punctuation">;</span>
+  num_task <span class="token operator">-=</span> _pl<span class="token punctuation">[</span>start_index<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">signal</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 通过 ParkingLog 唤醒</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>num_task <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> i <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> PARKING_LOT_NUM <span class="token operator">&amp;&amp;</span> num_task <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">++</span>start_index <span class="token operator">>=</span> PARKING_LOT_NUM<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        start_index <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      
+      num_task <span class="token operator">-=</span> _pl<span class="token punctuation">[</span>start_index<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">signal</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>num_task <span class="token operator">></span> <span class="token number">0</span> <span class="token operator">&amp;&amp;</span>
+      FLAGS_bthread_min_concurrency <span class="token operator">></span>
+          <span class="token number">0</span> <span class="token operator">&amp;&amp;</span> <span class="token comment">// test min_concurrency for performance</span>
+      _concurrency<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span> <span class="token operator">&lt;</span>
+          FLAGS_bthread_concurrency<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// TODO: Reduce this lock</span>
+    <span class="token comment">// 当仍然有需要执行的任务时，尝试增加工作线程</span>
+    <span class="token function">BAIDU_SCOPED_LOCK</span><span class="token punctuation">(</span>g_task_control_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>_concurrency<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span> <span class="token operator">&lt;</span>
+        FLAGS_bthread_concurrency<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">add_workers</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">ready_to_run</span><span class="token punctuation">(</span>bthread_t tid<span class="token punctuation">,</span> <span class="token keyword">bool</span> nosignal<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">push_rq</span><span class="token punctuation">(</span>tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>nosignal<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token operator">++</span>_num_nosignal<span class="token punctuation">;</span>  <span class="token comment">// 对于设定了不触发信号的任务，仅增加计数</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> <span class="token keyword">int</span> additional_signal <span class="token operator">=</span> _num_nosignal<span class="token punctuation">;</span>
+    _num_nosignal <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    _nsignaled <span class="token operator">+=</span> <span class="token number">1</span> <span class="token operator">+</span> additional_signal<span class="token punctuation">;</span>
+    <span class="token comment">// 调用 signal_task 唤醒</span>
+    _control<span class="token operator">-></span><span class="token function">signal_task</span><span class="token punctuation">(</span><span class="token number">1</span> <span class="token operator">+</span> additional_signal<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 将还没有触发信号的任务统一触发信号（工作线程内调用）</span>
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">flush_nosignal_tasks</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> val <span class="token operator">=</span> _num_nosignal<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>val<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    _num_nosignal <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    _nsignaled <span class="token operator">+=</span> val<span class="token punctuation">;</span>
+    _control<span class="token operator">-></span><span class="token function">signal_task</span><span class="token punctuation">(</span>val<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 从工作线程外提交任务</span>
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">ready_to_run_remote</span><span class="token punctuation">(</span>bthread_t tid<span class="token punctuation">,</span> <span class="token keyword">bool</span> nosignal<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  _remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 加锁</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token operator">!</span>_remote_rq<span class="token punctuation">.</span><span class="token function">push_locked</span><span class="token punctuation">(</span>tid<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">flush_nosignal_tasks_remote_locked</span><span class="token punctuation">(</span>_remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LOG_EVERY_SECOND</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"_remote_rq is full, capacity="</span>
+                            <span class="token operator">&lt;&lt;</span> _remote_rq<span class="token punctuation">.</span><span class="token function">capacity</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token double-colon punctuation">::</span><span class="token function">usleep</span><span class="token punctuation">(</span><span class="token number">1000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    _remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>nosignal<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token operator">++</span>_remote_num_nosignal<span class="token punctuation">;</span>
+    _remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> <span class="token keyword">int</span> additional_signal <span class="token operator">=</span> _remote_num_nosignal<span class="token punctuation">;</span>
+    _remote_num_nosignal <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    _remote_nsignaled <span class="token operator">+=</span> <span class="token number">1</span> <span class="token operator">+</span> additional_signal<span class="token punctuation">;</span>
+    _remote_rq<span class="token punctuation">.</span>_mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 锁的生命周期内也保护了计数相关变量</span>
+    _control<span class="token operator">-></span><span class="token function">signal_task</span><span class="token punctuation">(</span><span class="token number">1</span> <span class="token operator">+</span> additional_signal<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">flush_nosignal_tasks_remote_locked</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span>Mutex<span class="token operator">&amp;</span> locked_mutex<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> val <span class="token operator">=</span> _remote_num_nosignal<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>val<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    locked_mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  _remote_num_nosignal <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  _remote_nsignaled <span class="token operator">+=</span> val<span class="token punctuation">;</span>
+  locked_mutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  _control<span class="token operator">-></span><span class="token function">signal_task</span><span class="token punctuation">(</span>val<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="2.-task-runner" tabindex="-1"><a href="#2.-task-runner">2. Task Runner</a></h3>
+<p>bthread 工作线程在执行过程中会有以下几种状态：</p>
+<ol>
+<li>执行<strong>主协程</strong>任务，负责获取任务或者挂起等待，此时：
+<ol>
+<li><code>_cur_meta-&gt;tid == _main_tid</code></li>
+<li><code>_cur_meta-&gt;stack == _main_stack</code></li>
+</ol>
+</li>
+<li>执行 <strong>pthread</strong> 任务，直接在主协程中调用 <code>TaskGroup::task_runner(1)</code> 执行，此时：
+<ol>
+<li><code>_cur_meta-&gt;tid != _main_tid</code></li>
+<li><code>_cur_meta-&gt;stack == _main_stack</code></li>
+</ol>
+</li>
+<li>执行 <strong>bthread</strong> 任务，通过在 <code>TaskGroup::sched_to</code> 中调用 <code>jump_stack</code> 切换到协程栈，此时：
+<ol>
+<li><code>_cur_meta-&gt;tid != _main_tid</code></li>
+<li><code>_cur_meta-&gt;stack != _main_stack</code></li>
+</ol>
+</li>
+</ol>
+<p>上述三种状态可以相互切换。假设当前任务队列中包含一个 bthread 任务和一个 pthread 任务，那么执行的流程为：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">run_main_task</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  TaskGroup<span class="token operator">*</span> dummy <span class="token operator">=</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+  task_t tid<span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token function">wait_task</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>tid<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 1. 获取到 bthread 任务，调用 TaskGroup::sched_to 触发执行</span>
+    <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">sched_to</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>dummy<span class="token punctuation">,</span> tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>_cur_meta<span class="token operator">-></span>tid <span class="token operator">!=</span> _main_tid<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">task_runner</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">sched_to</span><span class="token punctuation">(</span>TaskGroup<span class="token operator">*</span><span class="token operator">*</span> pg<span class="token punctuation">,</span> TaskMeta<span class="token operator">*</span> next_meta<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  TaskGroup<span class="token operator">*</span> g <span class="token operator">=</span> <span class="token operator">*</span>pg<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> saved_errno <span class="token operator">=</span> errno<span class="token punctuation">;</span>
+
+  TaskMeta<span class="token operator">*</span> <span class="token keyword">const</span> cur_meta <span class="token operator">=</span> g<span class="token operator">-></span>_cur_meta<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">PAXOS_LIKELY</span><span class="token punctuation">(</span>next_meta <span class="token operator">!=</span> cur_meta<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 2. cur_meta 此时为主线程 meta，next_meta 为 bthread 任务</span>
+    <span class="token comment">// 将 g->_cur_meta 设定为即将执行的 bthread 任务</span>
+    g<span class="token operator">-></span>_cur_meta <span class="token operator">=</span> next_meta<span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>cur_meta<span class="token operator">-></span>stack <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>next_meta<span class="token operator">-></span>stack <span class="token operator">!=</span> cur_meta<span class="token operator">-></span>stack<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// 3. 从主协程的 main_stack 切换到 bthread 任务的栈</span>
+        <span class="token function">jump_stack</span><span class="token punctuation">(</span>cur_meta<span class="token operator">-></span>stack<span class="token punctuation">,</span> next_meta<span class="token operator">-></span>stack<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">// 4. 主协程在此处挂起，进入 bthread 任务入口 task_runner</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+      
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">task_runner</span><span class="token punctuation">(</span>intptr_t skip_remained<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  TaskGroup <span class="token operator">*</span>g <span class="token operator">=</span> tls_task_group<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>skip_remained<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 5. 用户函数执行前，先执行可能存在的 remained 函数</span>
+    <span class="token keyword">while</span> <span class="token punctuation">(</span>g<span class="token operator">-></span>_last_context_remained<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      RemainedFn fn <span class="token operator">=</span> g<span class="token operator">-></span>_last_context_remained<span class="token punctuation">;</span>
+      g<span class="token operator">-></span>_last_context_remained <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+      <span class="token function">fn</span><span class="token punctuation">(</span>g<span class="token operator">-></span>_last_context_remained_arg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      g <span class="token operator">=</span> tls_task_group<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">do</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Meta and identifier of the task is persistent in this run.</span>
+    <span class="token comment">// 6. 通过 TLS 获取当前线程待执行的任务 TaskMeta</span>
+    TaskMeta <span class="token operator">*</span><span class="token keyword">const</span> m <span class="token operator">=</span> g<span class="token operator">-></span>_cur_meta<span class="token punctuation">;</span>
+
+    <span class="token keyword">void</span> <span class="token operator">*</span>thread_return<span class="token punctuation">;</span>
+    <span class="token keyword">try</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 7. 执行用户执行的 bthread 任务，假设中途协程调用 yield 主动挂起</span>
+      thread_return <span class="token operator">=</span> m<span class="token operator">-></span><span class="token function">fn</span><span class="token punctuation">(</span>m<span class="token operator">-></span>arg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">yield</span><span class="token punctuation">(</span>TaskGroup <span class="token operator">*</span><span class="token operator">*</span>pg<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// 8. yield 时将当前的 bthread 任务打包为 remained 函数</span>
+  TaskGroup <span class="token operator">*</span>g <span class="token operator">=</span> <span class="token operator">*</span>pg<span class="token punctuation">;</span>
+  ReadyToRunArgs args <span class="token operator">=</span> <span class="token punctuation">{</span>g<span class="token operator">-></span><span class="token function">current_tid</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+  g<span class="token operator">-></span><span class="token function">set_remained</span><span class="token punctuation">(</span>ready_to_run_in_worker<span class="token punctuation">,</span> <span class="token operator">&amp;</span>args<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">sched</span><span class="token punctuation">(</span>pg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">sched</span><span class="token punctuation">(</span>TaskGroup <span class="token operator">*</span><span class="token operator">*</span>pg<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  TaskGroup <span class="token operator">*</span>g <span class="token operator">=</span> <span class="token operator">*</span>pg<span class="token punctuation">;</span>
+  bthread_t next_tid <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">bool</span> popped <span class="token operator">=</span> g<span class="token operator">-></span>_rq<span class="token punctuation">.</span><span class="token function">pop</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>next_tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>popped <span class="token operator">&amp;&amp;</span> <span class="token operator">!</span>g<span class="token operator">-></span><span class="token function">steal_task</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>next_tid<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    next_tid <span class="token operator">=</span> g<span class="token operator">-></span>_main_tid<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token comment">// 9. 从任务队列中成功拿到下一个 pthread 任务，触发调度</span>
+  <span class="token function">sched_to</span><span class="token punctuation">(</span>pg<span class="token punctuation">,</span> next_tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">sched_to</span><span class="token punctuation">(</span>TaskGroup <span class="token operator">*</span><span class="token operator">*</span>pg<span class="token punctuation">,</span> bthread_t next_tid<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  TaskMeta <span class="token operator">*</span>next_meta <span class="token operator">=</span> <span class="token function">address_meta</span><span class="token punctuation">(</span>next_tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>next_meta<span class="token operator">-></span>stack <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    ContextualStack <span class="token operator">*</span>stk <span class="token operator">=</span> <span class="token function">get_stack</span><span class="token punctuation">(</span>next_meta<span class="token operator">-></span><span class="token function">stack_type</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> task_runner<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>stk<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      next_meta<span class="token operator">-></span><span class="token function">set_stack</span><span class="token punctuation">(</span>stk<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 10. pthread 获取到的栈为空指针，这里会赋值为 _main_stack</span>
+      next_meta<span class="token operator">-></span>attr<span class="token punctuation">.</span>stack_type <span class="token operator">=</span> BTHREAD_STACKTYPE_PTHREAD<span class="token punctuation">;</span>
+      next_meta<span class="token operator">-></span><span class="token function">set_stack</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token operator">*</span>pg<span class="token punctuation">)</span><span class="token operator">-></span>_main_stack<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token function">sched_to</span><span class="token punctuation">(</span>pg<span class="token punctuation">,</span> next_meta<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+  
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">sched_to</span><span class="token punctuation">(</span>TaskGroup <span class="token operator">*</span><span class="token operator">*</span>pg<span class="token punctuation">,</span> TaskMeta <span class="token operator">*</span>next_meta<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  TaskGroup <span class="token operator">*</span>g <span class="token operator">=</span> <span class="token operator">*</span>pg<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> saved_errno <span class="token operator">=</span> errno<span class="token punctuation">;</span>
+
+  TaskMeta <span class="token operator">*</span><span class="token keyword">const</span> cur_meta <span class="token operator">=</span> g<span class="token operator">-></span>_cur_meta<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">__builtin_expect</span><span class="token punctuation">(</span>next_meta <span class="token operator">!=</span> cur_meta<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 11. 将 g->_cur_meta 设定为下一个 pthread 任务</span>
+    g<span class="token operator">-></span>_cur_meta <span class="token operator">=</span> next_meta<span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>cur_meta<span class="token operator">-></span>stack <span class="token operator">!=</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>next_meta<span class="token operator">-></span>stack <span class="token operator">!=</span> cur_meta<span class="token operator">-></span>stack<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// 12. 从 bthread 任务的栈切换到 _main_stack</span>
+        <span class="token function">jump_stack</span><span class="token punctuation">(</span>cur_meta<span class="token operator">-></span>stack<span class="token punctuation">,</span> next_meta<span class="token operator">-></span>stack<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">// 13. bthread 从此处挂起，恢复主协程的运行状态，也就是这里第 4 步的位置</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">sched_to</span><span class="token punctuation">(</span>TaskGroup <span class="token operator">*</span><span class="token operator">*</span>pg<span class="token punctuation">,</span> TaskMeta <span class="token operator">*</span>next_meta<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+        <span class="token function">jump_stack</span><span class="token punctuation">(</span>cur_meta<span class="token operator">-></span>stack<span class="token punctuation">,</span> next_meta<span class="token operator">-></span>stack<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">// 14. 恢复到主协程此处的位置，继续执行，重新获取一次 tls_task_group</span>
+        g <span class="token operator">=</span> tls_task_group<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 15. 执行可能存在的 remained 函数，也就是第 8 步中打包的 bthread 恢复任务</span>
+  <span class="token comment">// 会执行 ready_to_run_in_worker(bthread_tid) 将之前挂起的 bthread 重新加入任务队列</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>g<span class="token operator">-></span>_last_context_remained<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    RemainedFn fn <span class="token operator">=</span> g<span class="token operator">-></span>_last_context_remained<span class="token punctuation">;</span>
+    g<span class="token operator">-></span>_last_context_remained <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+    <span class="token function">fn</span><span class="token punctuation">(</span>g<span class="token operator">-></span>_last_context_remained_arg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    g <span class="token operator">=</span> tls_task_group<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  errno <span class="token operator">=</span> saved_errno<span class="token punctuation">;</span>
+  <span class="token operator">*</span>pg <span class="token operator">=</span> g<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">run_main_task</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  TaskGroup<span class="token operator">*</span> dummy <span class="token operator">=</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+  task_t tid<span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token function">wait_task</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>tid<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">sched_to</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>dummy<span class="token punctuation">,</span> tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>_cur_meta<span class="token operator">-></span>tid <span class="token operator">!=</span> _main_tid<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 16. 主协程继续走到这里，直接在 main_stack 调用 task_runner 执行 pthread 任务</span>
+      <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">task_runner</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">task_runner</span><span class="token punctuation">(</span>intptr_t skip_remained<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+    <span class="token keyword">void</span> <span class="token operator">*</span>thread_return<span class="token punctuation">;</span>
+    <span class="token keyword">try</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 17. 执行 pthread 任务</span>
+      thread_return <span class="token operator">=</span> m<span class="token operator">-></span><span class="token function">fn</span><span class="token punctuation">(</span>m<span class="token operator">-></span>arg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>ExitException <span class="token operator">&amp;</span>e<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      thread_return <span class="token operator">=</span> e<span class="token punctuation">.</span><span class="token function">value</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+    <span class="token comment">// 18. 任务执行完成后，进行结束时期的调度</span>
+    <span class="token function">ending_sched</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>g<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">ending_sched</span><span class="token punctuation">(</span>TaskGroup <span class="token operator">*</span><span class="token operator">*</span>pg<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  TaskGroup <span class="token operator">*</span>g <span class="token operator">=</span> <span class="token operator">*</span>pg<span class="token punctuation">;</span>
+  bthread_t next_tid <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token comment">// 19. 从任务队列中取出任务，假设取出了之前挂起的 bthread 任务</span>
+  <span class="token keyword">const</span> <span class="token keyword">bool</span> popped <span class="token operator">=</span> g<span class="token operator">-></span>_rq<span class="token punctuation">.</span><span class="token function">pop</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>next_tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+
+  <span class="token comment">// 20. 执行调度，切换到 bthread 挂起的地方</span>
+  <span class="token function">sched_to</span><span class="token punctuation">(</span>pg<span class="token punctuation">,</span> next_meta<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="3.-timer-thread" tabindex="-1"><a href="#3.-timer-thread">3. Timer Thread</a></h3>
+<p>bRPC 中有频繁的定时器的需求，主要是：</p>
+<ol>
+<li>在发起 RPC 过程中增加一个定时器，时间为 RPC 的超时时间</li>
+<li>若 RPC 没有超时正常回复（大部分情况），则需要删除对应的定时器</li>
+</ol>
+<p>bRPC 的官方文档中详细介绍了这样的定时器设计的难点，以及 <code>TimerThread</code> 是如何解决这些难点的。这里直接看对应的代码实现：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">TimerThreadOptions</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Scheduling requests are hashed into different bucket to improve</span>
+  <span class="token comment">// scalability. However bigger num_buckets may NOT result in more scalable</span>
+  <span class="token comment">// schedule() because bigger values also make each buckets more sparse</span>
+  <span class="token comment">// and more likely to lock the global mutex. You better not change</span>
+  <span class="token comment">// this value, just leave it to us.</span>
+  <span class="token comment">// Default: 13</span>
+  size_t num_buckets<span class="token punctuation">;</span>
+
+  <span class="token comment">// If this field is not empty, some bvar for reporting stats of TimerThread</span>
+  <span class="token comment">// will be exposed with this prefix.</span>
+  <span class="token comment">// Default: ""</span>
+  std<span class="token double-colon punctuation">::</span>string bvar_prefix<span class="token punctuation">;</span>
+
+  <span class="token comment">// Constructed with default options.</span>
+  <span class="token function">TimerThreadOptions</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// TimerThread is a separate thread to run scheduled tasks at specific time.</span>
+<span class="token comment">// At most one task runs at any time, don't put time-consuming code in the</span>
+<span class="token comment">// callback otherwise the task may delay other tasks significantly.</span>
+<span class="token keyword">class</span> <span class="token class-name">TimerThread</span> <span class="token punctuation">{</span>
+<span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">struct</span> <span class="token class-name">Task</span><span class="token punctuation">;</span>
+  <span class="token keyword">class</span> <span class="token class-name">Bucket</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">typedef</span> <span class="token keyword">uint64_t</span> TaskId<span class="token punctuation">;</span>
+  <span class="token keyword">const</span> <span class="token keyword">static</span> TaskId INVALID_TASK_ID<span class="token punctuation">;</span>
+
+  <span class="token function">TimerThread</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token operator">~</span><span class="token function">TimerThread</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Start the timer thread.</span>
+  <span class="token comment">// This method should only be called once.</span>
+  <span class="token comment">// return 0 if success, errno otherwise.</span>
+  <span class="token comment">// 启动 TimerThread 线程</span>
+  <span class="token keyword">int</span> <span class="token function">start</span><span class="token punctuation">(</span><span class="token keyword">const</span> TimerThreadOptions <span class="token operator">*</span>options<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Stop the timer thread. Later schedule() will return INVALID_TASK_ID.</span>
+  <span class="token comment">// 结束 TimerThread 线程</span>
+  <span class="token keyword">void</span> <span class="token function">stop_and_join</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Schedule |fn(arg)| to run at realtime |abstime| approximately.</span>
+  <span class="token comment">// Returns: identifier of the scheduled task, INVALID_TASK_ID on error.</span>
+  <span class="token comment">// 增加一个定时器任务</span>
+  TaskId <span class="token function">schedule</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>fn<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">void</span> <span class="token operator">*</span>arg<span class="token punctuation">,</span> <span class="token keyword">const</span> timespec <span class="token operator">&amp;</span>abstime<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Prevent the task denoted by `task_id' from running. `task_id' must be</span>
+  <span class="token comment">// returned by schedule() ever.</span>
+  <span class="token comment">// Returns:</span>
+  <span class="token comment">//   0   -  Removed the task which does not run yet</span>
+  <span class="token comment">//  -1   -  The task does not exist.</span>
+  <span class="token comment">//   1   -  The task is just running.</span>
+  <span class="token comment">// 取消一个定时器任务</span>
+  <span class="token keyword">int</span> <span class="token function">unschedule</span><span class="token punctuation">(</span>TaskId task_id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Get identifier of internal pthread.</span>
+  <span class="token comment">// Returns (pthread_t)0 if start() is not called yet.</span>
+  pthread_t <span class="token function">thread_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> _thread<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+<span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token comment">// the timer thread will run this method.</span>
+  <span class="token keyword">void</span> <span class="token function">run</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// TimerThread 线程函数</span>
+  <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token operator">*</span><span class="token function">run_this</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span>arg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> _started<span class="token punctuation">;</span> <span class="token comment">// whether the timer thread was started successfully.</span>
+  butil<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">bool</span><span class="token operator">></span> _stop<span class="token punctuation">;</span>
+
+  TimerThreadOptions _options<span class="token punctuation">;</span>
+  Bucket <span class="token operator">*</span>_buckets<span class="token punctuation">;</span>                  <span class="token comment">// list of tasks to be run</span>
+  internal<span class="token double-colon punctuation">::</span>FastPthreadMutex _mutex<span class="token punctuation">;</span> <span class="token comment">// protect _nearest_run_time</span>
+  <span class="token keyword">int64_t</span> _nearest_run_time<span class="token punctuation">;</span>
+  <span class="token comment">// the futex for wake up timer thread. can't use _nearest_run_time because</span>
+  <span class="token comment">// it's 64-bit.</span>
+  <span class="token keyword">int</span> _nsignals<span class="token punctuation">;</span>
+  pthread_t _thread<span class="token punctuation">;</span> <span class="token comment">// all scheduled task will be run on this thread</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TimerThread</span><span class="token double-colon punctuation">::</span><span class="token function">run</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">int64_t</span> last_sleep_time <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token function">gettimeofday_us</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// min heap of tasks (ordered by run_time)</span>
+  <span class="token comment">// TimerThread 线程内通过最小堆维护定时任务序列</span>
+  std<span class="token double-colon punctuation">::</span>vector<span class="token operator">&lt;</span>Task <span class="token operator">*</span><span class="token operator">></span> tasks<span class="token punctuation">;</span>
+  tasks<span class="token punctuation">.</span><span class="token function">reserve</span><span class="token punctuation">(</span><span class="token number">4096</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token operator">!</span>_stop<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token punctuation">{</span>
+      <span class="token function">BAIDU_SCOPED_LOCK</span><span class="token punctuation">(</span>_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      _nearest_run_time <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">numeric_limits</span><span class="token operator">&lt;</span><span class="token keyword">int64_t</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 从所有的 Bucket 的获取任务</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span>size_t i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> _options<span class="token punctuation">.</span>num_buckets<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      Bucket <span class="token operator">&amp;</span>bucket <span class="token operator">=</span> _buckets<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">;</span>
+      <span class="token keyword">for</span> <span class="token punctuation">(</span>Task <span class="token operator">*</span>p <span class="token operator">=</span> bucket<span class="token punctuation">.</span><span class="token function">consume_tasks</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> p <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span> <span class="token operator">++</span>nscheduled<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        Task <span class="token operator">*</span>next_task <span class="token operator">=</span> p<span class="token operator">-></span>next<span class="token punctuation">;</span>
+
+        <span class="token comment">// 对于已经取消的任务，不会加入到堆里，直接删除。这也是高性能的关键</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>p<span class="token operator">-></span><span class="token function">try_delete</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token comment">// 循环加入到堆里</span>
+          tasks<span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          std<span class="token double-colon punctuation">::</span><span class="token function">push_heap</span><span class="token punctuation">(</span>tasks<span class="token punctuation">.</span><span class="token function">begin</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> tasks<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> task_greater<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+        p <span class="token operator">=</span> next_task<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">bool</span> pull_again <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token operator">!</span>tasks<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 从最小堆中取出任务</span>
+      Task <span class="token operator">*</span>task1 <span class="token operator">=</span> tasks<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>task1<span class="token operator">-></span><span class="token function">try_delete</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token comment">// already unscheduled</span>
+        std<span class="token double-colon punctuation">::</span><span class="token function">pop_heap</span><span class="token punctuation">(</span>tasks<span class="token punctuation">.</span><span class="token function">begin</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> tasks<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> task_greater<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        tasks<span class="token punctuation">.</span><span class="token function">pop_back</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">continue</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token comment">// 判断是否到时间了，没有则退出</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span><span class="token function">gettimeofday_us</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&lt;</span> task1<span class="token operator">-></span>run_time<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token comment">// not ready yet.</span>
+        <span class="token keyword">break</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+
+      <span class="token punctuation">{</span>
+        <span class="token function">BAIDU_SCOPED_LOCK</span><span class="token punctuation">(</span>_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>task1<span class="token operator">-></span>run_time <span class="token operator">></span> _nearest_run_time<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token comment">// 检查当前的 _nearest_run_time，确认是否有更新的任务</span>
+          <span class="token comment">// 有的话则再次从 Bucket 中拉取</span>
+          pull_again <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+          <span class="token keyword">break</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span>
+      std<span class="token double-colon punctuation">::</span><span class="token function">pop_heap</span><span class="token punctuation">(</span>tasks<span class="token punctuation">.</span><span class="token function">begin</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> tasks<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> task_greater<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      tasks<span class="token punctuation">.</span><span class="token function">pop_back</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token comment">// 执行定时任务并删除</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>task1<span class="token operator">-></span><span class="token function">run_and_delete</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token operator">++</span>ntriggered<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>pull_again<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      BT_VLOG <span class="token operator">&lt;&lt;</span> <span class="token string">"pull again, tasks="</span> <span class="token operator">&lt;&lt;</span> tasks<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">continue</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// The realtime to wait for.</span>
+    <span class="token keyword">int64_t</span> next_run_time <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">numeric_limits</span><span class="token operator">&lt;</span><span class="token keyword">int64_t</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>tasks<span class="token punctuation">.</span><span class="token function">empty</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      next_run_time <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">numeric_limits</span><span class="token operator">&lt;</span><span class="token keyword">int64_t</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      next_run_time <span class="token operator">=</span> tasks<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token operator">-></span>run_time<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">// Similarly with the situation before running tasks, we check</span>
+    <span class="token comment">// _nearest_run_time to prevent us from waiting on a non-earliest</span>
+    <span class="token comment">// task. We also use the _nsignal to make sure that if new task</span>
+    <span class="token comment">// is earlier that the realtime that we wait for, we'll wake up.</span>
+    <span class="token keyword">int</span> expected_nsignals <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token punctuation">{</span>
+      <span class="token function">BAIDU_SCOPED_LOCK</span><span class="token punctuation">(</span>_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>next_run_time <span class="token operator">></span> _nearest_run_time<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// a task is earlier that what we would wait for.</span>
+        <span class="token comment">// We need to check buckets.</span>
+        <span class="token keyword">continue</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+        _nearest_run_time <span class="token operator">=</span> next_run_time<span class="token punctuation">;</span>
+        expected_nsignals <span class="token operator">=</span> _nsignals<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+    timespec <span class="token operator">*</span>ptimeout <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+    timespec next_timeout <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token keyword">const</span> <span class="token keyword">int64_t</span> now <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token function">gettimeofday_us</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>next_run_time <span class="token operator">!=</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">numeric_limits</span><span class="token operator">&lt;</span><span class="token keyword">int64_t</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      next_timeout <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token function">microseconds_to_timespec</span><span class="token punctuation">(</span>next_run_time <span class="token operator">-</span> now<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      ptimeout <span class="token operator">=</span> <span class="token operator">&amp;</span>next_timeout<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    busy_seconds <span class="token operator">+=</span> <span class="token punctuation">(</span>now <span class="token operator">-</span> last_sleep_time<span class="token punctuation">)</span> <span class="token operator">/</span> <span class="token number">1000000.0</span><span class="token punctuation">;</span>
+    <span class="token comment">// 计算需要等待的时间，通过 futex 等待</span>
+    <span class="token function">futex_wait_private</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>_nsignals<span class="token punctuation">,</span> expected_nsignals<span class="token punctuation">,</span> ptimeout<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    last_sleep_time <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token function">gettimeofday_us</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  BT_VLOG <span class="token operator">&lt;&lt;</span> <span class="token string">"Ended TimerThread="</span> <span class="token operator">&lt;&lt;</span> <span class="token function">pthread_self</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+TimerThread<span class="token double-colon punctuation">::</span>Task <span class="token operator">*</span>TimerThread<span class="token double-colon punctuation">::</span><span class="token class-name">Bucket</span><span class="token double-colon punctuation">::</span><span class="token function">consume_tasks</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  Task <span class="token operator">*</span>head <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>_task_head<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token comment">// NOTE: schedule() and consume_tasks() are sequenced</span>
+    <span class="token comment">// by TimerThread._nearest_run_time and fenced by TimerThread._mutex.</span>
+    <span class="token comment">// We can avoid touching the mutex and related cacheline when the</span>
+    <span class="token comment">// bucket is actually empty.</span>
+    <span class="token function">BAIDU_SCOPED_LOCK</span><span class="token punctuation">(</span>_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>_task_head<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 获取任务时直接将链表指针传回</span>
+      head <span class="token operator">=</span> _task_head<span class="token punctuation">;</span>
+      _task_head <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+      _nearest_run_time <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">numeric_limits</span><span class="token operator">&lt;</span><span class="token keyword">int64_t</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> head<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">bool</span> TimerThread<span class="token double-colon punctuation">::</span><span class="token class-name">Task</span><span class="token double-colon punctuation">::</span><span class="token function">run_and_delete</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">uint32_t</span> id_version <span class="token operator">=</span> <span class="token function">version_of_task_id</span><span class="token punctuation">(</span>task_id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> expected_version <span class="token operator">=</span> id_version<span class="token punctuation">;</span>
+  <span class="token comment">// This CAS is rarely contended, should be fast.</span>
+  <span class="token comment">// 通过 CAS 判定当前任务是否还需要做</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>version<span class="token punctuation">.</span><span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>expected_version<span class="token punctuation">,</span> id_version <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span>
+                                      butil<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">fn</span><span class="token punctuation">(</span>arg<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 执行定时任务</span>
+    <span class="token comment">// The release fence is paired with acquire fence in</span>
+    <span class="token comment">// TimerThread::unschedule to make changes of fn(arg) visible.</span>
+    version<span class="token punctuation">.</span><span class="token function">store</span><span class="token punctuation">(</span>id_version <span class="token operator">+</span> <span class="token number">2</span><span class="token punctuation">,</span> butil<span class="token double-colon punctuation">::</span>memory_order_release<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    butil<span class="token double-colon punctuation">::</span><span class="token function">return_resource</span><span class="token punctuation">(</span><span class="token function">slot_of_task_id</span><span class="token punctuation">(</span>task_id<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>expected_version <span class="token operator">==</span> id_version <span class="token operator">+</span> <span class="token number">2</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 对于取消的任务直接归还资源</span>
+    butil<span class="token double-colon punctuation">::</span><span class="token function">return_resource</span><span class="token punctuation">(</span><span class="token function">slot_of_task_id</span><span class="token punctuation">(</span>task_id<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Impossible.</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>ERROR<span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"Invalid version="</span> <span class="token operator">&lt;&lt;</span> expected_version <span class="token operator">&lt;&lt;</span> <span class="token string">", expecting "</span>
+               <span class="token operator">&lt;&lt;</span> id_version <span class="token operator">+</span> <span class="token number">2</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+TimerThread<span class="token double-colon punctuation">::</span>TaskId <span class="token class-name">TimerThread</span><span class="token double-colon punctuation">::</span><span class="token function">schedule</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>fn<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">void</span> <span class="token operator">*</span>arg<span class="token punctuation">,</span>
+                                          <span class="token keyword">const</span> timespec <span class="token operator">&amp;</span>abstime<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>_stop<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span> <span class="token operator">||</span> <span class="token operator">!</span>_started<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Not add tasks when TimerThread is about to stop.</span>
+    <span class="token keyword">return</span> INVALID_TASK_ID<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token comment">// Hashing by pthread id is better for cache locality.</span>
+  <span class="token comment">// 新增任务时分片到不同的 Bucket 中</span>
+  <span class="token keyword">const</span> Bucket<span class="token double-colon punctuation">::</span>ScheduleResult result <span class="token operator">=</span>
+      _buckets<span class="token punctuation">[</span>butil<span class="token double-colon punctuation">::</span><span class="token function">fmix64</span><span class="token punctuation">(</span><span class="token function">pthread_numeric_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">%</span> _options<span class="token punctuation">.</span>num_buckets<span class="token punctuation">]</span>
+          <span class="token punctuation">.</span><span class="token function">schedule</span><span class="token punctuation">(</span>fn<span class="token punctuation">,</span> arg<span class="token punctuation">,</span> abstime<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">// 如果有更早的唤醒时间</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>result<span class="token punctuation">.</span>earlier<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">bool</span> earlier <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">const</span> <span class="token keyword">int64_t</span> run_time <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token function">timespec_to_microseconds</span><span class="token punctuation">(</span>abstime<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">{</span>
+      <span class="token function">BAIDU_SCOPED_LOCK</span><span class="token punctuation">(</span>_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>run_time <span class="token operator">&lt;</span> _nearest_run_time<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        _nearest_run_time <span class="token operator">=</span> run_time<span class="token punctuation">;</span>
+        <span class="token operator">++</span>_nsignals<span class="token punctuation">;</span>
+        earlier <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>earlier<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 使用 futex 唤醒</span>
+      <span class="token function">futex_wake_private</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>_nsignals<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> result<span class="token punctuation">.</span>task_id<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+TimerThread<span class="token double-colon punctuation">::</span><span class="token class-name">Bucket</span><span class="token double-colon punctuation">::</span><span class="token function">schedule</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>fn<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token keyword">void</span> <span class="token operator">*</span>arg<span class="token punctuation">,</span>
+                              <span class="token keyword">const</span> timespec <span class="token operator">&amp;</span>abstime<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  butil<span class="token double-colon punctuation">::</span>ResourceId<span class="token operator">&lt;</span>Task<span class="token operator">></span> slot_id<span class="token punctuation">;</span>
+  Task <span class="token operator">*</span>task <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">get_resource</span><span class="token generic class-name"><span class="token operator">&lt;</span>Task<span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token operator">&amp;</span>slot_id<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>task <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    ScheduleResult result <span class="token operator">=</span> <span class="token punctuation">{</span>INVALID_TASK_ID<span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> result<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  task<span class="token operator">-></span>next <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+  task<span class="token operator">-></span>fn <span class="token operator">=</span> fn<span class="token punctuation">;</span>
+  task<span class="token operator">-></span>arg <span class="token operator">=</span> arg<span class="token punctuation">;</span>
+  task<span class="token operator">-></span>run_time <span class="token operator">=</span> butil<span class="token double-colon punctuation">::</span><span class="token function">timespec_to_microseconds</span><span class="token punctuation">(</span>abstime<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">uint32_t</span> version <span class="token operator">=</span> task<span class="token operator">-></span>version<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>butil<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>version <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token comment">// skip 0.</span>
+    <span class="token comment">// 分配的版本总是跳过 INVALID_TASK_ID</span>
+    task<span class="token operator">-></span>version<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">,</span> butil<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    version <span class="token operator">=</span> <span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">const</span> TaskId id <span class="token operator">=</span> <span class="token function">make_task_id</span><span class="token punctuation">(</span>slot_id<span class="token punctuation">,</span> version<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  task<span class="token operator">-></span>task_id <span class="token operator">=</span> id<span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> earlier <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">{</span>
+    <span class="token function">BAIDU_SCOPED_LOCK</span><span class="token punctuation">(</span>_mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// 加锁的临界区很短</span>
+    task<span class="token operator">-></span>next <span class="token operator">=</span> _task_head<span class="token punctuation">;</span>
+    _task_head <span class="token operator">=</span> task<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>task<span class="token operator">-></span>run_time <span class="token operator">&lt;</span> _nearest_run_time<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      _nearest_run_time <span class="token operator">=</span> task<span class="token operator">-></span>run_time<span class="token punctuation">;</span>
+      earlier <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  ScheduleResult result <span class="token operator">=</span> <span class="token punctuation">{</span>id<span class="token punctuation">,</span> earlier<span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> result<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>TimerThread</code> 有效的原因有以下几点：</p>
+<ol>
+<li><code>Bucket</code> 锁内链表增加任务的操作是 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="script">O</mi><mo stretchy="false">(</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\mathcal{O}(1)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathcal" style="margin-right:0.02778em;">O</span><span class="mopen">(</span><span class="mord">1</span><span class="mclose">)</span></span></span></span></eq> 的，临界区短</li>
+<li>RPC 场景下超时时间一般不变，大部分插入的时间是<strong>递增</strong>的，早于 <code>nearest_run_time</code> 而唤醒线程的次数很少</li>
+<li>通过 <code>ResourcePool</code> 和版本进行删除操作，不参与全局竞争</li>
+<li><code>TimerThread</code> 自行维护小顶堆，不参与全局竞争</li>
+<li><code>TimerThread</code> 醒来的频率大约是 RPC 超时的倒数，比如超时时间 100ms，<code>TimerThread</code> 一秒内大约醒 10 次，已经最优</li>
+</ol>
+<p>bthread 依赖 <code>TimerThread</code> 实现高效的 <code>usleep</code>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Suspend current thread for at least `microseconds'</span>
+<span class="token comment">// Interruptible by bthread_interrupt().</span>
+<span class="token keyword">extern</span> <span class="token keyword">int</span> <span class="token function">bthread_usleep</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> microseconds<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">int</span> <span class="token function">bthread_usleep</span><span class="token punctuation">(</span><span class="token keyword">uint64_t</span> microseconds<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  bthread<span class="token double-colon punctuation">::</span>TaskGroup <span class="token operator">*</span>g <span class="token operator">=</span> bthread<span class="token double-colon punctuation">::</span>tls_task_group<span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token constant">NULL</span> <span class="token operator">!=</span> g <span class="token operator">&amp;&amp;</span> <span class="token operator">!</span>g<span class="token operator">-></span><span class="token function">is_current_pthread_task</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> bthread<span class="token double-colon punctuation">::</span><span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">usleep</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>g<span class="token punctuation">,</span> microseconds<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token double-colon punctuation">::</span><span class="token function">usleep</span><span class="token punctuation">(</span>microseconds<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// To be consistent with sys_usleep, set errno and return -1 on error.</span>
+<span class="token keyword">int</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">usleep</span><span class="token punctuation">(</span>TaskGroup <span class="token operator">*</span><span class="token operator">*</span>pg<span class="token punctuation">,</span> <span class="token keyword">uint64_t</span> timeout_us<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token number">0</span> <span class="token operator">==</span> timeout_us<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">yield</span><span class="token punctuation">(</span>pg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  TaskGroup <span class="token operator">*</span>g <span class="token operator">=</span> <span class="token operator">*</span>pg<span class="token punctuation">;</span>
+  <span class="token comment">// We have to schedule timer after we switched to next bthread otherwise</span>
+  <span class="token comment">// the timer may wake up(jump to) current still-running context.</span>
+  <span class="token comment">// 将定时任务打包为 remained 函数</span>
+  SleepArgs e <span class="token operator">=</span> <span class="token punctuation">{</span>timeout_us<span class="token punctuation">,</span> g<span class="token operator">-></span><span class="token function">current_tid</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> g<span class="token operator">-></span><span class="token function">current_task</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> g<span class="token punctuation">}</span><span class="token punctuation">;</span>
+  g<span class="token operator">-></span><span class="token function">set_remained</span><span class="token punctuation">(</span>_add_sleep_event<span class="token punctuation">,</span> <span class="token operator">&amp;</span>e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">sched</span><span class="token punctuation">(</span>pg<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 当前协程出让</span>
+  g <span class="token operator">=</span> <span class="token operator">*</span>pg<span class="token punctuation">;</span>
+  e<span class="token punctuation">.</span>meta<span class="token operator">-></span>current_sleep <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>e<span class="token punctuation">.</span>meta<span class="token operator">-></span>interrupted<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Race with set and may consume multiple interruptions, which are OK.</span>
+    e<span class="token punctuation">.</span>meta<span class="token operator">-></span>interrupted <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token comment">// NOTE: setting errno to ESTOP is not necessary from bthread's</span>
+    <span class="token comment">// pespective, however many RPC code expects bthread_usleep to set</span>
+    <span class="token comment">// errno to ESTOP when the thread is stopping, and print FATAL</span>
+    <span class="token comment">// otherwise. To make smooth transitions, ESTOP is still set instead</span>
+    <span class="token comment">// of EINTR when the thread is stopping.</span>
+    errno <span class="token operator">=</span> <span class="token punctuation">(</span>e<span class="token punctuation">.</span>meta<span class="token operator">-></span>stop <span class="token operator">?</span> ESTOP <span class="token operator">:</span> EINTR<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">TaskGroup</span><span class="token double-colon punctuation">::</span><span class="token function">_add_sleep_event</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span>void_args<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Must copy SleepArgs. After calling TimerThread::schedule(), previous</span>
+  <span class="token comment">// thread may be stolen by a worker immediately and the on-stack SleepArgs</span>
+  <span class="token comment">// will be gone.</span>
+  SleepArgs e <span class="token operator">=</span> <span class="token operator">*</span><span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>SleepArgs <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>void_args<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  TaskGroup <span class="token operator">*</span>g <span class="token operator">=</span> e<span class="token punctuation">.</span>group<span class="token punctuation">;</span>
+
+  <span class="token comment">// 增加定时任务</span>
+  TimerThread<span class="token double-colon punctuation">::</span>TaskId sleep_id<span class="token punctuation">;</span>
+  sleep_id <span class="token operator">=</span> <span class="token function">get_global_timer_thread</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">schedule</span><span class="token punctuation">(</span>
+      ready_to_run_from_timer_thread<span class="token punctuation">,</span> void_args<span class="token punctuation">,</span>
+      butil<span class="token double-colon punctuation">::</span><span class="token function">microseconds_from_now</span><span class="token punctuation">(</span>e<span class="token punctuation">.</span>timeout_us<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">ready_to_run_from_timer_thread</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span>arg<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span>tls_task_group <span class="token operator">==</span> <span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">const</span> SleepArgs <span class="token operator">*</span>e <span class="token operator">=</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">const</span> SleepArgs <span class="token operator">*</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>arg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">// 到时间后，根据 tid 将任务重新加入队列</span>
+  e<span class="token operator">-></span>group<span class="token operator">-></span><span class="token function">control</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">choose_one_group</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-></span><span class="token function">ready_to_run_remote</span><span class="token punctuation">(</span>e<span class="token operator">-></span>tid<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/timer_keeping.md">&quot;bRPC Timer Keeping&quot;, <em>incubator-brpc</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>
