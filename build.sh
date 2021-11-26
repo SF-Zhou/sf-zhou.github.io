@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 mkdir -p public
 mkdir -p profile
