@@ -16,12 +16,6 @@
       <div class="title">
         <h1> PaxosStore 源码分析「五、实现细节」 </h1>
       </div>
-      <div class="info">
-        <div class="date"> 2020.03.26 </div>
-        <a href="https://github.com/SF-Zhou">
-          <div class="author"> SF-Zhou </div>
-        </a>
-      </div>
       <div class="markdown">
         <p>本系列的上一篇里分析了 PaxosStore 中的协议日志的实现，本篇将深入协议过程中的一些细节，这些实现细节集中在 <a href="https://github.com/Tencent/paxosstore/blob/master/certain/src/EntityWorker.cpp"><code>src/EntityWorker.cpp</code></a> 这个庞然大物里。</p>
 <h3 id="1.-entitycatchup" tabindex="-1"><a href="#1.-entitycatchup">1. EntityCatchUp</a></h3>

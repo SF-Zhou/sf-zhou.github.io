@@ -16,12 +16,6 @@
       <div class="title">
         <h1> Tokio 源码分析「三、运行时 Runtime」 </h1>
       </div>
-      <div class="info">
-        <div class="date"> 2021.04.25 </div>
-        <a href="https://github.com/SF-Zhou">
-          <div class="author"> SF-Zhou </div>
-        </a>
-      </div>
       <div class="markdown">
         <p>Tokio 的核心是一套 M:N 的协程 Runtime，下层通过 Rust 协程和 Mio 驱动，支撑上层的 HTTP / RPC 应用。本篇开始分析 Runtime，代码版本 <a href="https://github.com/tokio-rs/tokio/tree/tokio-1.5.0">v1.5.0</a>。</p>
 <figure tabindex="1"><a href="../images/5e364463cf50f41fec2e028df84f6a4a.svg"><img src="../images/5e364463cf50f41fec2e028df84f6a4a.svg" alt=""></a><figcaption>Tokio 架构图 from <a href="http://tokio.rs">tokio.rs</a></figcaption></figure>

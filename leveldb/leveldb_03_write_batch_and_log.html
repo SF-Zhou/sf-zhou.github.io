@@ -16,12 +16,6 @@
       <div class="title">
         <h1> LevelDB 源码分析「三、高性能写操作」 </h1>
       </div>
-      <div class="info">
-        <div class="date"> 2019.08.05 </div>
-        <a href="https://github.com/SF-Zhou">
-          <div class="author"> SF-Zhou </div>
-        </a>
-      </div>
       <div class="markdown">
         <p>本系列的<a href="/leveldb/leveldb_02_data_structure.html">前两篇</a>介绍了 LevelDB 中使用的数据结构，并没有牵涉到 LevelDB 的核心实现。接下来的几篇将着重介绍 LevelDB 核心组件，包括日志、内存数据库、SortedTable、Compaction 和版本管理。本篇着重阐述高性能写操作的秘密：日志和内存数据库。</p>
 <p>怎样最快地把键值对存起来？不考虑查找的速度的话，追加地写入文件是最快的，查找时反向查找。举个例子🌰：</p>

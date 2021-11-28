@@ -16,12 +16,6 @@
       <div class="title">
         <h1> bRPC 源码分析「五、请求处理」 </h1>
       </div>
-      <div class="info">
-        <div class="date"> 2021.03.19 </div>
-        <a href="https://github.com/SF-Zhou">
-          <div class="author"> SF-Zhou </div>
-        </a>
-      </div>
       <div class="markdown">
         <h3 id="1.-request-and-wait" tabindex="-1"><a href="#1.-request-and-wait">1. Request and Wait</a></h3>
 <p>bRPC 中同步的 RPC 发出请求后，会等待请求对应的 <code>bthread_id</code> 等待回复。<code>bthread_id</code> 是一个 64 位的标识符，可以附带一个指针数据，支持加锁、等待、范围检查，并且通过 ResourcePool 的版本规避了 ABA 问题。来看下具体实现：</p>

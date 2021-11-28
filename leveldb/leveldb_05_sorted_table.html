@@ -16,12 +16,6 @@
       <div class="title">
         <h1> LevelDB 源码分析「五、Sorted Table」 </h1>
       </div>
-      <div class="info">
-        <div class="date"> 2019.08.15 </div>
-        <a href="https://github.com/SF-Zhou">
-          <div class="author"> SF-Zhou </div>
-        </a>
-      </div>
       <div class="markdown">
         <p>本系列的<a href="/leveldb/leveldb_04_write_batch_and_log.html">上一篇</a>介绍了内存数据库，并且提到了内存数据库的大小限制问题。当内存数据块占用的内存达到阈值时（LevelDB 默认 4MB），会将当前的内存数据库 <code>mem_</code> 转为不可修改的 <code>imm_</code>，并且为 <code>mem_</code> 赋值一个新的内存数据库。这使得内存数据库的大小始终保持在阈值以下，同时保持着超高的读写性能。而不可修改的 <code>imm_</code> 会经历 Compaction 过程，转为 Sorted Table 存储到磁盘中。本篇将详细阐述该过程。</p>
 <h3 id="1.-compact-内存数据库" tabindex="-1"><a href="#1.-compact-%E5%86%85%E5%AD%98%E6%95%B0%E6%8D%AE%E5%BA%93">1. Compact 内存数据库</a></h3>

@@ -16,12 +16,6 @@
       <div class="title">
         <h1> 汇编魔法实现 C++ 协程 </h1>
       </div>
-      <div class="info">
-        <div class="date"> 2019.09.28 </div>
-        <a href="https://github.com/SF-Zhou">
-          <div class="author"> SF-Zhou </div>
-        </a>
-      </div>
       <div class="markdown">
         <p>协程，简而言之就是用户态线程。C++ 官方协程已经被提上日程，乐观估计 2020 年能发布，然后 2025 年能用上。但当下的性能问题亟待解决，没有官方实现也可以自己造轮子。除了切换到 Go、使用语言级支持的协程外，也可以在 C++ 内使用基于汇编实现的协程，比如微信开源的 <a href="https://github.com/Tencent/libco">libco</a>。本文将从简单的汇编开始，逐步分析 x86-64 环境下协程的实现原理。</p>
 <h3 id="1.-栈帧-stack-frames" tabindex="-1"><a href="#1.-%E6%A0%88%E5%B8%A7-stack-frames">1. 栈帧 Stack Frames</a></h3>

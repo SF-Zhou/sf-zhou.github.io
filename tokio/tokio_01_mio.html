@@ -16,12 +16,6 @@
       <div class="title">
         <h1> Tokio 源码分析「一、事件驱动 IO」 </h1>
       </div>
-      <div class="info">
-        <div class="date"> 2020.11.08 </div>
-        <a href="https://github.com/SF-Zhou">
-          <div class="author"> SF-Zhou </div>
-        </a>
-      </div>
       <div class="markdown">
         <p><a href="https://tokio.rs/">Tokio</a> 是 Rust 语言下的一个异步运行时，基于非阻塞 IO 和事件驱动。Tokio 中应用了协程及 <a href="https://en.wikipedia.org/wiki/Work_stealing">Work Stealing</a> 策略，实现类似 Goroutine 的 M:N 线程效果。本系列逐步分析 Tokio 的代码实现，版本为 v0.3.3，本篇关注事件驱动 IO 封装库 <a href="https://github.com/tokio-rs/mio/tree/v0.7.5">Mio</a>。</p>
 <h3 id="1.-mio-概览" tabindex="-1"><a href="#1.-mio-%E6%A6%82%E8%A7%88">1. Mio 概览</a></h3>

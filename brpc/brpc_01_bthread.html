@@ -16,12 +16,6 @@
       <div class="title">
         <h1> bRPC 源码分析「一、协程设计」 </h1>
       </div>
-      <div class="info">
-        <div class="date"> 2021.03.02 </div>
-        <a href="https://github.com/SF-Zhou">
-          <div class="author"> SF-Zhou </div>
-        </a>
-      </div>
       <div class="markdown">
         <h3 id="1.-context-switching" tabindex="-1"><a href="#1.-context-switching">1. Context Switching</a></h3>
 <p>bthread 中使用 <a href="https://github.com/twlostow/libcontext">libcontext</a> 实现协程间的切换，原理类似<a href="/programming/cpp_magic_coroutine.html">汇编魔法实现 C++ 协程</a>中的方法。看一个单元测试中的例子（<a href="https://godbolt.org/z/sf7vhK">在线执行</a>）：</p>
