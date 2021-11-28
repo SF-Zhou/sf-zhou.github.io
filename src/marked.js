@@ -1,11 +1,12 @@
-const prism = require('prismjs');
-const katex = require('katex');
-const texmath = require('markdown-it-texmath').use(katex);
-const implicit_figures = require('markdown-it-implicit-figures');
-const anchor = require('markdown-it-anchor');
-const markdown_it = require('markdown-it');
+import prismjs from 'prismjs';
+const { highlight, languages } = prismjs;
+import katex from 'katex';
+import texmath from 'markdown-it-texmath';
+import implicit_figures from 'markdown-it-implicit-figures';
+import anchor from 'markdown-it-anchor';
+import markdown_it from 'markdown-it';
 
-const load_languages = require('prismjs/components/');
+import load_languages from 'prismjs/components/index.js';
 load_languages(['bash', 'cmake', 'cpp', 'json', 'nasm', 'protobuf', 'python', 'rust', 'yaml']);
 
 const md = markdown_it({
@@ -26,7 +27,7 @@ const md = markdown_it({
 
     let hl;
     try {
-      hl = prism.highlight(str, prism.languages[lang]);
+      hl = highlight(str, languages[lang]);
     } catch (error) {
       console.log(lang, error);
       hl = md.utils.escapeHtml(str)
@@ -40,7 +41,7 @@ md.use(implicit_figures, {
   tabindex: true,
   link: true,
 })
-md.use(texmath);
+md.use(texmath.use(katex));
 md.use(anchor, {
   permalink: true,
   slugify: s => String(s).trim().toLowerCase().replace(/\s+/g, '-'),
@@ -50,7 +51,7 @@ md.use(anchor, {
     let level = child.level;
     child.level = level + 1;
 
-    token = new state.Token('link_open', 'a', 1);
+    let token = new state.Token('link_open', 'a', 1);
     token.attrs = [['href', opts.permalinkHref(encodeURIComponent(slug), state)]];
     token.level = level;
     children.unshift(token);
@@ -61,6 +62,6 @@ md.use(anchor, {
   }
 });
 
-module.exports = (markdown) => {
+export default (markdown) => {
   return md.render(markdown);
 }

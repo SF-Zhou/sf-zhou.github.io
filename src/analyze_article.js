@@ -1,5 +1,3 @@
-const config = require('../config.json');
-
 function analyze_article(markdown, article_filename) {
   let info = [];
   const match = article_filename.match(/^\[([^\]]+)\]/);
@@ -10,7 +8,7 @@ function analyze_article(markdown, article_filename) {
   let [date, tags_string, author] = info;
 
   let tags = tags_string ? tags_string.split(',') : [];
-  author = author || config.default_author;
+  author = author;
 
   let title = article_filename;
   if (markdown.startsWith('# ')) {
@@ -24,4 +22,4 @@ function analyze_article(markdown, article_filename) {
   }
 }
 
-module.exports = analyze_article;
+export default analyze_article;

@@ -4,12 +4,13 @@
   "version": "1.0.0",
   "author": "SF-Zhou <sfzhou.scut@gmail.com>",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "./build.sh"
   },
   "devDependencies": {
     "download": "^8.0.0",
-    "file-type": "^16.2.0",
+    "file-type": "^17.0.0",
     "gitalk": "^1.7.2",
     "katex": "^0.15.1",
     "less": "^4.0.0",
