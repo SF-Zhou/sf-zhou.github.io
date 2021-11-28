@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>BeeGFS 源码分析「一、萍水相逢」 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> BeeGFS 源码分析「一、萍水相逢」 </h1>
+      </div>
+      <div class="markdown">
+        <p>最近出于工作需要，准备看完 <a href="https://git.beegfs.io/pub/v7/-/tree/f85c4a62b4b4de0efd6ca9789a634b20604ee8f6">BeeGFS v7.2.5</a> 的代码，写点分析。代码规模在 20 万行左右，分为几个大模块。笔者无法很好地预测之后每篇博客能覆盖的主题，所以标题就随心所欲吧。</p>
+<h3 id="1.-概览" tabindex="-1"><a href="#1.-%E6%A6%82%E8%A7%88">1. 概览</a></h3>
+<p>BeeGFS 是一套专为 HPC 开发的并行文件系统。其官网的介绍如下：</p>
+<blockquote>
+<p>BeeGFS is a  hardware-independent POSIX parallel file system (a.k.a Software-defined  Parallel Storage) developed with a strong focus on performance and  designed for ease of use, simple installation, and management. BeeGFS is created on an Available Source development model (source code is  publicly available), offering a self-supported Community Edition and a  fully supported Enterprise Edition with additional features and  functionalities. BeeGFS is designed for all performance-oriented  environments including HPC, AI and Deep Learning, Life Sciences, and Oil &amp; Gas.</p>
+</blockquote>
+<figure tabindex="1"><a href="../images/13d00e004fdd6c548d9e3fbd6863f8ca.png"><img src="../images/13d00e004fdd6c548d9e3fbd6863f8ca.png" alt=""></a><figcaption>BeeGFS System Architecture</figcaption></figure>
+<p>BeeGFS 的系统架构如上图所示，文件数据存储于 Storage 节点，目录结构和文件元信息存储于 Meta 节点，路由信息和节点状态存储于 Management 节点，最后在 Client 节点提供磁盘挂载，另外还有 Monitor 节点负责记录监控信息。Storage 和 Meta 使用主从副本进行容灾，Management 节点仅一个不进行容灾。客户端访问使用 Linux Kernel 挂载而非 Fuse 以提供更高的性能。</p>
+<p>其源代码目录结构如下：</p>
+<pre class="language-bash"><code class="language-bash">v7
+├── BUILD.txt
+├── LICENSE.txt
+├── Makefile
+├── README.md
+├── beegfs.spec
+├── beeond
+├── beeond_thirdparty
+├── beeond_thirdparty_gpl
+├── build
+├── client_devel
+├── client_module          <span class="token comment"># Client，代码量 6.2w</span>
+├── common                 <span class="token comment"># 公共基础库，代码量 5.8w</span>
+├── common_package
+├── ctl
+├── debian
+├── event_listener
+├── <span class="token function">fsck</span>
+├── helperd
+├── java_lib
+├── meta                   <span class="token comment"># Meta，代码量 4.1w</span>
+├── mgmtd                  <span class="token comment"># Management，代码量 1.2w</span>
+├── mon
+├── storage                <span class="token comment"># Storage，代码量 1.8w</span>
+├── thirdparty
+├── upgrade
+├── utils
+└── utils_devel
+</code></pre>
+<p>有兴趣的同学建议先按照<a href="https://doc.beegfs.io/latest/quick_start_guide/quick_start_guide.html">官方文档</a>部署一个 BeeGFS 服务体验下，上述的几种类型的节点实际上可以部署到同一台物理机器上。</p>
+<h3 id="2.-storage/source/storage" tabindex="-1"><a href="#2.-storage%2Fsource%2Fstorage">2. storage/source/storage</a></h3>
+<p>按目录阅读代码，首先看这个目录：</p>
+<pre class="language-markup"><code class="language-markup">storage/source/storage
+├── ChunkDir.h
+├── ChunkLockStore.h
+├── ChunkStore.cpp
+├── ChunkStore.h
+├── QuotaBlockDevice.cpp
+├── QuotaBlockDevice.h
+├── StorageTargets.cpp
+├── StorageTargets.h
+└── SyncedStoragePaths.h
+</code></pre>
+<p><strong>ChunkDir.h</strong> 用来指代目录的 inode 数据，ChunkDir 类中实际上只存储了 id 和一把读写锁。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">/**
+ * Our inode object, but for directories only. Files are in class FileInode.
+ */</span>
+<span class="token keyword">class</span> <span class="token class-name">ChunkDir</span> <span class="token punctuation">{</span>
+  <span class="token keyword">friend</span> <span class="token keyword">class</span> <span class="token class-name">ChunkStore</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">ChunkDir</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string id<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">id</span><span class="token punctuation">(</span>id<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+ <span class="token keyword">protected</span><span class="token operator">:</span>
+  RWLock rwlock<span class="token punctuation">;</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  std<span class="token double-colon punctuation">::</span>string id<span class="token punctuation">;</span>  <span class="token comment">// filesystem-wide unique string</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">// inliners</span>
+
+  <span class="token keyword">void</span> <span class="token function">readLock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">this</span><span class="token operator">-></span>rwlock<span class="token punctuation">.</span><span class="token function">readLock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">writeLock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">this</span><span class="token operator">-></span>rwlock<span class="token punctuation">.</span><span class="token function">writeLock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">this</span><span class="token operator">-></span>rwlock<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  std<span class="token double-colon punctuation">::</span>string <span class="token function">getID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token keyword">this</span><span class="token operator">-></span>id<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><strong>ChunkLockStore.h</strong>，用以锁定 Chunk 进而安全地访问。对外提供 <code>lockChunk(targetID, chunkID)</code> 接口，当 Chunk 正在被使用时使用条件变量等待 Chunk 释放：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">ChunkLockStoreContents</span> <span class="token punctuation">{</span>
+  StringSet lockedChunks<span class="token punctuation">;</span>            <span class="token comment">// 已经上锁的 Chunk 集合</span>
+  Mutex lockedChunksMutex<span class="token punctuation">;</span>           <span class="token comment">// 锁</span>
+  Condition chunkUnlockedCondition<span class="token punctuation">;</span>  <span class="token comment">// 条件变量，用于冲突时等待</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">ChunkLockStore</span> <span class="token punctuation">{</span>
+  <span class="token keyword">friend</span> <span class="token keyword">class</span> <span class="token class-name">GenericDebugMsgEx</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">ChunkLockStore</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">lockChunk</span><span class="token punctuation">(</span><span class="token keyword">uint16_t</span> targetID<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>string chunkID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> targetLockStore <span class="token operator">=</span> <span class="token function">getOrInsertTargetLockStore</span><span class="token punctuation">(</span>targetID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>lock_guard<span class="token operator">&lt;</span>Mutex<span class="token operator">></span> <span class="token function">chunksLock</span><span class="token punctuation">(</span>targetLockStore<span class="token operator">-></span>lockedChunksMutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// loop until we can insert the chunk lock</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token punctuation">;</span><span class="token punctuation">;</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 拿到锁后尝试插入，插入成功则加锁成功。</span>
+      <span class="token keyword">bool</span> insertRes <span class="token operator">=</span> targetLockStore<span class="token operator">-></span>lockedChunks<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span>chunkID<span class="token punctuation">)</span><span class="token punctuation">.</span>second<span class="token punctuation">;</span>
+
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>insertRes<span class="token punctuation">)</span> <span class="token keyword">break</span><span class="token punctuation">;</span>  <span class="token comment">// new lock successfully inserted</span>
+
+      <span class="token comment">// chunk lock already exists => wait</span>
+      <span class="token comment">// 失败则说明 Chunk 已经被上锁，使用条件变量等待。</span>
+      targetLockStore<span class="token operator">-></span>chunkUnlockedCondition<span class="token punctuation">.</span><span class="token function">wait</span><span class="token punctuation">(</span>
+          <span class="token operator">&amp;</span>targetLockStore<span class="token operator">-></span>lockedChunksMutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  ChunkLockStoreContents<span class="token operator">*</span> <span class="token function">getOrInsertTargetLockStore</span><span class="token punctuation">(</span><span class="token keyword">uint16_t</span> targetID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    UniqueRWLock <span class="token function">lock</span><span class="token punctuation">(</span>targetsLock<span class="token punctuation">,</span> SafeRWLock_READ<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">auto</span> targetsIter <span class="token operator">=</span> targetsMap<span class="token punctuation">.</span><span class="token function">find</span><span class="token punctuation">(</span>targetID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>targetsIter <span class="token operator">!=</span> targetsMap<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> targetsIter<span class="token operator">-></span>second<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 转为写锁。这里如果支持直接提升会更好。</span>
+      lock<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      lock<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span>SafeRWLock_WRITE<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token comment">// 插入可能会失败，但不影响正确性。</span>
+      <span class="token keyword">return</span> targetsMap
+          <span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span><span class="token punctuation">{</span>targetID<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_shared</span><span class="token generic class-name"><span class="token operator">&lt;</span>ChunkLockStoreContents<span class="token operator">></span></span></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">}</span><span class="token punctuation">)</span>
+          <span class="token punctuation">.</span>first<span class="token operator">-></span>second<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">unlockChunk</span><span class="token punctuation">(</span><span class="token keyword">uint16_t</span> targetID<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>string chunkID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    StringSetIter lockChunksIter<span class="token punctuation">;</span>
+
+    <span class="token keyword">auto</span> targetLockStore <span class="token operator">=</span> <span class="token function">findTargetLockStore</span><span class="token punctuation">(</span>targetID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">unlikely</span><span class="token punctuation">(</span>targetLockStore <span class="token operator">==</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">return</span><span class="token punctuation">;</span>
+
+    targetLockStore<span class="token operator">-></span>lockedChunksMutex<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    lockChunksIter <span class="token operator">=</span> targetLockStore<span class="token operator">-></span>lockedChunks<span class="token punctuation">.</span><span class="token function">find</span><span class="token punctuation">(</span>chunkID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">unlikely</span><span class="token punctuation">(</span>lockChunksIter <span class="token operator">==</span> targetLockStore<span class="token operator">-></span>lockedChunks<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">LogContext</span><span class="token punctuation">(</span><span class="token constant">__func__</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span>Log_WARNING<span class="token punctuation">,</span>
+                               <span class="token string">"Tried to unlock chunk, but chunk not found in "</span>
+                               <span class="token string">"lock set. Printing backtrace. "</span>
+                               <span class="token string">"targetID: "</span> <span class="token operator">+</span>
+                                   <span class="token class-name">StringTk</span><span class="token double-colon punctuation">::</span><span class="token function">uintToStr</span><span class="token punctuation">(</span>targetID<span class="token punctuation">)</span> <span class="token operator">+</span>
+                                   <span class="token string">"; "</span>
+                                   <span class="token string">"chunkID: "</span> <span class="token operator">+</span>
+                                   chunkID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">LogContext</span><span class="token punctuation">(</span><span class="token constant">__func__</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">logBacktrace</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token keyword">goto</span> unlock_chunks<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 从集合中删除，这样其他线程的后续插入会成功。</span>
+    targetLockStore<span class="token operator">-></span>lockedChunks<span class="token punctuation">.</span><span class="token function">erase</span><span class="token punctuation">(</span>lockChunksIter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 广播唤醒其他线程。实际上这里应该先解锁、再广播。</span>
+    targetLockStore<span class="token operator">-></span>chunkUnlockedCondition<span class="token punctuation">.</span><span class="token function">broadcast</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// notify lock waiters</span>
+
+  unlock_chunks<span class="token operator">:</span>
+    targetLockStore<span class="token operator">-></span>lockedChunksMutex<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token comment">// TargetID -> ChunkLockStoreContents</span>
+  std<span class="token double-colon punctuation">::</span>map<span class="token operator">&lt;</span><span class="token keyword">uint16_t</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>shared_ptr<span class="token operator">&lt;</span>ChunkLockStoreContents<span class="token operator">>></span> targetsMap<span class="token punctuation">;</span>
+  RWLock targetsLock<span class="token punctuation">;</span>  <span class="token comment">// synchronizes insertion into targetsMap</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><strong>ChunkStore.h</strong>，抽象底层文件系统用于上层读写，主要接口为：</p>
+<ol>
+<li>
+<p><code>referenceDir(dirID)</code> / <code>releaseDir(dirID)</code> 通过引用计数维护 <code>dirID</code> 映射的 <code>ChunkDir</code> 对象</p>
+</li>
+<li>
+<p><code>mkdirV2ChunkDirPath</code> / <code>rmdirChunkDirPath</code> / <code>chmodV2ChunkDirPath</code> ChunkDir 目录的创建、删除和修改权限操作</p>
+</li>
+<li>
+<p><code>openChunkFile</code> 创建 Chunk 文件并打开</p>
+</li>
+</ol>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">typedef</span> AtomicObjectReferencer<span class="token operator">&lt;</span>ChunkDir<span class="token operator">*</span><span class="token operator">></span> ChunkDirReferencer<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> std<span class="token double-colon punctuation">::</span>map<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>string<span class="token punctuation">,</span> ChunkDirReferencer<span class="token operator">*</span><span class="token operator">></span> DirectoryMap<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> DirectoryMap<span class="token double-colon punctuation">::</span>iterator DirectoryMapIter<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> DirectoryMap<span class="token double-colon punctuation">::</span>const_iterator DirectoryMapCIter<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> DirectoryMap<span class="token double-colon punctuation">::</span>value_type DirectoryMapVal<span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">ChunkStore</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">ChunkStore</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token operator">~</span><span class="token function">ChunkStore</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">this</span><span class="token operator">-></span><span class="token function">clearStoreUnlocked</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token function">dirInStoreUnlocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  ChunkDir<span class="token operator">*</span> <span class="token function">referenceDir</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">releaseDir</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  size_t <span class="token function">getCacheSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">cacheSweepAsync</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">rmdirChunkDirPath</span><span class="token punctuation">(</span><span class="token keyword">int</span> targetFD<span class="token punctuation">,</span> Path<span class="token operator">*</span> chunkDirPath<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  FhgfsOpsErr <span class="token function">openChunkFile</span><span class="token punctuation">(</span><span class="token keyword">int</span> argetFD<span class="token punctuation">,</span> <span class="token keyword">const</span> Path<span class="token operator">*</span> chunkDirPath<span class="token punctuation">,</span>
+                            <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> chunkFilePathStr<span class="token punctuation">,</span>
+                            <span class="token keyword">bool</span> hasOrigFeature<span class="token punctuation">,</span> <span class="token keyword">int</span> openFlags<span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token operator">*</span> outFD<span class="token punctuation">,</span>
+                            <span class="token keyword">const</span> SessionQuotaInfo<span class="token operator">*</span> quotaInfo<span class="token punctuation">,</span>
+                            <span class="token keyword">const</span> ExceededQuotaStorePtr exQuotaStore<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">chmodV2ChunkDirPath</span><span class="token punctuation">(</span><span class="token keyword">int</span> targetFD<span class="token punctuation">,</span> <span class="token keyword">const</span> Path<span class="token operator">*</span> chunkDirPath<span class="token punctuation">,</span>
+                           <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> entryID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  DirectoryMap dirs<span class="token punctuation">;</span>  <span class="token comment">// 用于保存已经引用的 dirID</span>
+
+  size_t refCacheSyncLimit<span class="token punctuation">;</span>   <span class="token comment">// synchronous access limit (=> async limit plus</span>
+                              <span class="token comment">// some grace size)</span>
+  size_t refCacheAsyncLimit<span class="token punctuation">;</span>  <span class="token comment">// asynchronous cleanup limit (this is what the</span>
+                              <span class="token comment">// user configures)</span>
+  Random randGen<span class="token punctuation">;</span>             <span class="token comment">// for random cache removal</span>
+  DirCacheMap refCache<span class="token punctuation">;</span>
+
+  RWLock rwlock<span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">InsertChunkDirUnlocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string dirID<span class="token punctuation">,</span> DirectoryMapIter<span class="token operator">&amp;</span> newElemIter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">releaseDirUnlocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">clearStoreUnlocked</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">cacheAddUnlocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> dirID<span class="token punctuation">,</span> ChunkDirReferencer<span class="token operator">*</span> dirRefer<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">cacheRemoveUnlocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">cacheRemoveAllUnlocked</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> <span class="token function">cacheSweepUnlocked</span><span class="token punctuation">(</span><span class="token keyword">bool</span> isSyncSweep<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">mkdirV2ChunkDirPath</span><span class="token punctuation">(</span><span class="token keyword">int</span> targetFD<span class="token punctuation">,</span> <span class="token keyword">const</span> Path<span class="token operator">*</span> chunkDirPath<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">mkdirChunkDirPath</span><span class="token punctuation">(</span><span class="token keyword">int</span> targetFD<span class="token punctuation">,</span> <span class="token keyword">const</span> Path<span class="token operator">*</span> chunkDirPath<span class="token punctuation">,</span>
+                         <span class="token keyword">bool</span> hasOrigFeature<span class="token punctuation">,</span> ChunkDir<span class="token operator">*</span><span class="token operator">*</span> outChunkDir<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  std<span class="token double-colon punctuation">::</span>pair<span class="token operator">&lt;</span>FhgfsOpsErr<span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token operator">></span> <span class="token function">openAndChown</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">int</span> targetFD<span class="token punctuation">,</span>
+                                           <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> path<span class="token punctuation">,</span>
+                                           <span class="token keyword">const</span> <span class="token keyword">int</span> openFlags<span class="token punctuation">,</span>
+                                           <span class="token keyword">const</span> SessionQuotaInfo<span class="token operator">&amp;</span> quota<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// inlined</span>
+
+  <span class="token comment">/**
+   * Return a unique path element identifier.
+   *
+   * Note: All callers should use depth=0 for the first path element.
+   */</span>
+  std<span class="token double-colon punctuation">::</span>string <span class="token function">getUniqueDirID</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string pathElement<span class="token punctuation">,</span> <span class="token keyword">unsigned</span> pathDepth<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Use snprintf here directly to make it cheaper?</span>
+    <span class="token keyword">return</span> pathElement <span class="token operator">+</span> <span class="token string">"-l"</span> <span class="token operator">+</span> <span class="token class-name">StringTk</span><span class="token double-colon punctuation">::</span><span class="token function">uintToStr</span><span class="token punctuation">(</span>pathDepth<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+</code></pre>
+<p>对 <code>ChunkDir</code> 使用引用计数 + Cache 的方式维护：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 对给定的 dirID 增加引用计数。</span>
+ChunkDir <span class="token operator">*</span><span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">referenceDir</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string dirID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>logContext <span class="token operator">=</span> <span class="token string">"DirReferencer referenceChunkDir"</span><span class="token punctuation">;</span>
+  ChunkDir <span class="token operator">*</span>dir <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> wasReferenced <span class="token operator">=</span>
+      <span class="token boolean">true</span><span class="token punctuation">;</span> <span class="token comment">/* Only try to add to cache if not in memory yet.
+             * Any attempt to add it to the cache causes a cache sweep, which is
+             * rather expensive.
+             * Note: when set to false we also need a write-lock! */</span>
+
+  <span class="token comment">// 上读锁。</span>
+  SafeRWLock <span class="token function">safeLock</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">this</span><span class="token operator">-></span>rwlock<span class="token punctuation">,</span> SafeRWLock_READ<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// L O C K</span>
+
+  DirectoryMapIter iter<span class="token punctuation">;</span>
+  <span class="token keyword">int</span> retries <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>                                    <span class="token comment">// 0 -> read-locked</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>retries <span class="token operator">&lt;</span> RWLOCK_LOCK_UPGRADE_RACY_RETRIES<span class="token punctuation">)</span>  <span class="token comment">// one as read-lock and</span>
+                                                      <span class="token comment">// one as write-lock</span>
+  <span class="token punctuation">{</span>
+    <span class="token comment">// 如果读锁没有找到，提升为写锁，重试一次。</span>
+    iter <span class="token operator">=</span> <span class="token keyword">this</span><span class="token operator">-></span>dirs<span class="token punctuation">.</span><span class="token function">find</span><span class="token punctuation">(</span>dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>iter <span class="token operator">==</span> <span class="token keyword">this</span><span class="token operator">-></span>dirs<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> retries <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      safeLock<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      safeLock<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span>SafeRWLock_WRITE<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    retries<span class="token operator">++</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 写锁也没有找到，则构造新的 ChunkDir 插入。</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iter <span class="token operator">==</span> <span class="token keyword">this</span><span class="token operator">-></span>dirs<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// Not in map yet => try to load it. We must</span>
+                                   <span class="token comment">// be write-locked here!</span>
+    <span class="token function">InsertChunkDirUnlocked</span><span class="token punctuation">(</span>dirID<span class="token punctuation">,</span> iter<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// (will set "iter != end" if loaded)</span>
+    wasReferenced <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>  <span class="token comment">// 首次插入</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">likely</span><span class="token punctuation">(</span>iter <span class="token operator">!=</span> dirs<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// exists in map</span>
+    ChunkDirReferencer <span class="token operator">*</span>dirRefer <span class="token operator">=</span> iter<span class="token operator">-></span>second<span class="token punctuation">;</span>
+
+    dir <span class="token operator">=</span> dirRefer<span class="token operator">-></span><span class="token function">reference</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 引用计数</span>
+
+    <span class="token comment">// LOG_DEBUG(logContext, Log_SPAM,  std::string("DirID: ") + dir->getID() +</span>
+    <span class="token comment">//   " Refcount: " + StringTk::intToStr(dirRefer->getRefCount() ) );</span>
+    <span class="token function">IGNORE_UNUSED_VARIABLE</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 首次插入时将其加入 Cache 中，cache 同样维持一个计数，延长生命周期。</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>wasReferenced<span class="token punctuation">)</span> <span class="token function">cacheAddUnlocked</span><span class="token punctuation">(</span>dirID<span class="token punctuation">,</span> dirRefer<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  safeLock<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// U N L O C K</span>
+
+  <span class="token keyword">return</span> dir<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">InsertChunkDirUnlocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string dirID<span class="token punctuation">,</span>
+                                        DirectoryMapIter <span class="token operator">&amp;</span>newElemIter<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  ChunkDir <span class="token operator">*</span>inode <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token function">ChunkDir</span><span class="token punctuation">(</span>dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">unlikely</span><span class="token punctuation">(</span><span class="token operator">!</span>inode<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">return</span><span class="token punctuation">;</span>  <span class="token comment">// 申请内存失败时会直接返回。</span>
+
+  std<span class="token double-colon punctuation">::</span>pair<span class="token operator">&lt;</span>DirectoryMapIter<span class="token punctuation">,</span> <span class="token keyword">bool</span><span class="token operator">></span> pairRes <span class="token operator">=</span>
+      <span class="token keyword">this</span><span class="token operator">-></span>dirs<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span><span class="token function">DirectoryMapVal</span><span class="token punctuation">(</span>dirID<span class="token punctuation">,</span> <span class="token keyword">new</span> <span class="token function">ChunkDirReferencer</span><span class="token punctuation">(</span>inode<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>pairRes<span class="token punctuation">.</span>second<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// element already exists in the map, we raced with another thread</span>
+    <span class="token keyword">delete</span> inode<span class="token punctuation">;</span>
+
+    newElemIter <span class="token operator">=</span> <span class="token keyword">this</span><span class="token operator">-></span>dirs<span class="token punctuation">.</span><span class="token function">find</span><span class="token punctuation">(</span>dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    newElemIter <span class="token operator">=</span> pairRes<span class="token punctuation">.</span>first<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">cacheAddUnlocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string <span class="token operator">&amp;</span>dirID<span class="token punctuation">,</span>
+                                  ChunkDirReferencer <span class="token operator">*</span>dirRefer<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>logContext <span class="token operator">=</span> <span class="token string">"DirReferencer cache add ChunkDir"</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// (we do cache sweeping before insertion to make sure we don't sweep the new</span>
+  <span class="token comment">// entry)</span>
+  <span class="token function">cacheSweepUnlocked</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>refCache<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span><span class="token function">DirCacheMapVal</span><span class="token punctuation">(</span>dirID<span class="token punctuation">,</span> dirRefer<span class="token punctuation">)</span><span class="token punctuation">)</span>
+          <span class="token punctuation">.</span>second<span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// new insert => inc refcount</span>
+    dirRefer<span class="token operator">-></span><span class="token function">reference</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// Cache 维持一个引用。</span>
+
+    <span class="token comment">// LOG_DEBUG(logContext, Log_SPAM,  std::string("DirID: ") + dirID +</span>
+    <span class="token comment">//   " Refcount: " + StringTk::intToStr(dirRefer->getRefCount() ) );</span>
+    <span class="token function">IGNORE_UNUSED_VARIABLE</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">/**
+ * Release reduce the refcounter of an ChunkDir here
+ */</span>
+<span class="token keyword">void</span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">releaseDir</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string dirID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  SafeRWLock <span class="token function">safeLock</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">this</span><span class="token operator">-></span>rwlock<span class="token punctuation">,</span> SafeRWLock_WRITE<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// L O C K</span>
+
+  <span class="token function">releaseDirUnlocked</span><span class="token punctuation">(</span>dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  safeLock<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// U N L O C K</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 释放一个引用计数，异常情况下打印日志。</span>
+<span class="token keyword">void</span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">releaseDirUnlocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string dirID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>logContext <span class="token operator">=</span> <span class="token string">"DirReferencer releaseChunkDir"</span><span class="token punctuation">;</span>
+
+  DirectoryMapIter iter <span class="token operator">=</span> <span class="token keyword">this</span><span class="token operator">-></span>dirs<span class="token punctuation">.</span><span class="token function">find</span><span class="token punctuation">(</span>dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">likely</span><span class="token punctuation">(</span>iter <span class="token operator">!=</span> <span class="token keyword">this</span><span class="token operator">-></span>dirs<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// dir exists => decrease refCount</span>
+    ChunkDirReferencer <span class="token operator">*</span>dirRefer <span class="token operator">=</span> iter<span class="token operator">-></span>second<span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">likely</span><span class="token punctuation">(</span>dirRefer<span class="token operator">-></span><span class="token function">getRefCount</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      dirRefer<span class="token operator">-></span><span class="token function">release</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token comment">// LOG_DEBUG(logContext, Log_SPAM,  std::string("DirID: ") + dirID +</span>
+      <span class="token comment">//   " Refcount: " + StringTk::intToStr(dirRefer->getRefCount() ) );</span>
+
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>dirRefer<span class="token operator">-></span><span class="token function">getRefCount</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// dropped last reference => unload dir</span>
+        <span class="token keyword">delete</span> <span class="token punctuation">(</span>dirRefer<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 引用为 0 时删除对象</span>
+        <span class="token keyword">this</span><span class="token operator">-></span>dirs<span class="token punctuation">.</span><span class="token function">erase</span><span class="token punctuation">(</span>iter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>  <span class="token comment">// attempt to release a Dir without a refCount</span>
+      std<span class="token double-colon punctuation">::</span>string logMsg <span class="token operator">=</span>
+          std<span class="token double-colon punctuation">::</span><span class="token function">string</span><span class="token punctuation">(</span><span class="token string">"Bug: Refusing to release dir with a zero refCount"</span><span class="token punctuation">)</span> <span class="token operator">+</span>
+          std<span class="token double-colon punctuation">::</span><span class="token function">string</span><span class="token punctuation">(</span><span class="token string">"dirID: "</span><span class="token punctuation">)</span> <span class="token operator">+</span> dirID<span class="token punctuation">;</span>
+      <span class="token function">LogContext</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">logErr</span><span class="token punctuation">(</span>logMsg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">this</span><span class="token operator">-></span>dirs<span class="token punctuation">.</span><span class="token function">erase</span><span class="token punctuation">(</span>iter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token function">LogContext</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">logErr</span><span class="token punctuation">(</span>
+            <span class="token string">"Bug: releaseDir requested, but dir not referenced! "</span>
+            <span class="token string">"DirID: "</span> <span class="token operator">+</span>
+            dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">LogContext</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">logBacktrace</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 清理缓存时同样需要释放对应的引用计数。</span>
+<span class="token keyword">void</span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">cacheRemoveUnlocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>string <span class="token operator">&amp;</span>dirID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  DirCacheMapIter iter <span class="token operator">=</span> refCache<span class="token punctuation">.</span><span class="token function">find</span><span class="token punctuation">(</span>dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>iter <span class="token operator">==</span> refCache<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">return</span><span class="token punctuation">;</span>
+
+  <span class="token function">releaseDirUnlocked</span><span class="token punctuation">(</span>dirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  refCache<span class="token punctuation">.</span><span class="token function">erase</span><span class="token punctuation">(</span>iter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 缓存的清理。这里没有使用 LRU 之类的策略，而是选择每 N 个元素删一个，第一个元素随机选择。</span>
+<span class="token keyword">bool</span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">cacheSweepUnlocked</span><span class="token punctuation">(</span><span class="token keyword">bool</span> isSyncSweep<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// sweeping means we remove every n-th element from the cache, starting with a</span>
+  <span class="token comment">// random element in the range 0 to n</span>
+  size_t cacheLimit<span class="token punctuation">;</span>
+  size_t removeSkipNum<span class="token punctuation">;</span>
+
+  <span class="token comment">// check type of sweep and set removal parameters accordingly</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>isSyncSweep<span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// sync sweep settings</span>
+    cacheLimit <span class="token operator">=</span> refCacheSyncLimit<span class="token punctuation">;</span>
+    removeSkipNum <span class="token operator">=</span> CHUNKSTORE_REFCACHE_REMOVE_SKIP_SYNC<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>  <span class="token comment">// async sweep settings</span>
+    cacheLimit <span class="token operator">=</span> refCacheAsyncLimit<span class="token punctuation">;</span>
+    removeSkipNum <span class="token operator">=</span> CHUNKSTORE_REFCACHE_REMOVE_SKIP_ASYNC<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>refCache<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&lt;=</span> cacheLimit<span class="token punctuation">)</span> <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// pick a random start element (note: the element will be removed in first</span>
+  <span class="token comment">// loop pass below)</span>
+
+  <span class="token keyword">unsigned</span> randStart <span class="token operator">=</span> randGen<span class="token punctuation">.</span><span class="token function">getNextInRange</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> removeSkipNum <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  DirCacheMapIter iter <span class="token operator">=</span> refCache<span class="token punctuation">.</span><span class="token function">begin</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>randStart<span class="token operator">--</span><span class="token punctuation">)</span> iter<span class="token operator">++</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// walk over all cached elements and remove every n-th element</span>
+
+  <span class="token keyword">unsigned</span> i <span class="token operator">=</span>
+      removeSkipNum <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">;</span> <span class="token comment">/* counts to every n-th element ("remoteSkipNum-1" to
+remove the random start element in the first loop pass) */</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>iter <span class="token operator">!=</span> refCache<span class="token punctuation">.</span><span class="token function">end</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    i<span class="token operator">++</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>i <span class="token operator">==</span> removeSkipNum<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">releaseDirUnlocked</span><span class="token punctuation">(</span>iter<span class="token operator">-></span>first<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      DirCacheMapIter <span class="token function">iterNext</span><span class="token punctuation">(</span>iter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      iterNext<span class="token operator">++</span><span class="token punctuation">;</span>
+
+      refCache<span class="token punctuation">.</span><span class="token function">erase</span><span class="token punctuation">(</span>iter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      iter <span class="token operator">=</span> iterNext<span class="token punctuation">;</span>
+
+      i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span>
+      iter<span class="token operator">++</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>Chunk 目录的创建、删除和修改权限：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">bool</span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">mkdirChunkDirPath</span><span class="token punctuation">(</span><span class="token keyword">int</span> targetFD<span class="token punctuation">,</span> <span class="token keyword">const</span> Path <span class="token operator">*</span>chunkDirPath<span class="token punctuation">,</span>
+                                   <span class="token keyword">bool</span> hasOrigFeature<span class="token punctuation">,</span>
+                                   ChunkDir <span class="token operator">*</span><span class="token operator">*</span>outChunkDir<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>logContext <span class="token operator">=</span> <span class="token string">"ChunkDirStore mkdir chunkdir path"</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> retVal<span class="token punctuation">;</span>
+  <span class="token operator">*</span>outChunkDir <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// V2 version for 2012.10 style layout ...</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>hasOrigFeature<span class="token punctuation">)</span> <span class="token keyword">return</span> <span class="token function">mkdirV2ChunkDirPath</span><span class="token punctuation">(</span>targetFD<span class="token punctuation">,</span> chunkDirPath<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// V3 version for 2014.01 style layout (chunks/uidXYZ/level1/level2/parentID/)</span>
+  <span class="token comment">// ...</span>
+
+  <span class="token keyword">unsigned</span> uidPos <span class="token operator">=</span> STORAGETK_CHUNKDIR_VEC_UIDPOS<span class="token punctuation">;</span>  <span class="token comment">// == 0</span>
+
+  std<span class="token double-colon punctuation">::</span>string mkdirPath<span class="token punctuation">;</span>
+  <span class="token keyword">unsigned</span> depth <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>string uidStr<span class="token punctuation">;</span>
+
+  ChunkDir <span class="token operator">*</span>chunkDir <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+  ChunkDir <span class="token operator">*</span>parentChunkDir <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Iterate and create basic paths, we don't need any locking here</span>
+  <span class="token comment">// 这里 depth 和 uidPos 都是 0，实际上不执行。</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>depth <span class="token operator">&lt;</span> uidPos <span class="token operator">&amp;&amp;</span> depth <span class="token operator">&lt;</span> chunkDirPath<span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    mkdirPath <span class="token operator">+=</span> <span class="token punctuation">(</span><span class="token operator">*</span>chunkDirPath<span class="token punctuation">)</span><span class="token punctuation">[</span>depth<span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">int</span> mkdirRes <span class="token operator">=</span>
+        <span class="token function">mkdirat</span><span class="token punctuation">(</span>targetFD<span class="token punctuation">,</span> mkdirPath<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> STORAGETK_DEFAULTCHUNKDIRMODE<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>mkdirRes <span class="token operator">&amp;&amp;</span> errno <span class="token operator">!=</span> EEXIST<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">LogContext</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span>
+          <span class="token punctuation">.</span><span class="token function">logErr</span><span class="token punctuation">(</span><span class="token string">"Unable to create chunk path: "</span> <span class="token operator">+</span> mkdirPath <span class="token operator">+</span> <span class="token string">". "</span> <span class="token operator">+</span>
+                  <span class="token string">"SysErr: "</span> <span class="token operator">+</span> <span class="token class-name">System</span><span class="token double-colon punctuation">::</span><span class="token function">getErrString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      retVal <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+      <span class="token keyword">goto</span> out<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    mkdirPath <span class="token operator">=</span> mkdirPath <span class="token operator">+</span> <span class="token string">'/'</span><span class="token punctuation">;</span>  <span class="token comment">// path must be relative, so only add it here</span>
+    depth<span class="token operator">++</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>depth <span class="token operator">!=</span> chunkDirPath<span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">(</span><span class="token operator">*</span>chunkDirPath<span class="token punctuation">)</span><span class="token punctuation">[</span>depth<span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+  <span class="token comment">/* Iterate over the remaining path elements (beginning with uidXYZ),
+   * lock their IDs and try to create them */</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>depth <span class="token operator">&lt;</span> chunkDirPath<span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token double-colon punctuation">::</span>string currentElement <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token operator">*</span>chunkDirPath<span class="token punctuation">)</span><span class="token punctuation">[</span>depth<span class="token punctuation">]</span><span class="token punctuation">;</span>
+    mkdirPath <span class="token operator">+=</span> currentElement<span class="token punctuation">;</span>
+
+    <span class="token comment">// 根据当前目录名和深度生成 chunkDirID。</span>
+    std<span class="token double-colon punctuation">::</span>string chunkDirID <span class="token operator">=</span> <span class="token function">getUniqueDirID</span><span class="token punctuation">(</span>currentElement<span class="token punctuation">,</span> depth<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 对该 chunkDirID 增加引用，上读锁。</span>
+    chunkDir <span class="token operator">=</span> <span class="token function">referenceDir</span><span class="token punctuation">(</span>chunkDirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">likely</span><span class="token punctuation">(</span>chunkDir<span class="token punctuation">)</span><span class="token punctuation">)</span>
+      chunkDir<span class="token operator">-></span>rwlock<span class="token punctuation">.</span><span class="token function">readLock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span>
+      <span class="token function">LogContext</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span>
+          <span class="token punctuation">.</span><span class="token function">logErr</span><span class="token punctuation">(</span><span class="token string">"Bug: Failed to reference chunkDir "</span> <span class="token operator">+</span> mkdirPath <span class="token operator">+</span> <span class="token string">"!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 上锁后再进行创建操作。</span>
+    <span class="token keyword">int</span> mkdirRes <span class="token operator">=</span>
+        <span class="token function">mkdirat</span><span class="token punctuation">(</span>targetFD<span class="token punctuation">,</span> mkdirPath<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> STORAGETK_DEFAULTCHUNKDIRMODE<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">int</span> mkdirErrno <span class="token operator">=</span> errno<span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>parentChunkDir<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 当本级目录创建完成后，就释放上一级目录的锁。</span>
+      <span class="token comment">/* Once we keep a lock on the current dir and created it we can give up
+       * the lock of the parent - a racing rmdir on parent will fail with
+       * ENOTEMPTY. If mkdir failed we do not care, as something is wrong
+       * anyway.  */</span>
+      parentChunkDir<span class="token operator">-></span>rwlock<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">releaseDir</span><span class="token punctuation">(</span>parentChunkDir<span class="token operator">-></span><span class="token function">getID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>mkdirRes <span class="token operator">&amp;&amp;</span> mkdirErrno <span class="token operator">!=</span> EEXIST<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">LogContext</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span>
+          <span class="token punctuation">.</span><span class="token function">logErr</span><span class="token punctuation">(</span><span class="token string">"Unable to create chunk path: "</span> <span class="token operator">+</span> mkdirPath <span class="token operator">+</span> <span class="token string">". "</span> <span class="token operator">+</span>
+                  <span class="token string">"SysErr: "</span> <span class="token operator">+</span> <span class="token class-name">System</span><span class="token double-colon punctuation">::</span><span class="token function">getErrString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">likely</span><span class="token punctuation">(</span>chunkDir<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        chunkDir<span class="token operator">-></span>rwlock<span class="token punctuation">.</span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">releaseDir</span><span class="token punctuation">(</span>chunkDirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+
+      retVal <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+      <span class="token keyword">goto</span> out<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    mkdirPath <span class="token operator">=</span> mkdirPath <span class="token operator">+</span> <span class="token string">'/'</span><span class="token punctuation">;</span>  <span class="token comment">// path must be relative, so only add it here</span>
+    depth<span class="token operator">++</span><span class="token punctuation">;</span>
+    parentChunkDir <span class="token operator">=</span> chunkDir<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 如果都创建成功了，返回成功以及最深一层的 ChunkDir，此时应该还是带锁的状态。</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">likely</span><span class="token punctuation">(</span>chunkDir<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token operator">*</span>outChunkDir <span class="token operator">=</span> chunkDir<span class="token punctuation">;</span>
+    retVal <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span>
+    retVal <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+
+out<span class="token operator">:</span>
+  <span class="token keyword">return</span> retVal<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 倒序删除每一级目录。</span>
+<span class="token keyword">bool</span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">rmdirChunkDirPath</span><span class="token punctuation">(</span><span class="token keyword">int</span> targetFD<span class="token punctuation">,</span> Path <span class="token operator">*</span>chunkDirPath<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>logContext <span class="token operator">=</span> <span class="token string">"ChunkDirStore rmdir chunkdir path"</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> retVal <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> uidPos <span class="token operator">=</span> STORAGETK_CHUNKDIR_VEC_UIDPOS<span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> chunkDirPos <span class="token operator">=</span> chunkDirPath<span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Iterate over all path elements in reverse order and try to rmdir up to</span>
+  <span class="token comment">// uidXYZ</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>chunkDirPos <span class="token operator">>=</span> uidPos<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    std<span class="token double-colon punctuation">::</span>string chunkDirID <span class="token operator">=</span> <span class="token function">getUniqueDirID</span><span class="token punctuation">(</span>chunkDirPath<span class="token operator">-></span><span class="token function">back</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> chunkDirPos<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">/* Note: We only write-lock the current dir element. mkdir needs to (read)
+     * lock parent + current, until current was created. */</span>
+    ChunkDir <span class="token operator">*</span>chunkDir <span class="token operator">=</span> <span class="token function">referenceDir</span><span class="token punctuation">(</span>chunkDirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">likely</span><span class="token punctuation">(</span>chunkDir<span class="token punctuation">)</span><span class="token punctuation">)</span>
+      chunkDir<span class="token operator">-></span><span class="token function">writeLock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// LOCK, Note: SafeRWLock does not work due to the</span>
+                              <span class="token comment">// if-condition</span>
+    <span class="token keyword">else</span>
+      <span class="token function">LogContext</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span>
+          <span class="token punctuation">.</span><span class="token function">logErr</span><span class="token punctuation">(</span><span class="token string">"Bug: Failed to reference chunkDir: "</span> <span class="token operator">+</span> chunkDirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    std<span class="token double-colon punctuation">::</span>string rmDirPath <span class="token operator">=</span> chunkDirPath<span class="token operator">-></span><span class="token function">str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">int</span> rmdirRes <span class="token operator">=</span> <span class="token function">unlinkat</span><span class="token punctuation">(</span>targetFD<span class="token punctuation">,</span> rmDirPath<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> AT_REMOVEDIR<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">int</span> rmDirErrno <span class="token operator">=</span> errno<span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">likely</span><span class="token punctuation">(</span>chunkDir<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      chunkDir<span class="token operator">-></span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// UNLOCK</span>
+      <span class="token function">releaseDir</span><span class="token punctuation">(</span>chunkDirID<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>rmdirRes <span class="token operator">==</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>rmDirErrno <span class="token operator">!=</span> ENOENT<span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> <span class="token punctuation">(</span>rmDirErrno <span class="token operator">!=</span> ENOTEMPTY<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token function">LogContext</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span>
+            <span class="token punctuation">.</span><span class="token function">logErr</span><span class="token punctuation">(</span><span class="token string">"Unable to rmdir chunk path: "</span> <span class="token operator">+</span> rmDirPath <span class="token operator">+</span> <span class="token string">". "</span> <span class="token operator">+</span>
+                    <span class="token string">"SysErr: "</span> <span class="token operator">+</span> <span class="token class-name">System</span><span class="token double-colon punctuation">::</span><span class="token function">getErrString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        retVal <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token operator">*</span>chunkDirPath <span class="token operator">=</span> chunkDirPath<span class="token operator">-></span><span class="token function">dirname</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    chunkDirPos <span class="token operator">=</span> chunkDirPath<span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> retVal<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// 遍历每层目录修改权限信息。</span>
+<span class="token keyword">bool</span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">chmodV2ChunkDirPath</span><span class="token punctuation">(</span><span class="token keyword">int</span> targetFD<span class="token punctuation">,</span> <span class="token keyword">const</span> Path <span class="token operator">*</span>chunkDirPath<span class="token punctuation">,</span>
+                                     <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string <span class="token operator">&amp;</span>entryID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>logContext <span class="token operator">=</span> <span class="token string">"ChunkDirStore chmod V2 chunkdir path"</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> retVal <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  size_t pathElemIndex <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> didEntryID <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+
+  std<span class="token double-colon punctuation">::</span>string chmodPath<span class="token punctuation">;</span>
+
+  <span class="token comment">// Iterate and create basic chunks or mirror paths, we don't need any locking</span>
+  <span class="token comment">// here</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>pathElemIndex <span class="token operator">!=</span> chunkDirPath<span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">||</span> didEntryID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>pathElemIndex <span class="token operator">!=</span> chunkDirPath<span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      chmodPath <span class="token operator">+=</span> <span class="token punctuation">(</span><span class="token operator">*</span>chunkDirPath<span class="token punctuation">)</span><span class="token punctuation">[</span>pathElemIndex<span class="token punctuation">]</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      chmodPath <span class="token operator">+=</span> entryID<span class="token punctuation">;</span>
+      didEntryID <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">int</span> chmodRes <span class="token operator">=</span> <span class="token double-colon punctuation">::</span><span class="token function">fchmodat</span><span class="token punctuation">(</span>targetFD<span class="token punctuation">,</span> chmodPath<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                              STORAGETK_DEFAULTCHUNKDIRMODE<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>chmodRes <span class="token operator">&amp;&amp;</span> errno <span class="token operator">!=</span> ENOENT<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">LogContext</span><span class="token punctuation">(</span>logContext<span class="token punctuation">)</span>
+          <span class="token punctuation">.</span><span class="token function">logErr</span><span class="token punctuation">(</span><span class="token string">"Unable to change chunk path permissions: "</span> <span class="token operator">+</span> chmodPath <span class="token operator">+</span>
+                  <span class="token string">". "</span> <span class="token operator">+</span> <span class="token string">"SysErr: "</span> <span class="token operator">+</span> <span class="token class-name">System</span><span class="token double-colon punctuation">::</span><span class="token function">getErrString</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      retVal <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    chmodPath <span class="token operator">=</span> chmodPath <span class="token operator">+</span> <span class="token string">'/'</span><span class="token punctuation">;</span>  <span class="token comment">// path must be relative, so only add it here</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>pathElemIndex <span class="token operator">&lt;</span> chunkDirPath<span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> pathElemIndex<span class="token operator">++</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> retVal<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>Chunk 文件的创建：</p>
+<pre class="language-cpp"><code class="language-cpp">FhgfsOpsErr <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">openChunkFile</span><span class="token punctuation">(</span>
+    <span class="token keyword">int</span> targetFD<span class="token punctuation">,</span> <span class="token keyword">const</span> Path <span class="token operator">*</span>chunkDirPath<span class="token punctuation">,</span> <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string <span class="token operator">&amp;</span>chunkFilePathStr<span class="token punctuation">,</span>
+    <span class="token keyword">bool</span> hasOrigFeature<span class="token punctuation">,</span> <span class="token keyword">int</span> openFlags<span class="token punctuation">,</span> <span class="token keyword">int</span> <span class="token operator">*</span>outFD<span class="token punctuation">,</span>
+    <span class="token keyword">const</span> SessionQuotaInfo <span class="token operator">*</span>quotaInfo<span class="token punctuation">,</span>
+    <span class="token keyword">const</span> ExceededQuotaStorePtr exQuotaStore<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">char</span> <span class="token operator">*</span>logContext <span class="token operator">=</span> <span class="token string">"ChunkStore create chunkFile"</span><span class="token punctuation">;</span>
+  FhgfsOpsErr retVal <span class="token operator">=</span> FhgfsOpsErr_INTERNAL<span class="token punctuation">;</span>
+
+  <span class="token comment">// enforce quota only when the client has quota enabled</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>quotaInfo<span class="token operator">-></span>useQuota <span class="token operator">&amp;&amp;</span> quotaInfo<span class="token operator">-></span>enforceQuota <span class="token operator">&amp;&amp;</span> exQuotaStore<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// ... 先忽略 Quate 相关的代码</span>
+  <span class="token punctuation">}</span>
+
+  std<span class="token double-colon punctuation">::</span><span class="token function">tie</span><span class="token punctuation">(</span>retVal<span class="token punctuation">,</span> <span class="token operator">*</span>outFD<span class="token punctuation">)</span> <span class="token operator">=</span>
+      <span class="token function">openAndChown</span><span class="token punctuation">(</span>targetFD<span class="token punctuation">,</span> chunkFilePathStr<span class="token punctuation">,</span> openFlags<span class="token punctuation">,</span> <span class="token operator">*</span>quotaInfo<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>retVal <span class="token operator">==</span> FhgfsOpsErr_SUCCESS<span class="token punctuation">)</span> <span class="token keyword">return</span> FhgfsOpsErr_SUCCESS<span class="token punctuation">;</span>
+
+  <span class="token comment">// hash dir didn't exist yet or real error?</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>retVal <span class="token operator">==</span> FhgfsOpsErr_PATHNOTEXISTS<span class="token punctuation">)</span> <span class="token punctuation">{</span>  <span class="token comment">// hash dir just didn't exist yet</span>
+                                              <span class="token comment">// => create it and open again</span>
+    Path chunkDirPathTmp<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>chunkDirPath<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      chunkDirPathTmp <span class="token operator">=</span> chunkFilePathStr<span class="token punctuation">;</span>
+      chunkDirPathTmp <span class="token operator">=</span> chunkDirPathTmp<span class="token punctuation">.</span><span class="token function">dirname</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      chunkDirPath <span class="token operator">=</span> <span class="token operator">&amp;</span>chunkDirPathTmp<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    ChunkDir <span class="token operator">*</span>lastChunkDirElement<span class="token punctuation">;</span>
+
+    <span class="token comment">// Chunk 目录不存在导致打开失败的情况下，创建 chunkDirPath 目录。</span>
+    <span class="token keyword">bool</span> createPathRes <span class="token operator">=</span> <span class="token function">mkdirChunkDirPath</span><span class="token punctuation">(</span>
+        targetFD<span class="token punctuation">,</span> chunkDirPath<span class="token punctuation">,</span> hasOrigFeature<span class="token punctuation">,</span> <span class="token operator">&amp;</span>lastChunkDirElement<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>createPathRes<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">int</span> errCode <span class="token operator">=</span> errno<span class="token punctuation">;</span>
+
+      <span class="token function">LOG</span><span class="token punctuation">(</span>GENERAL<span class="token punctuation">,</span> ERR<span class="token punctuation">,</span> <span class="token string">"Unable to create path for file."</span><span class="token punctuation">,</span> chunkFilePathStr<span class="token punctuation">,</span>
+          sysErr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">return</span> <span class="token class-name">FhgfsOpsErrTk</span><span class="token double-colon punctuation">::</span><span class="token function">fromSysErr</span><span class="token punctuation">(</span>errCode<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// dir created => try file open/create again...</span>
+    <span class="token comment">// 再次尝试打开。</span>
+    std<span class="token double-colon punctuation">::</span><span class="token function">tie</span><span class="token punctuation">(</span>retVal<span class="token punctuation">,</span> <span class="token operator">*</span>outFD<span class="token punctuation">)</span> <span class="token operator">=</span>
+        <span class="token function">openAndChown</span><span class="token punctuation">(</span>targetFD<span class="token punctuation">,</span> chunkFilePathStr<span class="token punctuation">,</span> openFlags<span class="token punctuation">,</span> <span class="token operator">*</span>quotaInfo<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>lastChunkDirElement<span class="token punctuation">)</span>  <span class="token comment">// old V2 files do not get this</span>
+    <span class="token punctuation">{</span>
+      <span class="token comment">/* Unlock and release the last element once we have created
+       * (or at least tried to create) the file. */</span>
+      lastChunkDirElement<span class="token operator">-></span><span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">releaseDir</span><span class="token punctuation">(</span>lastChunkDirElement<span class="token operator">-></span><span class="token function">getID</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>retVal <span class="token operator">!=</span> FhgfsOpsErr_SUCCESS<span class="token punctuation">)</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>GENERAL<span class="token punctuation">,</span> ERR<span class="token punctuation">,</span> <span class="token string">"Failed to create file."</span><span class="token punctuation">,</span> chunkFilePathStr<span class="token punctuation">,</span> retVal<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">return</span> retVal<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+std<span class="token double-colon punctuation">::</span>pair<span class="token operator">&lt;</span>FhgfsOpsErr<span class="token punctuation">,</span> <span class="token keyword">int</span><span class="token operator">></span> <span class="token class-name">ChunkStore</span><span class="token double-colon punctuation">::</span><span class="token function">openAndChown</span><span class="token punctuation">(</span>
+    <span class="token keyword">const</span> <span class="token keyword">int</span> targetFD<span class="token punctuation">,</span> <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string <span class="token operator">&amp;</span>path<span class="token punctuation">,</span> <span class="token keyword">const</span> <span class="token keyword">int</span> openFlags<span class="token punctuation">,</span>
+    <span class="token keyword">const</span> SessionQuotaInfo <span class="token operator">&amp;</span>quota<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// if we aren't using quota, we don't care about the file owner at all and may</span>
+  <span class="token comment">// simply create the file if it does exist (and if openFlags requests it).</span>
+  <span class="token comment">//</span>
+  <span class="token comment">// if we are using quota, we must ensure that the owner information in of the</span>
+  <span class="token comment">// file is correct. this is slightly complicated by the fact that chunk files</span>
+  <span class="token comment">// are created *at first write*, not during file create itself. lazily</span>
+  <span class="token comment">// creating chunk files enables races:</span>
+  <span class="token comment">//  * process A creates the chunk file by writing to it, with quota</span>
+  <span class="token comment">//  information (U1, G1)</span>
+  <span class="token comment">//  * process B runs chown on the file with quota information (U2, G2)</span>
+  <span class="token comment">// if the chown is processed before the write the chunk file to be chowned</span>
+  <span class="token comment">// does not exist yet, and subsequently will be created with incorrect quota</span>
+  <span class="token comment">// information. fsck will detect these as incorrect chunk attributes when run.</span>
+  <span class="token comment">//</span>
+  <span class="token comment">// to reduce the impact of this, we chown() the file every time we open it -</span>
+  <span class="token comment">// even when we open it only for reading. this enables the same race as</span>
+  <span class="token comment">// before, but since reads and writes are expected to happen much more often</span>
+  <span class="token comment">// than chown it is more likely that we fix a previously "broken" attribute</span>
+  <span class="token comment">// set than break it.</span>
+  <span class="token comment">//</span>
+  <span class="token comment">// the previous implementation used setfsuid/setfsgid to create files with the</span>
+  <span class="token comment">// same correct(racy) owner information, but never changed the owner</span>
+  <span class="token comment">// afterwards. performance testing has shown that always calling chown() is as</span>
+  <span class="token comment">// expensive or even cheaper than changing fsuid/fsgid twice per open. always</span>
+  <span class="token comment">// calling chown() is also cheaper than checking whether the file was created</span>
+  <span class="token comment">// (by calling create with O_EXCL first, then without O_CREAT if that failed).</span>
+
+  <span class="token comment">// 打开 chunkFilePathStr。</span>
+  <span class="token keyword">const</span> <span class="token keyword">int</span> fd <span class="token operator">=</span>
+      <span class="token function">openat</span><span class="token punctuation">(</span>targetFD<span class="token punctuation">,</span> path<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> openFlags<span class="token punctuation">,</span> STORAGETK_DEFAULTCHUNKFILEMODE<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>fd <span class="token operator">&lt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>errno <span class="token operator">==</span> EACCES<span class="token punctuation">)</span>
+      <span class="token keyword">return</span> <span class="token punctuation">{</span>FhgfsOpsErr_NOTOWNER<span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span>
+      <span class="token keyword">return</span> <span class="token punctuation">{</span><span class="token class-name">FhgfsOpsErrTk</span><span class="token double-colon punctuation">::</span><span class="token function">fromSysErr</span><span class="token punctuation">(</span>errno<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>quota<span class="token punctuation">.</span>useQuota<span class="token punctuation">)</span> <span class="token keyword">return</span> <span class="token punctuation">{</span>FhgfsOpsErr_SUCCESS<span class="token punctuation">,</span> fd<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// 按 quota 修改归属，上面的英文注释解释了为啥要这样操作。</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">fchown</span><span class="token punctuation">(</span>fd<span class="token punctuation">,</span> quota<span class="token punctuation">.</span>uid<span class="token punctuation">,</span> quota<span class="token punctuation">.</span>gid<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">LOG</span><span class="token punctuation">(</span>GENERAL<span class="token punctuation">,</span> ERR<span class="token punctuation">,</span> <span class="token string">"Failed to chown()."</span><span class="token punctuation">,</span> path<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">unlink</span><span class="token punctuation">(</span>path<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">close</span><span class="token punctuation">(</span>fd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token punctuation">{</span>FhgfsOpsErr_INTERNAL<span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token punctuation">{</span>FhgfsOpsErr_SUCCESS<span class="token punctuation">,</span> fd<span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>
