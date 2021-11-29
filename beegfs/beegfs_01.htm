@@ -9,16 +9,16 @@
     <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
     <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
     <link rel="stylesheet" type="text/css" href="/dist/main.css">
-    <title>BeeGFS 源码分析「一、萍水相逢」 | SF-Zhou's Blog</title>
+    <title>BeeGFS 源码分析「一、存储目标」 | SF-Zhou's Blog</title>
   </head>
   <body>
     <div class="app">
       <div class="title">
-        <h1> BeeGFS 源码分析「一、萍水相逢」 </h1>
+        <h1> BeeGFS 源码分析「一、存储目标」 </h1>
       </div>
       <div class="markdown">
-        <p>最近出于工作需要，准备看完 <a href="https://git.beegfs.io/pub/v7/-/tree/f85c4a62b4b4de0efd6ca9789a634b20604ee8f6">BeeGFS v7.2.5</a> 的代码，写点分析。代码规模在 20 万行左右，分为几个大模块。笔者无法很好地预测之后每篇博客能覆盖的主题，所以标题就随心所欲吧。</p>
-<h3 id="1.-概览" tabindex="-1"><a href="#1.-%E6%A6%82%E8%A7%88">1. 概览</a></h3>
+        <p>最近出于工作需要，准备看完 <a href="https://git.beegfs.io/pub/v7/-/tree/f85c4a62b4b4de0efd6ca9789a634b20604ee8f6">BeeGFS v7.2.5</a> 的代码，写点分析。代码规模在 20 万行左右，分为几个大模块。本文的标题存储目标是 Storage Target 的直译。</p>
+<h3 id="1.-overview" tabindex="-1"><a href="#1.-overview">1. Overview</a></h3>
 <p>BeeGFS 是一套专为 HPC 开发的并行文件系统。其官网的介绍如下：</p>
 <blockquote>
 <p>BeeGFS is a  hardware-independent POSIX parallel file system (a.k.a Software-defined  Parallel Storage) developed with a strong focus on performance and  designed for ease of use, simple installation, and management. BeeGFS is created on an Available Source development model (source code is  publicly available), offering a self-supported Community Edition and a  fully supported Enterprise Edition with additional features and  functionalities. BeeGFS is designed for all performance-oriented  environments including HPC, AI and Deep Learning, Life Sciences, and Oil &amp; Gas.</p>
@@ -56,7 +56,7 @@
 └── utils_devel
 </code></pre>
 <p>有兴趣的同学建议先按照<a href="https://doc.beegfs.io/latest/quick_start_guide/quick_start_guide.html">官方文档</a>部署一个 BeeGFS 服务体验下，上述的几种类型的节点实际上可以部署到同一台物理机器上。</p>
-<h3 id="2.-storage/source/storage" tabindex="-1"><a href="#2.-storage%2Fsource%2Fstorage">2. storage/source/storage</a></h3>
+<h3 id="2.-storage-layer" tabindex="-1"><a href="#2.-storage-layer">2. Storage Layer</a></h3>
 <p>按目录阅读代码，首先看这个目录：</p>
 <pre class="language-markup"><code class="language-markup">storage/source/storage
 ├── ChunkDir.h
@@ -790,6 +790,346 @@ std<span class="token double-colon punctuation">::</span>pair<span class="token 
   <span class="token keyword">return</span> <span class="token punctuation">{</span>FhgfsOpsErr_SUCCESS<span class="token punctuation">,</span> fd<span class="token punctuation">}</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
+<p><strong>QuotaBlockDevice.h</strong> 与 Quota 相关，应该会在后续的博文中统一介绍。<strong>StorageTargets.h</strong> 涉及的依赖较多，下一节单独分析。最后来看下 <strong>SyncedStoragePaths.h</strong>：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">SyncedStoragePaths</span> <span class="token punctuation">{</span>
+  <span class="token comment">// type definitions</span>
+  <span class="token keyword">typedef</span> std<span class="token double-colon punctuation">::</span>set<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>string<span class="token operator">></span>
+      StoragePathsSet<span class="token punctuation">;</span>  <span class="token comment">// key: string (path and target)</span>
+  <span class="token keyword">typedef</span> StoragePathsSet<span class="token double-colon punctuation">::</span>iterator StoragePathsSetIter<span class="token punctuation">;</span>
+  <span class="token keyword">typedef</span> StoragePathsSet<span class="token double-colon punctuation">::</span>value_type StoragePathsSetVal<span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">SyncedStoragePaths</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">initStorageVersion</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  Mutex mutex<span class="token punctuation">;</span>
+  Condition eraseCond<span class="token punctuation">;</span>      <span class="token comment">// broadcasted when path erased from map</span>
+  <span class="token keyword">uint64_t</span> storageVersion<span class="token punctuation">;</span>  <span class="token comment">// zero is the invalid version!</span>
+  StoragePathsSet paths<span class="token punctuation">;</span>    <span class="token comment">// for currently locked paths</span>
+
+  <span class="token comment">// inliners</span>
+
+  <span class="token keyword">void</span> <span class="token function">initStorageVersion</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">/* note: we assume here that the clock doesn't jump too much backwards
+       between restarts of the daemon and that we don't have more than 2^32
+       increase ops per second (the latter shouldn't be a problem for the next
+       years) */</span>
+
+    <span class="token keyword">uint64_t</span> currentSecs <span class="token operator">=</span> <span class="token class-name">System</span><span class="token double-colon punctuation">::</span><span class="token function">getCurrentTimeSecs</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 64 位的版本，高 32 位为当前的秒数。</span>
+    <span class="token keyword">this</span><span class="token operator">-></span>storageVersion <span class="token operator">=</span> <span class="token punctuation">(</span>currentSecs <span class="token operator">&lt;&lt;</span> <span class="token number">32</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">/**
+   * Note: Caller must hold the mutex.
+   */</span>
+  <span class="token comment">// 有锁的情况下，自增提升版本。</span>
+  <span class="token keyword">uint64_t</span> <span class="token function">incStorageVersion</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token operator">++</span>storageVersion<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">// inliners</span>
+
+  <span class="token comment">/**
+   * Locks a path and creates a new monotonic increasing storage version for it.
+   *
+   * Note: Make sure to unlock the same path later via unlockPath().
+   *
+   * @return storage version for this path lock
+   */</span>
+  <span class="token keyword">uint64_t</span> <span class="token function">lockPath</span><span class="token punctuation">(</span><span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string path<span class="token punctuation">,</span> <span class="token keyword">uint16_t</span> targetID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">/* we just have to make sure that each target+path is inserted (=>locked)
+       only once and that the next one who wants to insert the same path will
+       wait until the old path is erased (=> unlocked) */</span>
+
+    <span class="token comment">// 根据 path 和 targetID 构造标识符。</span>
+    std<span class="token double-colon punctuation">::</span>string <span class="token function">targetPath</span><span class="token punctuation">(</span>path <span class="token operator">+</span> <span class="token string">"@"</span> <span class="token operator">+</span> <span class="token class-name">StringTk</span><span class="token double-colon punctuation">::</span><span class="token function">uint64ToHexStr</span><span class="token punctuation">(</span>targetID<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>lock_guard<span class="token operator">&lt;</span>Mutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 插入集合中，插入失败则通过条件变量等待并无限重试。</span>
+    <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token operator">!</span>paths<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span>targetPath<span class="token punctuation">)</span><span class="token punctuation">.</span>second<span class="token punctuation">)</span> eraseCond<span class="token punctuation">.</span><span class="token function">wait</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 提升当前版本，完成对路径的锁定。</span>
+    <span class="token keyword">return</span> <span class="token function">incStorageVersion</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">unlockPath</span><span class="token punctuation">(</span><span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string path<span class="token punctuation">,</span> <span class="token keyword">uint16_t</span> targetID<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// unlocking just means we erase the target+path from the map, so the next</span>
+    <span class="token comment">// one can lock it</span>
+
+    std<span class="token double-colon punctuation">::</span>string <span class="token function">targetPath</span><span class="token punctuation">(</span>path <span class="token operator">+</span> <span class="token string">"@"</span> <span class="token operator">+</span> <span class="token class-name">StringTk</span><span class="token double-colon punctuation">::</span><span class="token function">uintToHexStr</span><span class="token punctuation">(</span>targetID<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>lock_guard<span class="token operator">&lt;</span>Mutex<span class="token operator">></span> <span class="token function">lock</span><span class="token punctuation">(</span>mutex<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 从集合中删除，这里没有修改版本。</span>
+    size_t numErased <span class="token operator">=</span> paths<span class="token punctuation">.</span><span class="token function">erase</span><span class="token punctuation">(</span>targetPath<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">unlikely</span><span class="token punctuation">(</span><span class="token operator">!</span>numErased<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token function">LOG_DEBUG</span><span class="token punctuation">(</span><span class="token string">"SyncedStorgePaths::unlockPath"</span><span class="token punctuation">,</span> Log_ERR<span class="token punctuation">,</span>
+                <span class="token string">"Attempt to unlock a path that wasn't locked: "</span> <span class="token operator">+</span> targetPath<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    eraseCond<span class="token punctuation">.</span><span class="token function">broadcast</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<h3 id="3.-storage-targets" tabindex="-1"><a href="#3.-storage-targets">3. Storage Targets</a></h3>
+<p>在分析 Storage Targets 的代码前，先依次看下它的依赖项。</p>
+<p><strong>common/source/common/nodes/TargetStateInfo.h</strong>，定义了 Target 的可访问状态和一致性状态：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// 可访问状态</span>
+<span class="token keyword">enum</span> <span class="token class-name">TargetReachabilityState</span> <span class="token punctuation">{</span>
+  TargetReachabilityState_ONLINE<span class="token punctuation">,</span>
+  TargetReachabilityState_POFFLINE<span class="token punctuation">,</span>  <span class="token comment">// 可能离线</span>
+  TargetReachabilityState_OFFLINE    <span class="token comment">// 离线</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// 一致性状态</span>
+<span class="token keyword">enum</span> <span class="token class-name">TargetConsistencyState</span> <span class="token punctuation">{</span>
+  TargetConsistencyState_GOOD<span class="token punctuation">,</span>          <span class="token comment">// 状态一致</span>
+  TargetConsistencyState_NEEDS_RESYNC<span class="token punctuation">,</span>  <span class="token comment">// 需要同步</span>
+  TargetConsistencyState_BAD            <span class="token comment">// 状态错误，需要人工干预</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// 综合状态，包括可访问性和一致性。</span>
+<span class="token keyword">struct</span> <span class="token class-name">CombinedTargetState</span> <span class="token punctuation">{</span>
+  TargetReachabilityState reachabilityState<span class="token punctuation">;</span>
+  TargetConsistencyState consistencyState<span class="token punctuation">;</span>
+
+  <span class="token function">CombinedTargetState</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">reachabilityState</span><span class="token punctuation">(</span>TargetReachabilityState_OFFLINE<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">consistencyState</span><span class="token punctuation">(</span>TargetConsistencyState_GOOD<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token function">CombinedTargetState</span><span class="token punctuation">(</span>TargetReachabilityState reachabilityState<span class="token punctuation">,</span>
+                      TargetConsistencyState consistencyState<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">reachabilityState</span><span class="token punctuation">(</span>reachabilityState<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">consistencyState</span><span class="token punctuation">(</span>consistencyState<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">!=</span><span class="token punctuation">(</span><span class="token keyword">const</span> CombinedTargetState<span class="token operator">&amp;</span> other<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>reachabilityState <span class="token operator">!=</span> other<span class="token punctuation">.</span>reachabilityState<span class="token punctuation">)</span> <span class="token operator">||</span>
+            <span class="token punctuation">(</span>consistencyState <span class="token operator">!=</span> other<span class="token punctuation">.</span>consistencyState<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">==</span><span class="token punctuation">(</span><span class="token keyword">const</span> CombinedTargetState<span class="token operator">&amp;</span> other<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>reachabilityState <span class="token operator">==</span> other<span class="token punctuation">.</span>reachabilityState<span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span>
+            <span class="token punctuation">(</span>consistencyState <span class="token operator">==</span> other<span class="token punctuation">.</span>consistencyState<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 序列化，反序列化也是同一个函数，后续博文会详细分析下实现。</span>
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">This</span><span class="token punctuation">,</span> <span class="token keyword">typename</span> <span class="token class-name">Ctx</span><span class="token operator">></span>
+  <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">serialize</span><span class="token punctuation">(</span>This obj<span class="token punctuation">,</span> Ctx<span class="token operator">&amp;</span> ctx<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    ctx <span class="token operator">%</span> obj<span class="token operator">-></span>reachabilityState <span class="token operator">%</span> obj<span class="token operator">-></span>consistencyState<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// 状态信息，包含上次状态更新的时间。</span>
+<span class="token keyword">struct</span> <span class="token class-name">TargetStateInfo</span> <span class="token operator">:</span> <span class="token base-clause"><span class="token keyword">public</span> <span class="token class-name">CombinedTargetState</span></span> <span class="token punctuation">{</span>
+  Time lastChangedTime<span class="token punctuation">;</span>  <span class="token comment">// note: relative time, may not be synced across nodes.</span>
+
+  <span class="token function">TargetStateInfo</span><span class="token punctuation">(</span>TargetReachabilityState reachabilityState<span class="token punctuation">,</span>
+                  TargetConsistencyState consistencyState<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">CombinedTargetState</span><span class="token punctuation">(</span>reachabilityState<span class="token punctuation">,</span> consistencyState<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token function">TargetStateInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  TargetStateInfo<span class="token operator">&amp;</span> <span class="token keyword">operator</span><span class="token operator">=</span><span class="token punctuation">(</span><span class="token keyword">const</span> TargetStateInfo<span class="token operator">&amp;</span> other<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">&amp;</span>other <span class="token operator">==</span> <span class="token keyword">this</span><span class="token punctuation">)</span> <span class="token keyword">return</span> <span class="token operator">*</span><span class="token keyword">this</span><span class="token punctuation">;</span>
+
+    reachabilityState <span class="token operator">=</span> other<span class="token punctuation">.</span>reachabilityState<span class="token punctuation">;</span>
+    consistencyState <span class="token operator">=</span> other<span class="token punctuation">.</span>consistencyState<span class="token punctuation">;</span>
+    lastChangedTime <span class="token operator">=</span> other<span class="token punctuation">.</span>lastChangedTime<span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> <span class="token operator">*</span><span class="token keyword">this</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 从综合状态赋值，注意时间更新为当前时间。</span>
+  TargetStateInfo<span class="token operator">&amp;</span> <span class="token keyword">operator</span><span class="token operator">=</span><span class="token punctuation">(</span><span class="token keyword">const</span> CombinedTargetState<span class="token operator">&amp;</span> other<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">&amp;</span>other <span class="token operator">==</span> <span class="token keyword">this</span><span class="token punctuation">)</span> <span class="token keyword">return</span> <span class="token operator">*</span><span class="token keyword">this</span><span class="token punctuation">;</span>
+
+    reachabilityState <span class="token operator">=</span> other<span class="token punctuation">.</span>reachabilityState<span class="token punctuation">;</span>
+    consistencyState <span class="token operator">=</span> other<span class="token punctuation">.</span>consistencyState<span class="token punctuation">;</span>
+    lastChangedTime<span class="token punctuation">.</span><span class="token function">setToNow</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> <span class="token operator">*</span><span class="token keyword">this</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// 状态比对时忽略了时间。</span>
+  <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">!=</span><span class="token punctuation">(</span><span class="token keyword">const</span> CombinedTargetState<span class="token operator">&amp;</span> other<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>reachabilityState <span class="token operator">!=</span> other<span class="token punctuation">.</span>reachabilityState<span class="token punctuation">)</span> <span class="token operator">||</span>
+            <span class="token punctuation">(</span>consistencyState <span class="token operator">!=</span> other<span class="token punctuation">.</span>consistencyState<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">This</span><span class="token punctuation">,</span> <span class="token keyword">typename</span> <span class="token class-name">Ctx</span><span class="token operator">></span>
+  <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">serialize</span><span class="token punctuation">(</span>This obj<span class="token punctuation">,</span> Ctx<span class="token operator">&amp;</span> ctx<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    ctx <span class="token operator">%</span> serdes<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">base</span><span class="token generic class-name"><span class="token operator">&lt;</span>CombinedTargetState<span class="token operator">></span></span></span><span class="token punctuation">(</span>obj<span class="token punctuation">)</span> <span class="token operator">%</span> obj<span class="token operator">-></span>lastChangedTime<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// 代码中经常会出现的类型定义。</span>
+<span class="token keyword">typedef</span> std<span class="token double-colon punctuation">::</span>map<span class="token operator">&lt;</span><span class="token keyword">uint16_t</span><span class="token punctuation">,</span> CombinedTargetState<span class="token operator">></span> TargetStateMap<span class="token punctuation">;</span>
+<span class="token keyword">typedef</span> std<span class="token double-colon punctuation">::</span>map<span class="token operator">&lt;</span><span class="token keyword">uint16_t</span><span class="token punctuation">,</span> TargetStateInfo<span class="token operator">></span> TargetStateInfoMap<span class="token punctuation">;</span>
+</code></pre>
+<p><strong>common/source/common/storage/StorageTargetInfo.h</strong>，Target 属性数据结构，包括容量、inode 和一致性状态：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">StorageTargetInfo</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">StorageTargetInfo</span><span class="token punctuation">(</span><span class="token keyword">uint16_t</span> targetID<span class="token punctuation">,</span> <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> pathStr<span class="token punctuation">,</span>
+                    <span class="token keyword">int64_t</span> diskSpaceTotal<span class="token punctuation">,</span> <span class="token keyword">int64_t</span> diskSpaceFree<span class="token punctuation">,</span>
+                    <span class="token keyword">int64_t</span> inodesTotal<span class="token punctuation">,</span> <span class="token keyword">int64_t</span> inodesFree<span class="token punctuation">,</span>
+                    TargetConsistencyState consistencyState<span class="token punctuation">)</span>
+      <span class="token operator">:</span> <span class="token function">targetID</span><span class="token punctuation">(</span>targetID<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">pathStr</span><span class="token punctuation">(</span>pathStr<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">diskSpaceTotal</span><span class="token punctuation">(</span>diskSpaceTotal<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">diskSpaceFree</span><span class="token punctuation">(</span>diskSpaceFree<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">inodesTotal</span><span class="token punctuation">(</span>inodesTotal<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">inodesFree</span><span class="token punctuation">(</span>inodesFree<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token function">consistencyState</span><span class="token punctuation">(</span>consistencyState<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token comment">/**
+   * only for deserialization
+   */</span>
+  <span class="token function">StorageTargetInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  <span class="token keyword">static</span> FhgfsOpsErr <span class="token function">statStoragePath</span><span class="token punctuation">(</span>Node<span class="token operator">&amp;</span> node<span class="token punctuation">,</span> <span class="token keyword">uint16_t</span> targetID<span class="token punctuation">,</span>
+                                     <span class="token keyword">int64_t</span><span class="token operator">*</span> outFree<span class="token punctuation">,</span> <span class="token keyword">int64_t</span><span class="token operator">*</span> outTotal<span class="token punctuation">,</span>
+                                     <span class="token keyword">int64_t</span><span class="token operator">*</span> outInodesFree<span class="token punctuation">,</span>
+                                     <span class="token keyword">int64_t</span><span class="token operator">*</span> outInodesTotal<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">uint16_t</span> targetID<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>string pathStr<span class="token punctuation">;</span>
+  <span class="token keyword">int64_t</span> diskSpaceTotal<span class="token punctuation">;</span>
+  <span class="token keyword">int64_t</span> diskSpaceFree<span class="token punctuation">;</span>
+  <span class="token keyword">int64_t</span> inodesTotal<span class="token punctuation">;</span>
+  <span class="token keyword">int64_t</span> inodesFree<span class="token punctuation">;</span>
+  TargetConsistencyState consistencyState<span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">// getter/setter</span>
+  <span class="token keyword">uint16_t</span> <span class="token function">getTargetID</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> targetID<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string <span class="token function">getPathStr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> pathStr<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">int64_t</span> <span class="token function">getDiskSpaceTotal</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> diskSpaceTotal<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">int64_t</span> <span class="token function">getDiskSpaceFree</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> diskSpaceFree<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">int64_t</span> <span class="token function">getInodesTotal</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> inodesTotal<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token keyword">int64_t</span> <span class="token function">getInodesFree</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> inodesFree<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  TargetConsistencyState <span class="token function">getState</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> consistencyState<span class="token punctuation">;</span> <span class="token punctuation">}</span>
+
+  <span class="token comment">// operators</span>
+  <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token keyword">const</span> StorageTargetInfo<span class="token operator">&amp;</span> other<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>targetID <span class="token operator">&lt;</span> other<span class="token punctuation">.</span>targetID<span class="token punctuation">)</span>
+      <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">==</span><span class="token punctuation">(</span><span class="token keyword">const</span> StorageTargetInfo<span class="token operator">&amp;</span> other<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>targetID <span class="token operator">!=</span> other<span class="token punctuation">.</span>targetID<span class="token punctuation">)</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>pathStr <span class="token operator">!=</span> other<span class="token punctuation">.</span>pathStr<span class="token punctuation">)</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>diskSpaceTotal <span class="token operator">!=</span> other<span class="token punctuation">.</span>diskSpaceTotal<span class="token punctuation">)</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>diskSpaceFree <span class="token operator">!=</span> other<span class="token punctuation">.</span>diskSpaceFree<span class="token punctuation">)</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>inodesTotal <span class="token operator">!=</span> other<span class="token punctuation">.</span>inodesTotal<span class="token punctuation">)</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>inodesFree <span class="token operator">!=</span> other<span class="token punctuation">.</span>inodesFree<span class="token punctuation">)</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>consistencyState <span class="token operator">!=</span> other<span class="token punctuation">.</span>consistencyState<span class="token punctuation">)</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token keyword">else</span>
+      <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token keyword">operator</span><span class="token operator">!=</span><span class="token punctuation">(</span><span class="token keyword">const</span> StorageTargetInfo<span class="token operator">&amp;</span> other<span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token operator">!</span><span class="token punctuation">(</span><span class="token keyword">operator</span><span class="token operator">==</span><span class="token punctuation">(</span>other<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">This</span><span class="token punctuation">,</span> <span class="token keyword">typename</span> <span class="token class-name">Ctx</span><span class="token operator">></span>
+  <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">serialize</span><span class="token punctuation">(</span>This obj<span class="token punctuation">,</span> Ctx<span class="token operator">&amp;</span> ctx<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    ctx <span class="token operator">%</span> obj<span class="token operator">-></span>targetID <span class="token operator">%</span> serdes<span class="token double-colon punctuation">::</span><span class="token function">stringAlign4</span><span class="token punctuation">(</span>obj<span class="token operator">-></span>pathStr<span class="token punctuation">)</span> <span class="token operator">%</span>
+        obj<span class="token operator">-></span>diskSpaceTotal <span class="token operator">%</span> obj<span class="token operator">-></span>diskSpaceFree <span class="token operator">%</span> obj<span class="token operator">-></span>inodesTotal <span class="token operator">%</span>
+        obj<span class="token operator">-></span>inodesFree <span class="token operator">%</span> serdes<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">as</span><span class="token generic class-name"><span class="token operator">&lt;</span><span class="token keyword">uint8_t</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>obj<span class="token operator">-></span>consistencyState<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// 序列化 std::list&lt;StorageTargetInfo> 时不单独序列化总占用内存大小。</span>
+<span class="token comment">// 该序列化选项一般用于非定长的数据结构，比如字符串，反序列化时对内存大小进行校验。</span>
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token operator">></span>
+<span class="token keyword">struct</span> <span class="token class-name">ListSerializationHasLength</span><span class="token operator">&lt;</span>StorageTargetInfo<span class="token operator">></span> <span class="token operator">:</span> boost<span class="token double-colon punctuation">::</span>false_type <span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">typedef</span> std<span class="token double-colon punctuation">::</span>list<span class="token operator">&lt;</span>StorageTargetInfo<span class="token operator">></span> StorageTargetInfoList<span class="token punctuation">;</span>
+</code></pre>
+<p><strong>common/source/common/toolkit/PreallocatedFile.h</strong>，一种预分配空间的文件，防止磁盘满时写入失败：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">namespace</span> detail <span class="token punctuation">{</span>
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">struct</span> <span class="token class-name">PreallocatedFileDefaultSize</span> <span class="token punctuation">{</span>
+  <span class="token comment">// std::trivial 比 POD 要求低一些，std::integral_constant 将常量打包成类型。</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> size_t value <span class="token operator">=</span>
+      std<span class="token double-colon punctuation">::</span>enable_if<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>is_trivial<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token double-colon punctuation">::</span>value<span class="token punctuation">,</span>
+                     std<span class="token double-colon punctuation">::</span>integral_constant<span class="token operator">&lt;</span>size_t<span class="token punctuation">,</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>T<span class="token punctuation">)</span><span class="token operator">>></span><span class="token double-colon punctuation">::</span>type<span class="token double-colon punctuation">::</span>value<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>  <span class="token comment">// namespace detail</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token punctuation">,</span>
+          size_t Size <span class="token operator">=</span> detail<span class="token double-colon punctuation">::</span>PreallocatedFileDefaultSize<span class="token operator">&lt;</span>T<span class="token operator">></span><span class="token double-colon punctuation">::</span>value<span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">PreallocatedFile</span> <span class="token punctuation">{</span>
+  <span class="token keyword">static_assert</span><span class="token punctuation">(</span>Size <span class="token operator">&lt;=</span> std<span class="token double-colon punctuation">::</span><span class="token class-name">numeric_limits</span><span class="token operator">&lt;</span>off_t<span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token string">"Size too large"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token function">PreallocatedFile</span><span class="token punctuation">(</span><span class="token keyword">const</span> std<span class="token double-colon punctuation">::</span>string<span class="token operator">&amp;</span> path<span class="token punctuation">,</span> mode_t mode<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    fd <span class="token operator">=</span> <span class="token function">FDHandle</span><span class="token punctuation">(</span><span class="token function">open</span><span class="token punctuation">(</span>path<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> O_CREAT <span class="token operator">|</span> O_RDWR<span class="token punctuation">,</span> mode<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>fd<span class="token punctuation">.</span><span class="token function">valid</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+      <span class="token keyword">throw</span> std<span class="token double-colon punctuation">::</span><span class="token function">system_error</span><span class="token punctuation">(</span>errno<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span><span class="token function">system_category</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> path<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 预先分配空间。</span>
+    <span class="token keyword">const</span> <span class="token keyword">int</span> fallocateRes <span class="token operator">=</span> <span class="token function">posix_fallocate</span><span class="token punctuation">(</span><span class="token operator">*</span>fd<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> Size <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>fallocateRes <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span>
+      <span class="token keyword">throw</span> std<span class="token double-colon punctuation">::</span><span class="token function">system_error</span><span class="token punctuation">(</span>fallocateRes<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span><span class="token function">system_category</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> path<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">void</span> <span class="token function">write</span><span class="token punctuation">(</span><span class="token keyword">const</span> T<span class="token operator">&amp;</span> value<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">char</span> buf<span class="token punctuation">[</span>Size <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+    buf<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token comment">// 序列化到 buf + 1 的位置。</span>
+    Serializer <span class="token function">ser</span><span class="token punctuation">(</span>buf <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> Size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    ser <span class="token operator">%</span> value<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>ser<span class="token punctuation">.</span><span class="token function">good</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">throw</span> std<span class="token double-colon punctuation">::</span><span class="token function">runtime_error</span><span class="token punctuation">(</span><span class="token string">"value too large for buffer"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 写入文件，如果写入失败则抛出异常（例如磁盘只读）</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">pwrite</span><span class="token punctuation">(</span><span class="token operator">*</span>fd<span class="token punctuation">,</span> buf<span class="token punctuation">,</span> Size <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token operator">!=</span> Size <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">)</span>
+      <span class="token keyword">throw</span> std<span class="token double-colon punctuation">::</span><span class="token function">system_error</span><span class="token punctuation">(</span>errno<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span><span class="token function">system_category</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  boost<span class="token double-colon punctuation">::</span>optional<span class="token operator">&lt;</span>T<span class="token operator">></span> <span class="token function">read</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">char</span> buf<span class="token punctuation">[</span>Size <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">pread</span><span class="token punctuation">(</span><span class="token operator">*</span>fd<span class="token punctuation">,</span> buf<span class="token punctuation">,</span> Size <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token operator">!=</span> Size <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">)</span>
+      <span class="token keyword">throw</span> std<span class="token double-colon punctuation">::</span><span class="token function">system_error</span><span class="token punctuation">(</span>errno<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span><span class="token function">system_category</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>buf<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span> <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token keyword">return</span> boost<span class="token double-colon punctuation">::</span>none<span class="token punctuation">;</span>
+
+    <span class="token comment">// 反序列化。</span>
+    Deserializer <span class="token function">des</span><span class="token punctuation">(</span>buf <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">,</span> Size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    T result<span class="token punctuation">;</span>
+
+    des <span class="token operator">%</span> result<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>des<span class="token punctuation">.</span><span class="token function">good</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">throw</span> std<span class="token double-colon punctuation">::</span><span class="token function">runtime_error</span><span class="token punctuation">(</span><span class="token string">"deserialization failed"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> result<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  FDHandle fd<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<h3 id="4.-something-else" tabindex="-1"><a href="#4.-something-else">4. Something Else</a></h3>
+<p>最近闲暇之余开始看 <em>Understanding the Linux Kernel</em>，琐碎的细节很多，需要自己过滤出有价值的东西。</p>
 
       </div>
       <div id="gitalk-container">
