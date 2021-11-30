@@ -79,7 +79,7 @@ async function main() {
         join(config.posts_path, article_path), article_content);
     }
 
-    const article = analyze_article(article_content, article_filename);
+    const article = analyze_article(article_content, article_filename, config.default_author);
     article.html = marked(article.markdown);
 
     const view = {

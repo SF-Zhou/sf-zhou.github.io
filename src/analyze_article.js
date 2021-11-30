@@ -1,4 +1,4 @@
-function analyze_article(markdown, article_filename) {
+function analyze_article(markdown, article_filename, default_author) {
   let info = [];
   const match = article_filename.match(/^\[([^\]]+)\]/);
   if (match) {
@@ -8,7 +8,7 @@ function analyze_article(markdown, article_filename) {
   let [date, tags_string, author] = info;
 
   let tags = tags_string ? tags_string.split(',') : [];
-  author = author;
+  author = author || default_author;
 
   let title = article_filename;
   if (markdown.startsWith('# ')) {
