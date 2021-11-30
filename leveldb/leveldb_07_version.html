@@ -16,6 +16,12 @@
       <div class="title">
         <h1> LevelDB 源码分析「七、版本管理」 </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2019.08.28 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <p>本系列的<a href="/leveldb/leveldb_06_sorted_table.html">上一篇</a>介绍了 Sorted Table 的构建和读取过程。当 Sorted Table 不断构建出来时，需要使用适当的方式来组织、管理生成的 <code>.ldb</code> 文件。并且 LevelDB 支持快照，这需要 LevelDB 具有版本管理能力。本篇将分析 LevelDB 版本管理相关的代码。</p>
 <h3 id="1.-版本概述" tabindex="-1"><a href="#1.-%E7%89%88%E6%9C%AC%E6%A6%82%E8%BF%B0">1. 版本概述</a></h3>

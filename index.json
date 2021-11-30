@@ -2,6 +2,7 @@
   {
     "title": "C++ TLS 触发的栈溢出",
     "date": "2021.06.21",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "TLS"
@@ -12,6 +13,7 @@
   {
     "title": "Robin Hood Hashing 源码分析",
     "date": "2021.05.21",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Container"
@@ -22,6 +24,7 @@
   {
     "title": "再探 C++20 协程",
     "date": "2021.04.29",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Coroutine"
@@ -32,6 +35,7 @@
   {
     "title": "Tokio 源码分析「三、运行时 Runtime」",
     "date": "2021.04.25",
+    "author": "SF-Zhou",
     "tags": [
       "Rust",
       "Tokio",
@@ -43,6 +47,7 @@
   {
     "title": "bRPC 源码分析「五、请求处理」",
     "date": "2021.03.19",
+    "author": "SF-Zhou",
     "tags": [
       "bRPC",
       "C++",
@@ -54,6 +59,7 @@
   {
     "title": "bRPC 源码分析「四、协程调度」",
     "date": "2021.03.10",
+    "author": "SF-Zhou",
     "tags": [
       "bRPC",
       "C++"
@@ -64,6 +70,7 @@
   {
     "title": "bRPC 源码分析「三、网络通信」",
     "date": "2021.03.04",
+    "author": "SF-Zhou",
     "tags": [
       "bRPC",
       "C++"
@@ -74,6 +81,7 @@
   {
     "title": "bRPC 源码分析「二、资源管理」",
     "date": "2021.03.03",
+    "author": "SF-Zhou",
     "tags": [
       "bRPC",
       "C++"
@@ -84,6 +92,7 @@
   {
     "title": "bRPC 源码分析「一、协程设计」",
     "date": "2021.03.02",
+    "author": "SF-Zhou",
     "tags": [
       "bRPC",
       "C++"
@@ -94,6 +103,7 @@
   {
     "title": "Tokio 源码分析「二、字节流 Bytes」",
     "date": "2020.11.12",
+    "author": "SF-Zhou",
     "tags": [
       "Rust",
       "Tokio",
@@ -105,6 +115,7 @@
   {
     "title": "Tokio 源码分析「一、事件驱动 IO」",
     "date": "2020.11.08",
+    "author": "SF-Zhou",
     "tags": [
       "Rust",
       "Tokio",
@@ -116,6 +127,7 @@
   {
     "title": "初探 C++20 协程",
     "date": "2020.07.25",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Coroutine"
@@ -126,6 +138,7 @@
   {
     "title": "C++ Lock-free Hazard Pointer",
     "date": "2020.07.19",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Hazard",
@@ -137,6 +150,7 @@
   {
     "title": "C++ 缺少常量修饰符引发的 Bug",
     "date": "2020.07.02",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "String",
@@ -148,6 +162,7 @@
   {
     "title": "C++ 访问类私有成员变量",
     "date": "2020.07.01",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Private",
@@ -159,6 +174,7 @@
   {
     "title": "C++ Lock-free Atomic Shared Pointer",
     "date": "2020.06.14",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Atomic",
@@ -170,6 +186,7 @@
   {
     "title": "内存屏障和内存模型",
     "date": "2020.06.10",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Memory",
@@ -181,6 +198,7 @@
   {
     "title": "PaxosStore 源码分析「七、其他细节」",
     "date": "2020.04.26",
+    "author": "SF-Zhou",
     "tags": [
       "Paxos",
       "C++",
@@ -192,6 +210,7 @@
   {
     "title": "PaxosStore 源码分析「六、流程细节」",
     "date": "2020.04.12",
+    "author": "SF-Zhou",
     "tags": [
       "Paxos",
       "C++",
@@ -203,6 +222,7 @@
   {
     "title": "PaxosStore 源码分析「五、实现细节」",
     "date": "2020.03.26",
+    "author": "SF-Zhou",
     "tags": [
       "Paxos",
       "C++",
@@ -214,6 +234,7 @@
   {
     "title": "PaxosStore 源码分析「四、协议日志」",
     "date": "2020.03.08",
+    "author": "SF-Zhou",
     "tags": [
       "Paxos",
       "C++",
@@ -225,6 +246,7 @@
   {
     "title": "PaxosStore 源码分析「三、共识协议」",
     "date": "2020.02.17",
+    "author": "SF-Zhou",
     "tags": [
       "Paxos",
       "C++",
@@ -236,6 +258,7 @@
   {
     "title": "PaxosStore 源码分析「二、消息传递」",
     "date": "2020.02.16",
+    "author": "SF-Zhou",
     "tags": [
       "Paxos",
       "C++",
@@ -247,6 +270,7 @@
   {
     "title": "PaxosStore 源码分析「一、网络通信」",
     "date": "2020.02.15",
+    "author": "SF-Zhou",
     "tags": [
       "Paxos",
       "C++",
@@ -258,6 +282,7 @@
   {
     "title": "Linux Socket 通信与 IO 多路复用",
     "date": "2020.02.03",
+    "author": "SF-Zhou",
     "tags": [
       "Linux",
       "Socket",
@@ -269,6 +294,7 @@
   {
     "title": "C++ 隐式转换引发的 Bug",
     "date": "2019.11.22",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Lambda",
@@ -280,6 +306,7 @@
   {
     "title": "C++ Macro: Number of Arguments",
     "date": "2019.11.18",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Macro",
@@ -291,6 +318,7 @@
   {
     "title": "C++ 中的静态变量和单例模式",
     "date": "2019.11.14",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "DesignPattern"
@@ -301,6 +329,7 @@
   {
     "title": "Spinlock and Doubly Linked List",
     "date": "2019.10.14",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Concurrency",
@@ -312,6 +341,7 @@
   {
     "title": "Learning Rust from LeetCode",
     "date": "2019.10.13",
+    "author": "SF-Zhou",
     "tags": [
       "Rust",
       "LeetCode"
@@ -322,6 +352,7 @@
   {
     "title": "汇编魔法实现 C++ 协程",
     "date": "2019.09.28",
+    "author": "SF-Zhou",
     "tags": [
       "C++",
       "Coroutine",
@@ -333,6 +364,7 @@
   {
     "title": "LevelDB 源码分析「十、其他细节」",
     "date": "2019.09.16",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -344,6 +376,7 @@
   {
     "title": "LevelDB 源码分析「九、Compaction」",
     "date": "2019.09.13",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -355,6 +388,7 @@
   {
     "title": "LevelDB 源码分析「八、完整流程」",
     "date": "2019.09.06",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -366,6 +400,7 @@
   {
     "title": "LevelDB 源码分析「七、版本管理」",
     "date": "2019.08.28",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -377,6 +412,7 @@
   {
     "title": "LevelDB 源码分析「六、Sorted Table 续」",
     "date": "2019.08.21",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -388,6 +424,7 @@
   {
     "title": "LevelDB 源码分析「五、Sorted Table」",
     "date": "2019.08.15",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -399,6 +436,7 @@
   {
     "title": "LevelDB 源码分析「四、高性能写操作续」",
     "date": "2019.08.10",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -410,6 +448,7 @@
   {
     "title": "LevelDB 源码分析「三、高性能写操作」",
     "date": "2019.08.05",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -421,6 +460,7 @@
   {
     "title": "LevelDB 源码分析「二、基本数据结构续」",
     "date": "2019.07.29",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -432,6 +472,7 @@
   {
     "title": "LevelDB 源码分析「一、基本数据结构」",
     "date": "2019.07.26",
+    "author": "SF-Zhou",
     "tags": [
       "LevelDB",
       "C++",
@@ -443,6 +484,7 @@
   {
     "title": "Config, Argument and JSON Schema",
     "date": "2019.04.14",
+    "author": "SF-Zhou",
     "tags": [
       "Python",
       "Schema",
@@ -454,6 +496,7 @@
   {
     "title": "TensorFlow Lite 与定点量化",
     "date": "2018.09.10",
+    "author": "SF-Zhou",
     "tags": [
       "DeepLearning",
       "TensorFlow",
@@ -465,6 +508,7 @@
   {
     "title": "C++ 中的中文编码",
     "date": "2018.07.28",
+    "author": "SF-Zhou",
     "tags": [
       "UTF-8",
       "Unicode",
@@ -476,6 +520,7 @@
   {
     "title": "Android 备用机短信转发",
     "date": "2018.07.13",
+    "author": "SF-Zhou",
     "tags": [
       "SMS",
       "DingTalk"
@@ -486,6 +531,7 @@
   {
     "title": "台湾游记",
     "date": "2018.06.16",
+    "author": "SF-Zhou",
     "tags": [
       "Tour"
     ],
@@ -495,6 +541,7 @@
   {
     "title": "拉格朗日乘子法",
     "date": "2018.05.29",
+    "author": "SF-Zhou",
     "tags": [
       "Mathematics",
       "Optimization"
@@ -505,6 +552,7 @@
   {
     "title": "Build a Python Package Step by Step",
     "date": "2018.03.14",
+    "author": "SF-Zhou",
     "tags": [
       "Python",
       "CI"
@@ -515,6 +563,7 @@
   {
     "title": "特征值、特征向量和奇异值分解",
     "date": "2017.09.15",
+    "author": "SF-Zhou",
     "tags": [
       "Mathematics"
     ],
@@ -524,6 +573,7 @@
   {
     "title": "解决 MacBook 键盘双击问题",
     "date": "2017.09.15",
+    "author": "SF-Zhou",
     "tags": [
       "MacBook",
       "Keyboard"
@@ -534,6 +584,7 @@
   {
     "title": "指数函数 Exp 的拟合",
     "date": "2017.09.09",
+    "author": "SF-Zhou",
     "tags": [
       "Mathematics",
       "Algorithm"
@@ -544,6 +595,7 @@
   {
     "title": "终端下快速找文件、进目录",
     "date": "2015.02.26",
+    "author": "SF-Zhou",
     "tags": [
       "Terminal",
       "Productivity"

@@ -16,6 +16,12 @@
       <div class="title">
         <h1> PaxosStore 源码分析「一、网络通信」 </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2020.02.15 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <p>PaxosStore 是由微信开源的分布式存储系统，基于 Paxos 协议实现存储的强一致。代码开源于 2017 年，同步发表的还有 VLDB 会议上的论文 &quot;<a href="http://www.vldb.org/pvldb/vol10/p1730-lin.pdf">PaxosStore: High-availability Storage Made Practical in WeChat</a>&quot;。PaxosStore 广泛应用于微信各项存储服务中，代码久经考验。所以开出一个新系列<a href="/#/Paxos">「PaxosStore 源码分析」</a>，希望从这个工业化 Paxos 协议实现中学习一些新东西。作为系列的第一篇，本文会介绍 PaxosStore 代码的整体结构和网络通信的实现。</p>
 <h3 id="1.-paxosstore-源码概览" tabindex="-1"><a href="#1.-paxosstore-%E6%BA%90%E7%A0%81%E6%A6%82%E8%A7%88">1. PaxosStore 源码概览</a></h3>

@@ -16,6 +16,12 @@
       <div class="title">
         <h1> C++ Macro: Number of Arguments </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2019.11.18 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <p>在 C++ 中不建议使用宏，对于原先 C 中大量使用宏的场景，均建议使用其他方式替代，比如使用 <code>const</code> 常量和 <code>enum</code> 枚举量代替宏定义的常量，使用 <code>template</code> 模版函数/模板类替代宏定义的函数段。但某些场景下宏依然是不可替代的，例如代码的条件编译、函数复杂流程控制。本文主要讲述如何在变长参数的宏里确定参数的个数及其应用。</p>
 <h3 id="1.-宏中的变长参数" tabindex="-1"><a href="#1.-%E5%AE%8F%E4%B8%AD%E7%9A%84%E5%8F%98%E9%95%BF%E5%8F%82%E6%95%B0">1. 宏中的变长参数</a></h3>

@@ -16,6 +16,12 @@
       <div class="title">
         <h1> Spinlock and Doubly Linked List </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2019.10.14 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <p>Spinlock 自旋锁，在获取锁时使用轮询的方式检查锁是否可用。其优点是避免了线程切换，缺点是轮询持续占用 CPU，故一般只在临界区非常短的时候使用。更详细的介绍见<a href="https://en.wikipedia.org/wiki/Spinlock">维基百科</a>。</p>
 <p>一般使用 compare-and-swap (CAS) 来实现自旋锁。CAS 可以理解为以下函数的原子实现：</p>

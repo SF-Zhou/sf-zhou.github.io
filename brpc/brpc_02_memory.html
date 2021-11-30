@@ -16,6 +16,12 @@
       <div class="title">
         <h1> bRPC 源码分析「二、资源管理」 </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2021.03.03 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <h3 id="1.-object-pool" tabindex="-1"><a href="#1.-object-pool">1. Object Pool</a></h3>
 <p>代码中频繁使用的结构体大部分是等长的。根据该原理，bRPC 中设计了一个对象池，简化定长对象的分配和回收策略，尽可能地在 Thread Local 环境中进行内存操作。申请对象时按照如下的规则 BAIDU_OBJECT_POOL_GET：</p>

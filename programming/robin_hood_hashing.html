@@ -16,6 +16,12 @@
       <div class="title">
         <h1> Robin Hood Hashing 源码分析 </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2021.05.21 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <p>从 C++11 开始，STL 会提供哈希表 <a href="https://github.com/martinus/robin-hood-hashing"><code>std::unordered_map</code></a> 的实现，用起来确实很方便，不过性能上就差强人意了。<a href="https://github.com/martinus/robin-hood-hashing"><code>robin_hood::unordered_map</code></a> 作为 <code>std::unordered_map</code> 的替代品，提供了与标准库中一致的接口，同时带来 2 到 3 倍的性能提升，着实让人心动。笔者年前尝试使用该哈希表，但由于其<a href="https://github.com/martinus/robin-hood-hashing/issues/21">内部的 Bug</a> 导致低概率的抛出异常，不得已又退回使用标准库。今年 3 月底的时候其作者<a href="https://github.com/martinus/robin-hood-hashing/pull/121">修复了该 Bug</a>，笔者也第一时间测试使用，并上线到现网环境，截止目前无任何故障。安全起见，笔者分析了该哈希表的具体实现，分析的代码版本为 <a href="https://github.com/martinus/robin-hood-hashing/blob/3.11.1/src/include/robin_hood.h">3.11.1</a>，目前也没有发现潜在的安全隐患。依笔者之见，Robin Hood 高性能的秘诀是开放寻址、平坦化和限制冲突。</p>
 <h3 id="1.-开放寻址" tabindex="-1"><a href="#1.-%E5%BC%80%E6%94%BE%E5%AF%BB%E5%9D%80">1. 开放寻址</a></h3>

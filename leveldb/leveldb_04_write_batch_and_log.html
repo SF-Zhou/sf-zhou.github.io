@@ -16,6 +16,12 @@
       <div class="title">
         <h1> LevelDB 源码分析「四、高性能写操作续」 </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2019.08.10 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <p>本系列的<a href="/leveldb/leveldb_03_write_batch_and_log.html">上一篇</a>介绍了 LevelDB 写操作中构造的 <code>WriteBatch</code>，以及写操作的第一步：追加日志。本篇将继续介绍写操作的第二步：插入内存数据库。</p>
 <h3 id="3.-内存数据库-memtable" tabindex="-1"><a href="#3.-%E5%86%85%E5%AD%98%E6%95%B0%E6%8D%AE%E5%BA%93-memtable">3. 内存数据库 MemTable</a></h3>

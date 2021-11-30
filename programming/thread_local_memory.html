@@ -16,6 +16,12 @@
       <div class="title">
         <h1> C++ TLS 触发的栈溢出 </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2021.06.21 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <p>先看一段代码，猜猜 Linux 下编译后执行会发生什么（编译参数 <code>-pthread -O2 -std=c++11</code>，<a href="https://godbolt.org/z/Pv9o8oeqs">在线执行</a>）：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>

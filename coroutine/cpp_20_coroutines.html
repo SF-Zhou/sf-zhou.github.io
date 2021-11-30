@@ -16,6 +16,12 @@
       <div class="title">
         <h1> 初探 C++20 协程 </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2020.07.25 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <p>去年学习 <code>libco</code> 时写过一篇博文，<a href="/programming/cpp_magic_coroutine.html">讲述如何使用汇编实现协程切换</a>。今年官方的协程实现更加成熟，编译器原生支持加上无栈的设计都吸引着笔者，即使工作中没法用上也想一探究竟。最近 Mac 上可以直接通过 Homebrew 安装 gcc 10.1 了，借此机会探索一下 C++20 协程的玩法。</p>
 <p>首先建议阅读<a href="https://en.cppreference.com/w/cpp/language/coroutines">参考文献 1</a>，可以搭配本文中的几个例子同步学习。首先看这个例子🌰（<a href="https://godbolt.org/z/aGEo3j">在线执行</a>）：</p>

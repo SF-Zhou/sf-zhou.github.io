@@ -16,6 +16,12 @@
       <div class="title">
         <h1> LevelDB 源码分析「一、基本数据结构」 </h1>
       </div>
+      <div class="info">
+        <div class="date"> 2019.07.26 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
       <div class="markdown">
         <p>断断续续大半年，<a href="https://github.com/google/leveldb">LevelDB 的源代码</a>快看完了。期间经常会发出由衷的感叹：Google 的代码写得真好。为了督促自己尽快看完，同时也为了真正地从 LevelDB 源码里汲取养分，所以开出一个新系列「LevelDB 源码分析」，希望能整理输出一些干货。作为系列的第一篇，本文会介绍 LevelDB 中的基本数据结构，包括 <code>Slice</code>、<code>Hash</code>、<code>LRUCache</code>。</p>
 <h3 id="1.-字符串封装-slice" tabindex="-1"><a href="#1.-%E5%AD%97%E7%AC%A6%E4%B8%B2%E5%B0%81%E8%A3%85-slice">1. 字符串封装 Slice</a></h3>
