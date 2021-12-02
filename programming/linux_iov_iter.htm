@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>The iov_iter Interface | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> The iov_iter Interface </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2021.12.02 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>An <code>iov_iter</code> structure is essentially an iterator for working through an <code>iovec</code> structure:</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">iovec</span> <span class="token punctuation">{</span>
+	<span class="token keyword">void</span> __user <span class="token operator">*</span>iov_base<span class="token punctuation">;</span>    <span class="token comment">// pointer</span>
+	__kernel_size_t iov_len<span class="token punctuation">;</span>  <span class="token comment">// length</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// A cursor into the iovec buffer.</span>
+<span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token punctuation">{</span>
+	<span class="token keyword">int</span> type<span class="token punctuation">;</span>                <span class="token comment">// low 2bit: read/write, high bits: type</span>
+	size_t iov_offset<span class="token punctuation">;</span>       <span class="token comment">// the offset to the first byte of the first iovec</span>
+	size_t count<span class="token punctuation">;</span>            <span class="token comment">// the total amount of data pointed to by the iovec array</span>
+    <span class="token keyword">union</span> <span class="token punctuation">{</span>
+        <span class="token keyword">const</span> <span class="token keyword">struct</span> <span class="token class-name">iovec</span> <span class="token operator">*</span>iov<span class="token punctuation">;</span>
+        <span class="token keyword">const</span> <span class="token keyword">struct</span> <span class="token class-name">kvec</span> <span class="token operator">*</span>kvec<span class="token punctuation">;</span>
+        <span class="token keyword">const</span> <span class="token keyword">struct</span> <span class="token class-name">bio_vec</span> <span class="token operator">*</span>bvec<span class="token punctuation">;</span>
+        <span class="token keyword">struct</span> <span class="token class-name">pipe_inode_info</span> <span class="token operator">*</span>pipe<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token keyword">union</span> <span class="token punctuation">{</span>
+        <span class="token keyword">unsigned</span> <span class="token keyword">long</span> nr_segs<span class="token punctuation">;</span>  <span class="token comment">// the number of iovec structures</span>
+        <span class="token keyword">struct</span> <span class="token punctuation">{</span>
+            <span class="token keyword">int</span> idx<span class="token punctuation">;</span>
+            <span class="token keyword">int</span> strat_idx<span class="token punctuation">;</span>
+        <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span><span class="token punctuation">;</span> 
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token comment">// initialize</span>
+<span class="token keyword">void</span> <span class="token function">iov_iter_init</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">,</span> <span class="token keyword">int</span> direction<span class="token punctuation">,</span> <span class="token keyword">const</span> <span class="token keyword">struct</span> <span class="token class-name">iovec</span> <span class="token operator">*</span>iov<span class="token punctuation">,</span>
+                   <span class="token keyword">unsigned</span> <span class="token keyword">long</span> nr_segs<span class="token punctuation">,</span> size_t count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// move data between the iterator and user space, will "advance" the iterator through the buffer to correspond to the amount of data transferred.</span>
+size_t <span class="token function">copy_to_iter</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span>addr<span class="token punctuation">,</span> size_t bytes<span class="token punctuation">,</span> <span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+size_t <span class="token function">copy_from_iter</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token operator">*</span>addr<span class="token punctuation">,</span> size_t bytes<span class="token punctuation">,</span> <span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// move data referenced by a page structure into or out of an iterator</span>
+size_t <span class="token function">copy_page_to_iter</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">page</span> <span class="token operator">*</span>page<span class="token punctuation">,</span> size_t offset<span class="token punctuation">,</span> size_t bytes<span class="token punctuation">,</span>
+			             <span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+size_t <span class="token function">copy_page_from_iter</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">page</span> <span class="token operator">*</span>page<span class="token punctuation">,</span> size_t offset<span class="token punctuation">,</span> size_t bytes<span class="token punctuation">,</span>
+			               <span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// Code running in atomic context can attempt to obtain data from user space with</span>
+size_t <span class="token function">iov_iter_copy_from_user_atomic</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">page</span> <span class="token operator">*</span>page<span class="token punctuation">,</span> <span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">,</span>
+					                  <span class="token keyword">unsigned</span> <span class="token keyword">long</span> offset<span class="token punctuation">,</span> size_t bytes<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// map the user-space buffer into the kernel</span>
+ssize_t <span class="token function">iov_iter_get_pages</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">,</span> <span class="token keyword">struct</span> <span class="token class-name">page</span> <span class="token operator">*</span><span class="token operator">*</span>pages<span class="token punctuation">,</span>
+                           size_t maxsize<span class="token punctuation">,</span> <span class="token keyword">unsigned</span> maxpages<span class="token punctuation">,</span> size_t <span class="token operator">*</span>start<span class="token punctuation">)</span><span class="token punctuation">;</span>
+ssize_t <span class="token function">iov_iter_get_pages_alloc</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">,</span> <span class="token keyword">struct</span> <span class="token class-name">page</span> <span class="token operator">*</span><span class="token operator">*</span><span class="token operator">*</span>pages<span class="token punctuation">,</span> 
+    	    			         size_t maxsize<span class="token punctuation">,</span> size_t <span class="token operator">*</span>start<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// advance through the iterator without moving any data</span>
+<span class="token keyword">void</span> <span class="token function">iov_iter_advance</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">,</span> size_t size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// clear the buffer referred to by an iterator (or a portion thereof)</span>
+size_t <span class="token function">iov_iter_zero</span><span class="token punctuation">(</span>size_t bytes<span class="token punctuation">,</span> <span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// get the length of the data in the first segment of the buffer</span>
+size_t <span class="token function">iov_iter_single_seg_count</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// get the number of pages occupied by the buffer in the iterator</span>
+<span class="token keyword">int</span> <span class="token function">iov_iter_npages</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">,</span> <span class="token keyword">int</span> maxpages<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// the total data length</span>
+size_t <span class="token function">iov_length</span><span class="token punctuation">(</span><span class="token keyword">const</span> <span class="token keyword">struct</span> <span class="token class-name">iovec</span> <span class="token operator">*</span>iov<span class="token punctuation">,</span> <span class="token keyword">unsigned</span> <span class="token keyword">long</span> nr_segs<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token comment">// the "user-space" buffer is actually located in kernel space</span>
+<span class="token keyword">void</span> <span class="token function">iov_iter_kvec</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">iov_iter</span> <span class="token operator">*</span>i<span class="token punctuation">,</span> <span class="token keyword">int</span> direction<span class="token punctuation">,</span> <span class="token keyword">const</span> <span class="token keyword">struct</span> <span class="token class-name">kvec</span> <span class="token operator">*</span>iov<span class="token punctuation">,</span>
+                   <span class="token keyword">unsigned</span> <span class="token keyword">long</span> nr_segs<span class="token punctuation">,</span> size_t count<span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://lwn.net/Articles/625077/"><em>The iov_iter interface</em>, Jonathan Corbet</a>.</li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>
