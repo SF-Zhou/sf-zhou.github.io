@@ -1,7 +1,7 @@
 import md5 from 'md5';
 import { promises as fs } from 'fs';
 import { existsSync as exists } from 'fs';
-import { join, dirname, basename } from 'path';
+import { join, dirname, basename, sep } from 'path';
 import mustache from 'mustache';
 import download from 'download';
 import { fileTypeFromBuffer } from 'file-type';
@@ -47,7 +47,7 @@ async function main() {
     const image_blocks = article_content.match(outer_image_block_regexp);
     if (image_blocks) {
       const relative_image_folder_path =
-        '../'.repeat(article_path.match('/').length);
+        '../'.repeat(article_path.split(sep).length);
 
       const outer_image_url_regexp = /\(([^)]+)\)$/;
       const image_url_list =
@@ -67,8 +67,7 @@ async function main() {
         await fs.writeFile(
           join(config.posts_path, image_path), image_data);
 
-        const replacing_path =
-          join(relative_image_folder_path, image_path);
+        const replacing_path = relative_image_folder_path + image_path;
         replacing_list[url] = replacing_path;
       }));
 
