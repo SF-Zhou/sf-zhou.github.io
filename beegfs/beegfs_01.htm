@@ -29,7 +29,7 @@
 <blockquote>
 <p>BeeGFS is a  hardware-independent POSIX parallel file system (a.k.a Software-defined  Parallel Storage) developed with a strong focus on performance and  designed for ease of use, simple installation, and management. BeeGFS is created on an Available Source development model (source code is  publicly available), offering a self-supported Community Edition and a  fully supported Enterprise Edition with additional features and  functionalities. BeeGFS is designed for all performance-oriented  environments including HPC, AI and Deep Learning, Life Sciences, and Oil &amp; Gas.</p>
 </blockquote>
-<figure tabindex="1"><a href="../images/13d00e004fdd6c548d9e3fbd6863f8ca.png"><img src="../images/13d00e004fdd6c548d9e3fbd6863f8ca.png" alt=""></a><figcaption>BeeGFS System Architecture</figcaption></figure>
+<figure tabindex="1"><a href="....%5Cimages%5C13d00e004fdd6c548d9e3fbd6863f8ca.png"><img src="....%5Cimages%5C13d00e004fdd6c548d9e3fbd6863f8ca.png" alt=""></a><figcaption>BeeGFS System Architecture</figcaption></figure>
 <p>BeeGFS 的系统架构如上图所示，文件数据存储于 Storage 节点，目录结构和文件元信息存储于 Meta 节点，路由信息和节点状态存储于 Management 节点，最后在 Client 节点提供磁盘挂载，另外还有 Monitor 节点负责记录监控信息。Storage 和 Meta 使用主从副本进行容灾，Management 节点仅一个不进行容灾。客户端访问使用 Linux Kernel 挂载而非 Fuse 以提供更高的性能。</p>
 <p>其源代码目录结构如下：</p>
 <pre class="language-bash"><code class="language-bash">v7
