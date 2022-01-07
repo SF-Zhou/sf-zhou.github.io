@@ -520,7 +520,7 @@ remove the random start element in the first loop pass) */</span>
       <span class="token keyword">goto</span> out<span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
-    mkdirPath <span class="token operator">=</span> mkdirPath <span class="token operator">+</span> <span class="token string">'/'</span><span class="token punctuation">;</span>  <span class="token comment">// path must be relative, so only add it here</span>
+    mkdirPath <span class="token operator">=</span> mkdirPath <span class="token operator">+</span> <span class="token char">'/'</span><span class="token punctuation">;</span>  <span class="token comment">// path must be relative, so only add it here</span>
     depth<span class="token operator">++</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
 
@@ -573,7 +573,7 @@ remove the random start element in the first loop pass) */</span>
       <span class="token keyword">goto</span> out<span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
-    mkdirPath <span class="token operator">=</span> mkdirPath <span class="token operator">+</span> <span class="token string">'/'</span><span class="token punctuation">;</span>  <span class="token comment">// path must be relative, so only add it here</span>
+    mkdirPath <span class="token operator">=</span> mkdirPath <span class="token operator">+</span> <span class="token char">'/'</span><span class="token punctuation">;</span>  <span class="token comment">// path must be relative, so only add it here</span>
     depth<span class="token operator">++</span><span class="token punctuation">;</span>
     parentChunkDir <span class="token operator">=</span> chunkDir<span class="token punctuation">;</span>
   <span class="token punctuation">}</span>
@@ -674,7 +674,7 @@ out<span class="token operator">:</span>
       <span class="token keyword">break</span><span class="token punctuation">;</span>
     <span class="token punctuation">}</span>
 
-    chmodPath <span class="token operator">=</span> chmodPath <span class="token operator">+</span> <span class="token string">'/'</span><span class="token punctuation">;</span>  <span class="token comment">// path must be relative, so only add it here</span>
+    chmodPath <span class="token operator">=</span> chmodPath <span class="token operator">+</span> <span class="token char">'/'</span><span class="token punctuation">;</span>  <span class="token comment">// path must be relative, so only add it here</span>
 
     <span class="token keyword">if</span> <span class="token punctuation">(</span>pathElemIndex <span class="token operator">&lt;</span> chunkDirPath<span class="token operator">-></span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> pathElemIndex<span class="token operator">++</span><span class="token punctuation">;</span>
   <span class="token punctuation">}</span>

@@ -31,7 +31,7 @@
 
 <span class="token keyword">void</span> <span class="token function">func</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token keyword">char</span> arr<span class="token punctuation">[</span><span class="token number">1024</span> <span class="token operator">*</span> <span class="token number">6</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
-  arr<span class="token punctuation">[</span><span class="token keyword">sizeof</span><span class="token punctuation">(</span>arr<span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token string">'A'</span><span class="token punctuation">;</span>
+  arr<span class="token punctuation">[</span><span class="token keyword">sizeof</span><span class="token punctuation">(</span>arr<span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">1</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token char">'A'</span><span class="token punctuation">;</span>
 
   <span class="token function">printf</span><span class="token punctuation">(</span><span class="token string">"%p %p\n"</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>tls<span class="token punctuation">,</span> <span class="token operator">&amp;</span>arr<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>

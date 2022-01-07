@@ -98,7 +98,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// releated functions in buf_impl.rs</span>
-<span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token class-name">Buf</span> <span class="token punctuation">{</span>
+<span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token type-definition class-name">Buf</span> <span class="token punctuation">{</span>
     <span class="token attribute attr-name">#[cfg(feature = <span class="token string">"std"</span>)]</span>
     <span class="token keyword">fn</span> <span class="token function-definition function">reader</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Reader</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span>
     <span class="token keyword">where</span>
@@ -161,7 +161,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token comment">// releated functions in buf_impl.rs</span>
-<span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token class-name">Buf</span> <span class="token punctuation">{</span>
+<span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token type-definition class-name">Buf</span> <span class="token punctuation">{</span>
     <span class="token comment">/// Creates an adaptor which will read at most `limit` bytes from `self`.</span>
     <span class="token keyword">fn</span> <span class="token function-definition function">take</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">,</span> limit<span class="token punctuation">:</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Take</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span>
     <span class="token keyword">where</span>
@@ -243,7 +243,7 @@
 </code></pre>
 <p><code>Chain</code> 对象可以链接两个 <code>Buf</code> 对象，并提供两个缓冲区之间的连续视图。换句话说，可以无限的链接 <code>Buf</code> 对象，比如 <code>a.chain(b).chain(c)</code>，最终得到的类型是 <code>Chain&lt;Chain&lt;Buf, Buf&gt;, Buf&gt;</code>。</p>
 <p>看完了依赖项，可以继续看 <a href="https://github.com/tokio-rs/bytes/blob/v0.6.0/src/buf/buf_impl.rs"><code>buf_impl.rs</code></a>。<code>Buf</code> trait 中的“纯虚函数”只有下面三个：</p>
-<pre class="language-rust"><code class="language-rust"><span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token class-name">Buf</span> <span class="token punctuation">{</span>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token type-definition class-name">Buf</span> <span class="token punctuation">{</span>
     <span class="token comment">/// Returns the number of bytes between the current position and the end of</span>
     <span class="token comment">/// the buffer.</span>
     <span class="token keyword">fn</span> <span class="token function-definition function">remaining</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">usize</span><span class="token punctuation">;</span>
@@ -286,7 +286,7 @@
 <span class="token punctuation">}</span>
 
 <span class="token keyword">impl</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token punctuation">:</span> <span class="token class-name">Buf</span><span class="token operator">></span> <span class="token class-name">Iterator</span> <span class="token keyword">for</span> <span class="token class-name">IntoIter</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
-    <span class="token keyword">type</span> <span class="token class-name">Item</span> <span class="token operator">=</span> <span class="token keyword">u8</span><span class="token punctuation">;</span>
+    <span class="token keyword">type</span> <span class="token type-definition class-name">Item</span> <span class="token operator">=</span> <span class="token keyword">u8</span><span class="token punctuation">;</span>
 
     <span class="token keyword">fn</span> <span class="token function-definition function">next</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Option</span><span class="token operator">&lt;</span><span class="token keyword">u8</span><span class="token operator">></span> <span class="token punctuation">{</span>
         <span class="token keyword">if</span> <span class="token operator">!</span><span class="token keyword">self</span><span class="token punctuation">.</span>inner<span class="token punctuation">.</span><span class="token function">has_remaining</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>

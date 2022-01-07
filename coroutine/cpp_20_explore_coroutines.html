@@ -50,7 +50,7 @@
       <span class="token comment">// 假设新线程立即执行，恢复协程，则该 awaiter 会立即被销毁，故 p_out 不可用</span>
       <span class="token comment">// Potential undefined behavior: accessing potentially destroyed *this</span>
       <span class="token comment">// std::cout &lt;&lt; "New thread ID: " &lt;&lt; p_out->get_id() &lt;&lt; '\n';</span>
-      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"New thread ID: "</span> <span class="token operator">&lt;&lt;</span> out<span class="token punctuation">.</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">'\n'</span><span class="token punctuation">;</span>  <span class="token comment">// this is OK</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"New thread ID: "</span> <span class="token operator">&lt;&lt;</span> out<span class="token punctuation">.</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token char">'\n'</span><span class="token punctuation">;</span>  <span class="token comment">// this is OK</span>
     <span class="token punctuation">}</span>
     <span class="token keyword">void</span> <span class="token function">await_resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
   <span class="token punctuation">}</span><span class="token punctuation">;</span>
@@ -73,14 +73,14 @@ task <span class="token function">resuming_on_new_thread</span><span class="toke
   <span class="token comment">// 构造 coroutine state 对象，并初始化内部的 promise object，由编译器生成代码</span>
   <span class="token comment">// 调用 co_await promise.initial_suspend()，不挂起，继续执行</span>
   std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Coroutine started on thread: "</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-            <span class="token operator">&lt;&lt;</span> <span class="token string">'\n'</span><span class="token punctuation">;</span>
+            <span class="token operator">&lt;&lt;</span> <span class="token char">'\n'</span><span class="token punctuation">;</span>
   <span class="token comment">// 1. 调用 switch_to_new_thread 构造 awaitable 对象</span>
   <span class="token comment">// 2. co_await awaitable，调用 awaitable.await_ready()，返回 false 执行挂起</span>
   <span class="token comment">// 3. 挂起时调用 awaitable.await_suspend()，并且给调用方返回 task 对象</span>
   <span class="token keyword">co_await</span> <span class="token function">switch_to_new_thread</span><span class="token punctuation">(</span>out<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token comment">// awaiter destroyed here</span>
   std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Coroutine resumed on thread: "</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-            <span class="token operator">&lt;&lt;</span> <span class="token string">'\n'</span><span class="token punctuation">;</span>
+            <span class="token operator">&lt;&lt;</span> <span class="token char">'\n'</span><span class="token punctuation">;</span>
   <span class="token comment">// 调用 co_await promise.final_suspend()，不挂起，继续执行</span>
   <span class="token comment">// 销毁 coroutine state 对象。若 final_suspend 返回 std::suspend_always 则需要用户自行调用 handle.destroy() 进行销毁</span>
 <span class="token punctuation">}</span>
@@ -174,7 +174,7 @@ task <span class="token function">resuming_on_new_thread</span><span class="toke
       out <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token function">jthread</span><span class="token punctuation">(</span><span class="token punctuation">[</span>h<span class="token punctuation">]</span> <span class="token punctuation">{</span> h<span class="token punctuation">.</span><span class="token function">resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
       <span class="token comment">// Potential undefined behavior: accessing potentially destroyed *this</span>
       <span class="token comment">// std::cout &lt;&lt; "New thread ID: " &lt;&lt; p_out->get_id() &lt;&lt; '\n';</span>
-      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"New thread ID: "</span> <span class="token operator">&lt;&lt;</span> out<span class="token punctuation">.</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">'\n'</span><span class="token punctuation">;</span>  <span class="token comment">// this is OK</span>
+      std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"New thread ID: "</span> <span class="token operator">&lt;&lt;</span> out<span class="token punctuation">.</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token char">'\n'</span><span class="token punctuation">;</span>  <span class="token comment">// this is OK</span>
     <span class="token punctuation">}</span>
     <span class="token keyword">void</span> <span class="token function">await_resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
   <span class="token punctuation">}</span><span class="token punctuation">;</span>
@@ -204,11 +204,11 @@ task <span class="token function">resuming_on_new_thread</span><span class="toke
 
 task <span class="token function">resuming_on_new_thread</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>jthread<span class="token operator">&amp;</span> out<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Coroutine started on thread: "</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-            <span class="token operator">&lt;&lt;</span> <span class="token string">'\n'</span><span class="token punctuation">;</span>
+            <span class="token operator">&lt;&lt;</span> <span class="token char">'\n'</span><span class="token punctuation">;</span>
   <span class="token keyword">co_await</span> <span class="token function">switch_to_new_thread</span><span class="token punctuation">(</span>out<span class="token punctuation">)</span><span class="token punctuation">;</span>
   <span class="token comment">// awaiter destroyed here</span>
   std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> <span class="token string">"Coroutine resumed on thread: "</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-            <span class="token operator">&lt;&lt;</span> <span class="token string">'\n'</span><span class="token punctuation">;</span>
+            <span class="token operator">&lt;&lt;</span> <span class="token char">'\n'</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 
 <span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
