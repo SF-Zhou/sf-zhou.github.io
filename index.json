@@ -1,5 +1,17 @@
 [
   {
+    "title": "Kernel Module 内存问题排查",
+    "date": "2022.01.11",
+    "author": "SF-Zhou",
+    "tags": [
+      "Linux",
+      "Kernel",
+      "Memory"
+    ],
+    "filename": "kernel_memory_usage_troubleshooting",
+    "url_path": "/linux/kernel_memory_usage_troubleshooting.html"
+  },
+  {
     "title": "C++ TLS 触发的栈溢出",
     "date": "2021.06.21",
     "author": "SF-Zhou",

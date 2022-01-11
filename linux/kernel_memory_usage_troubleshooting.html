@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Kernel Module 内存问题排查 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Kernel Module 内存问题排查 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2022.01.11 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>最近修复了一个 Kernel Module 内存占用高且不释放的问题，学习了一下内核态应用内存问题排查的一些工具和方法，记录一下。</p>
+<h3 id="1.-问题简述" tabindex="-1"><a href="#1.-%E9%97%AE%E9%A2%98%E7%AE%80%E8%BF%B0">1. 问题简述</a></h3>
+<p>我司自研了一套高性能的分布式存储系统，客户端侧使用 Kernel Module 进行挂载。使用压测程序打开并关闭 500w 文件后，内存占用上升大约 160GB，且长时间不释放。</p>
+<h3 id="2.-初步分析" tabindex="-1"><a href="#2.-%E5%88%9D%E6%AD%A5%E5%88%86%E6%9E%90">2. 初步分析</a></h3>
+<p>怀疑是 Kernel Module 里内存泄漏。做了一些实验并观察现象：</p>
+<ol>
+<li>打开并关闭 100w 文件，内存增加 32GB 左右；重新打开并关闭这 100w 文件，内存无上涨；打开另一批 100w 文件，内存增加到 64GB 水平</li>
+<li>使用 <code>sudo slaptop</code> 观察到主要是 <code>kmalloc-32</code> 的上涨，随文件数量线性增长</li>
+</ol>
+<p>怀疑是打开文件时有内存泄露，由于代码量巨大不好直接通过代码定位问题，Mentor 建议我用 <a href="https://www.kernel.org/doc/html/latest/dev-tools/kmemleak.html">kmemleak</a> 找找泄露的位置。</p>
+<h3 id="3.-kernel-memory-leak-detector" tabindex="-1"><a href="#3.-kernel-memory-leak-detector">3. Kernel Memory Leak Detector</a></h3>
+<p>重新编译了一版带 kmemleak 特性的内核并安装，按如下步骤使用：</p>
+<pre class="language-bash"><code class="language-bash"><span class="token comment"># 1. 清理当前记录的 kmemleak 信息避免干扰</span>
+<span class="token builtin class-name">echo</span> <span class="token function">clear</span> <span class="token operator">|</span> <span class="token function">sudo</span> <span class="token function">tee</span> /sys/kernel/debug/kmemleak
+
+<span class="token comment"># 2. 使用压测工具打开大量文件。注意 kmemleak 会使用大量内存记录内存申请释放的信息，注意别 OOM</span>
+
+<span class="token comment"># 3. 触发 kmemleak 扫描</span>
+<span class="token builtin class-name">echo</span> scan <span class="token operator">|</span> <span class="token function">sudo</span> <span class="token function">tee</span> /sys/kernel/debug/kmemleak
+
+<span class="token comment"># 4. 获取 kmemleak 记录的堆栈信息</span>
+<span class="token function">sudo</span> <span class="token function">cat</span> /sys/kernel/debug/kmemleak <span class="token operator">></span> result.txt
+
+<span class="token comment"># 5. 简单统计下高频函数</span>
+<span class="token function">cat</span> result.txt <span class="token operator">|</span> <span class="token function">grep</span> <span class="token string">"Call Trace"</span> -A <span class="token number">30</span> <span class="token operator">|</span> <span class="token function">awk</span> <span class="token string">'{print $6}'</span> <span class="token operator">|</span> <span class="token function">awk</span> -F <span class="token string">'+'</span> <span class="token string">'{print $1}'</span> <span class="token operator">|</span> <span class="token function">sort</span> <span class="token operator">|</span> <span class="token function">uniq</span> -c <span class="token operator">|</span> <span class="token function">sort</span> -n -k <span class="token number">1</span>
+</code></pre>
+<p>然而 kmemleak 并没有发现什么内存泄露，也就是说这里可能并不是泄露。山重水复疑无路，在进行一些无关的操作后，<code>kmalloc-32</code> 的内存占用竟然自己慢慢下降了，所以这不是泄露！</p>
+<h3 id="4.-slab-alloctor" tabindex="-1"><a href="#4.-slab-alloctor">4. Slab Alloctor</a></h3>
+<p>重新执行压测程序复现问题。<code>kmalloc-32</code> 是使用 Slab Alloctor 分配的，但 Reclaimable 的内存占用并不多，大部分仍然是 Unreclaim 的。尝试性地执行 Drop Caches：</p>
+<pre class="language-bash"><code class="language-bash"><span class="token comment"># 1. 释放 dentries 和 inodes</span>
+<span class="token builtin class-name">echo</span> <span class="token number">2</span> <span class="token operator">|</span> <span class="token function">sudo</span> <span class="token function">tee</span> /proc/sys/vm/drop_caches
+
+<span class="token comment"># 2. 观察 Slab 内存使用情况</span>
+<span class="token function">watch</span> -n <span class="token number">1</span> <span class="token string">"cat /proc/meminfo | grep Slab -A 2"</span>
+</code></pre>
+<p>可以观察到 <code>Reclaimable</code> 和 <code>kmalloc-32</code> 的内存以几十 MB 的速度逐渐下降！虽然可以稳定触发，但清理速度过慢并不能解决业务的需求。故仍需要进一步定位是谁在申请这些小内存。</p>
+<h3 id="5.-slab-trace" tabindex="-1"><a href="#5.-slab-trace">5. Slab Trace</a></h3>
+<p>Mentor 给我指了一条明路，使用 <code>echo 1 | sudo tee /sys/kernel/slab/kmalloc-32/trace</code> 追踪所有的 <code>kmalloc-32</code> 内存申请，执行压测程序一段时间后再关掉，然后统计 <code>dmesg</code> 中打印的堆栈信息，终于让我找到了罪魁祸首。</p>
+<p>在打开文件时，代码中有一处使用双向链表储存一组元信息，该元信息最终挂在 <code>inode</code> 上。内存会缓存大量的 <code>inode</code> 并且不主动释放。这里使用链表存储效率非常低，有大量的内存碎片。最终将链表修改为数组后，打开并关闭 500w 文件内存上涨约 1GB，问题解决。</p>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://www.kernel.org/doc/html/latest/dev-tools/kmemleak.html">&quot;Kernel Memory Leak Detector&quot;, <em>The kernel development community</em></a></li>
+<li><a href="https://man7.org/linux/man-pages/man5/proc.5.html">&quot;proc(5) — Linux manual page&quot;, <em>Linux Programmer's Manual</em></a></li>
+</ol>
+
+      </div>
+      <div id="gitalk-container">
+      </div>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/gitalk.min.js"></script>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>
