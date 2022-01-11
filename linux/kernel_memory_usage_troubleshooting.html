@@ -61,7 +61,7 @@
 <p>可以观察到 <code>Reclaimable</code> 和 <code>kmalloc-32</code> 的内存以几十 MB 的速度逐渐下降！虽然可以稳定触发，但清理速度过慢并不能解决业务的需求。故仍需要进一步定位是谁在申请这些小内存。</p>
 <h3 id="5.-slab-trace" tabindex="-1"><a href="#5.-slab-trace">5. Slab Trace</a></h3>
 <p>Mentor 给我指了一条明路，使用 <code>echo 1 | sudo tee /sys/kernel/slab/kmalloc-32/trace</code> 追踪所有的 <code>kmalloc-32</code> 内存申请，执行压测程序一段时间后再关掉，然后统计 <code>dmesg</code> 中打印的堆栈信息，终于让我找到了罪魁祸首。</p>
-<p>在打开文件时，代码中有一处使用双向链表储存一组元信息，该元信息最终挂在 <code>inode</code> 上。内存会缓存大量的 <code>inode</code> 并且不主动释放。这里使用链表存储效率非常低，有大量的内存碎片。最终将链表修改为数组后，打开并关闭 500w 文件内存上涨约 1GB，问题解决。</p>
+<p>在打开文件时，代码中有一处使用双向链表储存一组元信息，该元信息最终挂在 <code>inode</code> 上。内核会缓存大量的 <code>inode</code> 并且不主动释放。这些元信息使用链表存储效率非常低，有大量的内存碎片。最终将链表修改为数组后，打开并关闭 500w 文件内存上涨约 1GB，问题解决。</p>
 <h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://www.kernel.org/doc/html/latest/dev-tools/kmemleak.html">&quot;Kernel Memory Leak Detector&quot;, <em>The kernel development community</em></a></li>
