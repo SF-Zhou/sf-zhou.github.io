@@ -506,18 +506,6 @@
     "url_path": "/productivity/config_argument_json_schema.html"
   },
   {
-    "title": "TensorFlow Lite 与定点量化",
-    "date": "2018.09.10",
-    "author": "SF-Zhou",
-    "tags": [
-      "DeepLearning",
-      "TensorFlow",
-      "Quantization"
-    ],
-    "filename": "tensorflow_lite_and_uint8_quantization",
-    "url_path": "/ml/tensorflow_lite_and_uint8_quantization.html"
-  },
-  {
     "title": "C++ 中的中文编码",
     "date": "2018.07.28",
     "author": "SF-Zhou",
