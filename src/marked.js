@@ -7,7 +7,7 @@ import anchor from 'markdown-it-anchor';
 import markdown_it from 'markdown-it';
 
 import load_languages from 'prismjs/components/index.js';
-load_languages(['bash', 'cmake', 'cpp', 'json', 'nasm', 'protobuf', 'python', 'rust', 'yaml']);
+load_languages(['bash', 'cmake', 'cpp', 'json', 'lua', 'nasm', 'protobuf', 'python', 'rust', 'yaml']);
 
 const md = markdown_it({
   linkify: true,
