@@ -9,6 +9,12 @@ html {
 body {
   margin: 0 1em;
 }
+@media (prefers-color-scheme: dark) {
+  body {
+    color: lightgray;
+    background: black;
+  }
+}
 .app {
   font-family: "PT Sans", Helvetica, Arial, STFangSong, Vernada, Tahoma, STXihei, "Microsoft YaHei", "Songti SC", SimSun, Heiti, sans-serif;
   max-width: 40rem;
@@ -22,9 +28,19 @@ body {
   text-decoration: none;
   color: black;
 }
+@media (prefers-color-scheme: dark) {
+  .app a {
+    color: lightgray;
+  }
+}
 .app a:hover {
   color: darkslategray;
   transition: 300ms;
+}
+@media (prefers-color-scheme: dark) {
+  .app a:hover {
+    color: lightslategray;
+  }
 }
 .app .markdown {
   flex: 1;
@@ -60,6 +76,11 @@ body {
   overflow: hidden;
   box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.12), 0 0 6px 0 rgba(0, 0, 0, 0.04);
   margin-bottom: 2rem;
+}
+@media (prefers-color-scheme: dark) {
+  .app .card {
+    background-color: black;
+  }
 }
 .app .card p {
   text-indent: 0;
@@ -98,8 +119,19 @@ body {
   border: 1px solid transparent;
   white-space: nowrap;
 }
+@media (prefers-color-scheme: dark) {
+  .app .tags .tag {
+    background-color: #111;
+    border-color: #333;
+  }
+}
 .app .tags .selected {
   background-color: #DAE7FE;
+}
+@media (prefers-color-scheme: dark) {
+  .app .tags .selected {
+    background-color: #333;
+  }
 }
 .markdown h2 {
   text-align: center;
@@ -145,6 +177,11 @@ body {
   color: darkslategray;
   font-style: italic;
 }
+@media (prefers-color-scheme: dark) {
+  .markdown blockquote {
+    color: lightslategray;
+  }
+}
 .markdown img {
   margin: 0 auto;
   display: block;
@@ -169,6 +206,13 @@ body {
   font-family: "PT Sans", Helvetica, Arial, STFangSong, Vernada, Tahoma, STXihei, "Microsoft YaHei", "Songti SC", SimSun, Heiti, sans-serif;
   border-radius: 4px;
 }
+@media (prefers-color-scheme: dark) {
+  .markdown p code,
+  .markdown ol code,
+  .markdown ul code {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+}
 .markdown pre {
   font-size: 0.8rem;
   max-width: 100%;
@@ -189,4 +233,7 @@ body {
   border: 1px solid black;
   padding-left: 0.5rem;
   padding-right: 0.5rem;
+}
+.gt-container .gt-ico-github .gt-svg {
+  background-color: white;
 }
