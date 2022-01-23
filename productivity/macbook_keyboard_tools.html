@@ -29,31 +29,31 @@
 <p>笔者的配置文件：<a href="https://github.com/SF-Zhou/dot-files/blob/master/karabiner/karabiner.json">https://github.com/SF-Zhou/dot-files/blob/master/karabiner/karabiner.json</a></p>
 <h3 id="2.-hammerspoon" tabindex="-1"><a href="#2.-hammerspoon">2. <a href="https://www.hammerspoon.org">Hammerspoon</a></a></h3>
 <p>Hammerspoon 是一款开源软件，支持使用 Lua 脚步自定义快捷键的功能。笔者日常使用软件时喜欢全屏或者半屏，就会使用该软件将 <code>Cmd + Shift + Left/Right/Up</code> 映射为当前窗口左半屏、右半屏和全屏。这里的全屏不是苹果原生的新桌面的全屏，只是将窗口拉到当前桌面最大的位置，这样切换窗口时也不会有动画过渡的时间。Lua 脚本样例：</p>
-<pre class="language-lua"><code class="language-lua">-- disalbe animations
-hs.window.animationDuration = 0
+<pre class="language-lua"><code class="language-lua"><span class="token comment">-- disalbe animations</span>
+hs<span class="token punctuation">.</span>window<span class="token punctuation">.</span>animationDuration <span class="token operator">=</span> <span class="token number">0</span>
 
--- for whole window
-hs.hotkey.bind({&quot;cmd&quot;, &quot;shift&quot;}, &quot;Up&quot;, function()
-  local win = hs.window.focusedWindow()
-  local f = win:frame()
-  local screen = win:screen()
-  local max = screen:frame()
-  win:setFrame(max)
-end)
+<span class="token comment">-- for whole window</span>
+hs<span class="token punctuation">.</span>hotkey<span class="token punctuation">.</span><span class="token function">bind</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token string">"cmd"</span><span class="token punctuation">,</span> <span class="token string">"shift"</span><span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token string">"Up"</span><span class="token punctuation">,</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token keyword">local</span> win <span class="token operator">=</span> hs<span class="token punctuation">.</span>window<span class="token punctuation">.</span><span class="token function">focusedWindow</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token keyword">local</span> f <span class="token operator">=</span> win<span class="token punctuation">:</span><span class="token function">frame</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token keyword">local</span> screen <span class="token operator">=</span> win<span class="token punctuation">:</span><span class="token function">screen</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token keyword">local</span> max <span class="token operator">=</span> screen<span class="token punctuation">:</span><span class="token function">frame</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  win<span class="token punctuation">:</span><span class="token function">setFrame</span><span class="token punctuation">(</span>max<span class="token punctuation">)</span>
+<span class="token keyword">end</span><span class="token punctuation">)</span>
 
--- for left half window
-hs.hotkey.bind({&quot;cmd&quot;, &quot;shift&quot;}, &quot;Left&quot;, function()
-  local win = hs.window.focusedWindow()
-  local f = win:frame()
-  local screen = win:screen()
-  local max = screen:frame()
+<span class="token comment">-- for left half window</span>
+hs<span class="token punctuation">.</span>hotkey<span class="token punctuation">.</span><span class="token function">bind</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token string">"cmd"</span><span class="token punctuation">,</span> <span class="token string">"shift"</span><span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token string">"Left"</span><span class="token punctuation">,</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token keyword">local</span> win <span class="token operator">=</span> hs<span class="token punctuation">.</span>window<span class="token punctuation">.</span><span class="token function">focusedWindow</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token keyword">local</span> f <span class="token operator">=</span> win<span class="token punctuation">:</span><span class="token function">frame</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token keyword">local</span> screen <span class="token operator">=</span> win<span class="token punctuation">:</span><span class="token function">screen</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token keyword">local</span> max <span class="token operator">=</span> screen<span class="token punctuation">:</span><span class="token function">frame</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
 
-  f.x = max.x
-  f.y = max.y
-  f.w = max.w / 2
-  f.h = max.h
-  win:setFrame(f)
-end)
+  f<span class="token punctuation">.</span>x <span class="token operator">=</span> max<span class="token punctuation">.</span>x
+  f<span class="token punctuation">.</span>y <span class="token operator">=</span> max<span class="token punctuation">.</span>y
+  f<span class="token punctuation">.</span>w <span class="token operator">=</span> max<span class="token punctuation">.</span>w <span class="token operator">/</span> <span class="token number">2</span>
+  f<span class="token punctuation">.</span>h <span class="token operator">=</span> max<span class="token punctuation">.</span>h
+  win<span class="token punctuation">:</span><span class="token function">setFrame</span><span class="token punctuation">(</span>f<span class="token punctuation">)</span>
+<span class="token keyword">end</span><span class="token punctuation">)</span>
 </code></pre>
 <p>笔者的配置文件：<a href="https://github.com/SF-Zhou/dot-files/blob/master/hammerspoon/init.lua">https://github.com/SF-Zhou/dot-files/blob/master/hammerspoon/init.lua</a></p>
 <h3 id="3.-manico" tabindex="-1"><a href="#3.-manico">3. <a href="https://manico.im">Manico</a></a></h3>
