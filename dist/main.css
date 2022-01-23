@@ -228,11 +228,22 @@ body {
   border-collapse: collapse;
   border: 2px solid black;
 }
+@media (prefers-color-scheme: dark) {
+  .markdown table {
+    border: 2px solid lightgray;
+  }
+}
 .markdown table th,
 .markdown table td {
   border: 1px solid black;
   padding-left: 0.5rem;
   padding-right: 0.5rem;
+}
+@media (prefers-color-scheme: dark) {
+  .markdown table th,
+  .markdown table td {
+    border: 2px solid lightgray;
+  }
 }
 .gt-container .gt-ico-github .gt-svg {
   background-color: white;

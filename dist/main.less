@@ -212,9 +212,15 @@ body {
     margin-right: auto;
     border-collapse: collapse;
     border: 2px solid black;
+    @media (prefers-color-scheme: dark) {
+      border: 2px solid lightgray;
+    }
     th,
     td {
       border: 1px solid black;
+      @media (prefers-color-scheme: dark) {
+        border: 2px solid lightgray;
+      }
       padding-left: 0.5rem;
       padding-right: 0.5rem;
     }
