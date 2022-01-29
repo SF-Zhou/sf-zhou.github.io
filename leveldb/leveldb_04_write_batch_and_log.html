@@ -7,7 +7,6 @@
     <link rel="apple-touch-icon" href="/dist/favicon.png">
     <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
     <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
-    <link rel="stylesheet" type="text/css" href="/dist/gitalk.css">
     <link rel="stylesheet" type="text/css" href="/dist/main.css">
     <title>LevelDB 源码分析「四、高性能写操作续」 | SF-Zhou's Blog</title>
   </head>
@@ -420,8 +419,7 @@ Iterator<span class="token operator">*</span> <span class="token class-name">Mem
 <p>上一篇和本篇分析了 LevelDB 写操作的具体过程，分析了 <code>WriteBatch</code>、<code>Log</code> 和 <code>MemTable</code> 的代码，理解了高性能写操作的原理。不过内存数据库的大小毕竟是有限的，总会需要把内存中的数据持久化到硬盘中，并且还需要提供高速的硬盘数据查询操作，这些又是怎样实现的呢？且听下回分解！</p>
 
       </div>
-      <div id="gitalk-container">
-      </div>
+      <script src="https://utteranc.es/client.js" repo="SF-Zhou/sf-zhou.github.io" issue-term="title" label="Comment" theme="preferred-color-scheme" crossorigin="anonymous" async> </script>
       <div class="footer">
         <div class="license">
           Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
@@ -431,7 +429,6 @@ Iterator<span class="token operator">*</span> <span class="token class-name">Mem
         </div>
       </div>
     </div>
-    <script src="/dist/gitalk.min.js"></script>
     <script src="/dist/main.js"></script>
     <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
   </body>
