@@ -512,7 +512,20 @@ Status <span class="token class-name">Writer</span><span class="token double-col
 <p>综上来看，写入时首先会把 <code>WriteBatch::rep_</code> 对齐地追加到日志中，写入时做了合适的切分，并且加入了 CRC 校验。有写肯定有读，当进行恢复操作时就会读取上述日志，<code>Log::Reader</code> 代码实现位于  <a href="https://github.com/google/leveldb/blob/master/db/log_reader.h"><code>db/log_reader.h</code></a> 和 <a href="https://github.com/google/leveldb/blob/master/db/log_reader.cc"><code>db/log_reader.cc</code></a>，读取的过程即为写入的逆过程，有兴趣可以自行阅读。</p>
 
       </div>
-      <script src="https://utteranc.es/client.js" repo="SF-Zhou/sf-zhou.github.io" issue-term="title" label="Comment" theme="preferred-color-scheme" crossorigin="anonymous" async> </script>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
       <div class="footer">
         <div class="license">
           Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
