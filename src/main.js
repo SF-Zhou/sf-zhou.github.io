@@ -80,6 +80,21 @@ async function main() {
 
     const article = analyze_article(article_content, article_filename, config.default_author);
     article.html = marked(article.markdown);
+    const hidden = article.tags.includes('Hidden');
+    const comment = hidden ? "" : `<script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>`;
 
     const view = {
       title_string: `${article.title} | ${config.site_name}`,
@@ -88,6 +103,7 @@ async function main() {
       author: article.author,
       tags: JSON.stringify(article.tags),
       article: article.html,
+      comment: comment,
       web_master: config.web_master,
       google_analytics_id: config.google_analytics_id
     };
@@ -95,7 +111,6 @@ async function main() {
 
     delete article.html;
     delete article.markdown;
-    const hidden = article.tags.includes('Hidden');
     const html_filename = article.filename + (hidden ? '.htm' : '.html');
     article.url_path = join('/', article_dir, html_filename);
 

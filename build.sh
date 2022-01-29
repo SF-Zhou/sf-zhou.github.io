@@ -16,7 +16,3 @@ cp ./node_modules/prismjs/themes/prism-tomorrow.css public/dist/highlight.css
 # KaTeX
 cp ./node_modules/katex/dist/katex.min.css public/dist
 cp -r ./node_modules/katex/dist/fonts public/dist
-
-# Gitalk
-sed /sourceMappingURL=/d ./node_modules/gitalk/dist/gitalk.css > public/dist/gitalk.css
-sed /sourceMappingURL=/d ./node_modules/gitalk/dist/gitalk.min.js > public/dist/gitalk.min.js
