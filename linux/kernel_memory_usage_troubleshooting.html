@@ -31,7 +31,7 @@
 <li>打开并关闭 100w 文件，内存增加 32GB 左右；重新打开并关闭这 100w 文件，内存无上涨；打开另一批 100w 文件，内存增加到 64GB 水平</li>
 <li>使用 <code>sudo slaptop</code> 观察到主要是 <code>kmalloc-32</code> 的上涨，随文件数量线性增长</li>
 </ol>
-<p>怀疑是打开文件时有内存泄露，由于代码量巨大不好直接通过代码定位问题，Mentor 建议我用 <a href="https://www.kernel.org/doc/html/latest/dev-tools/kmemleak.html">kmemleak</a> 找找泄露的位置。</p>
+<p>怀疑是打开文件时有内存泄漏，由于代码量巨大不好直接通过代码定位问题，Mentor 建议我用 <a href="https://www.kernel.org/doc/html/latest/dev-tools/kmemleak.html">kmemleak</a> 找找泄漏的位置。</p>
 <h3 id="3.-kernel-memory-leak-detector" tabindex="-1"><a href="#3.-kernel-memory-leak-detector">3. Kernel Memory Leak Detector</a></h3>
 <p>重新编译了一版带 kmemleak 特性的内核并安装，按如下步骤使用：</p>
 <pre class="language-bash"><code class="language-bash"><span class="token comment"># 1. 清理当前记录的 kmemleak 信息避免干扰</span>
@@ -48,7 +48,7 @@
 <span class="token comment"># 5. 简单统计下高频函数</span>
 <span class="token function">cat</span> result.txt <span class="token operator">|</span> <span class="token function">grep</span> <span class="token string">"Call Trace"</span> -A <span class="token number">30</span> <span class="token operator">|</span> <span class="token function">awk</span> <span class="token string">'{print $6}'</span> <span class="token operator">|</span> <span class="token function">awk</span> -F <span class="token string">'+'</span> <span class="token string">'{print $1}'</span> <span class="token operator">|</span> <span class="token function">sort</span> <span class="token operator">|</span> <span class="token function">uniq</span> -c <span class="token operator">|</span> <span class="token function">sort</span> -n -k <span class="token number">1</span>
 </code></pre>
-<p>然而 kmemleak 并没有发现什么内存泄露，也就是说这里可能并不是泄露。山重水复疑无路，在进行一些无关的操作后，<code>kmalloc-32</code> 的内存占用竟然自己慢慢下降了，所以这不是泄露！</p>
+<p>然而 kmemleak 并没有发现什么内存泄漏，也就是说这里可能并不是泄漏。山重水复疑无路，在进行一些无关的操作后，<code>kmalloc-32</code> 的内存占用竟然自己慢慢下降了，所以这不是泄漏！</p>
 <h3 id="4.-slab-alloctor" tabindex="-1"><a href="#4.-slab-alloctor">4. Slab Alloctor</a></h3>
 <p>重新执行压测程序复现问题。<code>kmalloc-32</code> 是使用 Slab Alloctor 分配的，但 Reclaimable 的内存占用并不多，大部分仍然是 Unreclaim 的。尝试性地执行 Drop Caches：</p>
 <pre class="language-bash"><code class="language-bash"><span class="token comment"># 1. 释放 dentries 和 inodes</span>
