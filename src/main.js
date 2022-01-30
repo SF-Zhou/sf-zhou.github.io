@@ -82,8 +82,8 @@ async function main() {
     article.html = marked(article.markdown);
     const hidden = article.tags.includes('Hidden');
     const comment = hidden ? "" : `<script src="https://giscus.app/client.js"
-      data-repo="SF-Zhou/sf-zhou.github.io"
-      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-repo="${config.github_repo}"
+      data-repo-id="${config.github_repo_id}"
       data-category="Announcements"
       data-category-id="DIC_kwDOBNDkVs4CA6GQ"
       data-mapping="title"
