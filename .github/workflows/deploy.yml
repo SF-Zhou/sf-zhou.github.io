@@ -17,14 +17,14 @@ jobs:
       run: npm i && npm run build
 
     - name: 🚀Deploy
-      uses: JamesIves/github-pages-deploy-action@v4.2.3
+      uses: JamesIves/github-pages-deploy-action@v4.2.5
       with:
         token: ${{ secrets.TOKEN }}
         branch: master
         folder: public
 
     - name: 🚀Deploy
-      uses: JamesIves/github-pages-deploy-action@v4.2.3
+      uses: JamesIves/github-pages-deploy-action@v4.2.5
       with:
         repository-name: SF-Zhou/SF-Zhou
         token: ${{ secrets.TOKEN }}
