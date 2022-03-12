@@ -44,6 +44,7 @@ body {
 }
 .app .markdown {
   flex: 1;
+  margin-bottom: 1rem;
 }
 .app .title {
   padding-top: 2rem;
