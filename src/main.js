@@ -47,7 +47,7 @@ async function main() {
     const image_blocks = article_content.match(outer_image_block_regexp);
     if (image_blocks) {
       const relative_image_folder_path =
-        '../'.repeat(article_path.split(sep).length);
+        '../'.repeat(article_path.split(sep).length - 1);
 
       const outer_image_url_regexp = /\(([^)]+)\)$/;
       const image_url_list =
