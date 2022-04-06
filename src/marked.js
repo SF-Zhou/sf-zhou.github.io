@@ -5,6 +5,7 @@ import texmath from 'markdown-it-texmath';
 import implicit_figures from 'markdown-it-implicit-figures';
 import anchor from 'markdown-it-anchor';
 import markdown_it from 'markdown-it';
+import toc from 'markdown-it-table-of-contents';
 
 import load_languages from 'prismjs/components/index.js';
 load_languages(['bash', 'cmake', 'cpp', 'json', 'lua', 'nasm', 'protobuf', 'python', 'rust', 'yaml']);
@@ -60,6 +61,11 @@ md.use(anchor, {
     token.level = level;
     children.push(token);
   }
+});
+md.use(toc, {
+  markerPattern: /^\[TOC\]/im,
+  includeLevel: [1, 2, 3],
+  slugify: s => String(s).trim().toLowerCase().replace(/\s+/g, '-'),
 });
 
 export default (markdown) => {

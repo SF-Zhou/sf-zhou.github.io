@@ -58,7 +58,7 @@ async function main() {
         console.log('downloading...', url);
         const image_data = await download(url);
         const type_info = await fileTypeFromBuffer(image_data);
-        let ext_name = type_info.ext;
+        let ext_name = type_info ? type_info.ext : 'svg';
         if (ext_name === 'xml') {
           ext_name = 'svg';
         }

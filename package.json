@@ -16,6 +16,7 @@
     "markdown-it": "^12.0.4",
     "markdown-it-anchor": "^8.0.0",
     "markdown-it-implicit-figures": "^0.10.0",
+    "markdown-it-table-of-contents": "^0.6.0",
     "markdown-it-texmath": "^0.9.0",
     "md5": "^2.3.0",
     "mustache": "^4.1.0",
