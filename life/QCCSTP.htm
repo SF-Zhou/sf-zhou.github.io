@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>计算机技术与软件专业技术资格考试 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> 计算机技术与软件专业技术资格考试 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2022.04.06 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>[TOC]</p>
+<h2 id="一、uml" tabindex="-1"><a href="#%E4%B8%80%E3%80%81uml">一、UML</a></h2>
+<p>统一建模语言，有三个主要的模型：</p>
+<ol>
+<li><strong>功能模型</strong>：从用户的角度展示系统的功能，包括用例图</li>
+<li><strong>对象模型</strong>：采用对象，属性，操作，关联等概念展示系统的结构和基础，包括类别图、对象图</li>
+<li><strong>动态模型</strong>：展现系统的内部行为。包括序列图，活动图，状态图</li>
+</ol>
+<p>UML 一共定义了 14 种图形：</p>
+<ul>
+<li>结构性图形：强调系统式的建模
+<ul>
+<li>静态图
+<ul>
+<li>类图</li>
+<li>对象图</li>
+<li>包图</li>
+</ul>
+</li>
+<li>实现图
+<ul>
+<li>组件图</li>
+<li>部署图</li>
+</ul>
+</li>
+<li>剖面图</li>
+<li>复合结构图</li>
+</ul>
+</li>
+<li>行为式图形：强调系统模型中触发的事件
+<ul>
+<li>用例图</li>
+<li>活动图</li>
+<li>状态图</li>
+</ul>
+</li>
+<li>交互式图形：强调系统模型中的资料流程
+<ul>
+<li>时序图</li>
+<li>通信图</li>
+<li>交互概述图</li>
+<li>时间图</li>
+</ul>
+</li>
+</ul>
+<figure tabindex="1"><a href="../images/deb272095db45685e82bb7f9ac21c170.svg"><img src="../images/deb272095db45685e82bb7f9ac21c170.svg" alt=""></a><figcaption>UML 2.0</figcaption></figure>
+<h3 id="1.1-类图" tabindex="-1"><a href="#1.1-%E7%B1%BB%E5%9B%BE">1.1 类图</a></h3>
+<p>描述系统中对象的类型以及它们之间存在的各种静态关系：</p>
+<ol>
+<li><strong>关联</strong>：代表类型之间的关系</li>
+<li><strong>继承</strong>：面向对象设计中的继承</li>
+<li><strong>聚合</strong>：面向对象设计中的一种对象组合的形式</li>
+</ol>
+<figure tabindex="2"><a href="../images/3c906b8e6805c5a902d64da6e28773ab.png"><img src="../images/3c906b8e6805c5a902d64da6e28773ab.png" alt=""></a><figcaption>类图示例</figcaption></figure>
+<h3 id="1.2-对象图" tabindex="-1"><a href="#1.2-%E5%AF%B9%E8%B1%A1%E5%9B%BE">1.2 对象图</a></h3>
+<p>实例化的对象，表达特定时刻的实例。</p>
+<figure tabindex="3"><a href="../images/a14ecb59d58aabe3c5ac3093772fad30.png"><img src="../images/a14ecb59d58aabe3c5ac3093772fad30.png" alt=""></a><figcaption>对象图示例</figcaption></figure>
+<h3 id="1.3-包图" tabindex="-1"><a href="#1.3-%E5%8C%85%E5%9B%BE">1.3 包图</a></h3>
+<p>显示包和包之间的依赖关系的结构性图表。</p>
+<figure tabindex="4"><a href="../images/6765d10cdd0373e5303b643e989333bb.png"><img src="../images/6765d10cdd0373e5303b643e989333bb.png" alt=""></a><figcaption>包图示例</figcaption></figure>
+<h3 id="1.4-组件图" tabindex="-1"><a href="#1.4-%E7%BB%84%E4%BB%B6%E5%9B%BE">1.4 组件图</a></h3>
+<p>描绘软件组件的体系结构以及它们之间的依赖关系，包括运行时组件、可执行组件和源代码组件。</p>
+<figure tabindex="5"><a href="../images/332981e3fc56795e91b6ccc1975d34aa.png"><img src="../images/332981e3fc56795e91b6ccc1975d34aa.png" alt=""></a><figcaption>组件图示例</figcaption></figure>
+<h3 id="1.5-部署图" tabindex="-1"><a href="#1.5-%E9%83%A8%E7%BD%B2%E5%9B%BE">1.5 部署图</a></h3>
+<p>对运行时配置进行建模，并可视化应用程序中 产出的分布，表达硬件配置和软件组件之间的关系。</p>
+<figure tabindex="6"><a href="../images/146c2194cf51c1e864399dc089562548.png"><img src="../images/146c2194cf51c1e864399dc089562548.png" alt=""></a><figcaption>部署图示例</figcaption></figure>
+<h3 id="1.6-剖面图" tabindex="-1"><a href="#1.6-%E5%89%96%E9%9D%A2%E5%9B%BE">1.6 剖面图</a></h3>
+<p>创建特定于域和平台的原型，并定义它们之间的关系。</p>
+<figure tabindex="7"><a href="../images/5effa09fc63fcb9b9c08dc2da63cb7a5.png"><img src="../images/5effa09fc63fcb9b9c08dc2da63cb7a5.png" alt=""></a><figcaption>轮廓图示例</figcaption></figure>
+<h3 id="1.7-复合结构图" tabindex="-1"><a href="#1.7-%E5%A4%8D%E5%90%88%E7%BB%93%E6%9E%84%E5%9B%BE">1.7 复合结构图</a></h3>
+<p>用于微观视角的系统建模，显示了一个类的内部结构和这个结构所实现的协作。复合结构是一组相互关联的元素，它们在运行时进行协作以达到某种目的。每个元素在协作中都有一些定义的角色。</p>
+<figure tabindex="8"><a href="../images/fb2659097c4d5db83b9288d9c755774a.png"><img src="../images/fb2659097c4d5db83b9288d9c755774a.png" alt=""></a><figcaption>复合结构图示例</figcaption></figure>
+<h3 id="1.8-用例图" tabindex="-1"><a href="#1.8-%E7%94%A8%E4%BE%8B%E5%9B%BE">1.8 用例图</a></h3>
+<p>从用例的角度描述系统的功能需求，它是系统预期功能（用例）及其环境（参与者）的模型，将系统需要与系统如何满足这些需求相关联。</p>
+<figure tabindex="9"><a href="../images/d863a160202e809c70af7716d141481a.png"><img src="../images/d863a160202e809c70af7716d141481a.png" alt=""></a><figcaption>用例图示例</figcaption></figure>
+<h3 id="1.9-活动图" tabindex="-1"><a href="#1.9-%E6%B4%BB%E5%8A%A8%E5%9B%BE">1.9 活动图</a></h3>
+<p>用于展示工作流程，描述了目标系统的控制流程，比如探索复杂的业务规则和操作。</p>
+<figure tabindex="10"><a href="../images/92e2e4e29fc9112c191435a3340f18d1.png"><img src="../images/92e2e4e29fc9112c191435a3340f18d1.png" alt=""></a><figcaption>活动图示例</figcaption></figure>
+<h3 id="1.10-状态图" tabindex="-1"><a href="#1.10-%E7%8A%B6%E6%80%81%E5%9B%BE">1.10 状态图</a></h3>
+<p>描绘允许的状态和转换以及影响这些转换的事件，它有助于可视化对象的整个生命周期。</p>
+<figure tabindex="11"><a href="../images/0aaa9c03861f99c1735e86b29b8c73ac.png"><img src="../images/0aaa9c03861f99c1735e86b29b8c73ac.png" alt=""></a><figcaption>状态图示例</figcaption></figure>
+<h3 id="1.11-时序图" tabindex="-1"><a href="#1.11-%E6%97%B6%E5%BA%8F%E5%9B%BE">1.11 时序图</a></h3>
+<p>根据时间序列展示对象如何进行协作。</p>
+<figure tabindex="12"><a href="../images/165e586a1aed1698ae4a332122519456.png"><img src="../images/165e586a1aed1698ae4a332122519456.png" alt=""></a><figcaption>时序图示例</figcaption></figure>
+<h3 id="1.12-通信图" tabindex="-1"><a href="#1.12-%E9%80%9A%E4%BF%A1%E5%9B%BE">1.12 通信图</a></h3>
+<p>模拟用例的动态行为，侧重于显示对象的协作而不是时间顺序。</p>
+<figure tabindex="13"><a href="../images/d287006f248f0a71ee2185794d2d370b.png"><img src="../images/d287006f248f0a71ee2185794d2d370b.png" alt=""></a><figcaption>通信图示例</figcaption></figure>
+<h3 id="1.13-交互概览图" tabindex="-1"><a href="#1.13-%E4%BA%A4%E4%BA%92%E6%A6%82%E8%A7%88%E5%9B%BE">1.13 交互概览图</a></h3>
+<p>侧重于交互控制流程的概述。</p>
+<figure tabindex="14"><a href="../images/f46025b5f9c0a736616ff5bfb5c44504.png"><img src="../images/f46025b5f9c0a736616ff5bfb5c44504.png" alt=""></a><figcaption>交互概览图示例</figcaption></figure>
+<h3 id="1.14-时间图" tabindex="-1"><a href="#1.14-%E6%97%B6%E9%97%B4%E5%9B%BE">1.14 时间图</a></h3>
+<p>显示了既定时间内对象的行为，时间从左到右增加，生命线显示在垂直排列的独立隔间中。</p>
+<figure tabindex="15"><a href="../images/ffca1819ada130b01a6afbb736b958f5.png"><img src="../images/ffca1819ada130b01a6afbb736b958f5.png" alt=""></a><figcaption>时间图示例</figcaption></figure>
+<h2 id="references" tabindex="-1"><a href="#references">References</a></h2>
+<ol>
+<li><a href="https://www.visual-paradigm.com/cn/guide/uml-unified-modeling-language/what-is-uml/">&quot;什么是统一建模语言（UML）&quot;, <em>Visual Paradigm</em></a></li>
+</ol>
+
+      </div>
+      
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>

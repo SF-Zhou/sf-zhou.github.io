@@ -1,0 +1,110 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" 
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="24cm" height="12cm" version="1.1" xmlns="http://www.w3.org/2000/svg" viewport="0 0 240 120">
+
+	<defs>
+    	<marker id="Arrow" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="strokeWidth" markerWidth="10" markerHeight="10" orient="auto">
+      		<path stroke="black" fill="white" d="M 0 0 L 10 5 L 0 10 z" />
+    	</marker>
+  	</defs>
+
+  	<desc>UML Diagram</desc>
+
+  	<rect x="10.5cm" y="0.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="12cm" y="1.3cm" font-size="0.3cm" text-anchor="middle" font-style="italic">Diagram</text>
+  	
+  	<rect x="4cm" y="2.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="5.5cm" y="3.1cm" font-size="0.3cm" text-anchor="middle" font-style="italic">Structure</text>
+	<text font-family="sansserif" x="5.5cm" y="3.5cm" font-size="0.3cm" text-anchor="middle" font-style="italic">Diagram</text>
+
+  	<rect x="17cm" y="2.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="18.5cm" y="3.1cm" font-size="0.3cm" text-anchor="middle" font-style="italic">Behaviour</text>
+	<text font-family="sansserif" x="18.5cm" y="3.5cm" font-size="0.3cm" text-anchor="middle" font-style="italic">Diagram</text>
+
+  	<rect x="0.5cm" y="4.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="2cm" y="5.3cm" font-size="0.3cm" text-anchor="middle">Class Diagram</text>
+
+  	<rect x="4cm" y="4.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="5.5cm" y="5.1cm" font-size="0.3cm" text-anchor="middle">Component</text>
+	<text font-family="sansserif" x="5.5cm" y="5.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="7.5cm" y="4.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="9cm" y="5.1cm" font-size="0.3cm" text-anchor="middle">Object</text>
+	<text font-family="sansserif" x="9cm" y="5.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="13.5cm" y="4.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="15cm" y="5.1cm" font-size="0.3cm" text-anchor="middle">Activity</text>
+	<text font-family="sansserif" x="15cm" y="5.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="17cm" y="4.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="18.5cm" y="5.1cm" font-size="0.3cm" text-anchor="middle">Use Case</text>
+	<text font-family="sansserif" x="18.5cm" y="5.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="20.5cm" y="4.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="22cm" y="5.1cm" font-size="0.3cm" text-anchor="middle">State Machine</text>
+	<text font-family="sansserif" x="22cm" y="5.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="2.25cm" y="6.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="3.75cm" y="6.9cm" font-size="0.3cm" text-anchor="middle">Composite</text>
+	<text font-family="sansserif" x="3.75cm" y="7.3cm" font-size="0.3cm" text-anchor="middle">Structure</text>
+	<text font-family="sansserif" x="3.75cm" y="7.7cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="5.75cm" y="6.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="7.25cm" y="7.1cm" font-size="0.3cm" text-anchor="middle">Deployment</text>
+	<text font-family="sansserif" x="7.25cm" y="7.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="9.25cm" y="6.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="10.75cm" y="7.1cm" font-size="0.3cm" text-anchor="middle">Package</text>
+	<text font-family="sansserif" x="10.75cm" y="7.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="15.25cm" y="6.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="16.75cm" y="7.1cm" font-size="0.3cm" text-anchor="middle">Interaction</text>
+	<text font-family="sansserif" x="16.75cm" y="7.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="13.5cm" y="8.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="15cm" y="9.1cm" font-size="0.3cm" text-anchor="middle">Sequence</text>
+	<text font-family="sansserif" x="15cm" y="9.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="17cm" y="8.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="18.5cm" y="8.9cm" font-size="0.3cm" text-anchor="middle">Interaction</text>
+	<text font-family="sansserif" x="18.5cm" y="9.3cm" font-size="0.3cm" text-anchor="middle">Overview</text>
+	<text font-family="sansserif" x="18.5cm" y="9.7cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="15.25cm" y="10.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="16.75cm" y="11.1cm" font-size="0.3cm" text-anchor="middle">Communication</text>
+	<text font-family="sansserif" x="16.75cm" y="11.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+  	<rect x="18.75cm" y="10.6cm" width="3cm" height="1.2cm" stroke="black" stroke-width="1" fill="white"></rect>
+	<text font-family="sansserif" x="20.25cm" y="11.1cm" font-size="0.3cm" text-anchor="middle">Timing</text>
+	<text font-family="sansserif" x="20.25cm" y="11.5cm" font-size="0.3cm" text-anchor="middle">Diagram</text>
+
+	<g stroke="black" stroke-width="1">
+		<line x1="5.5cm" y1="2.2cm" x2="18.5cm" y2="2.2cm" />
+		<line x1="5.5cm" y1="2.2cm" x2="5.5cm" y2="2.6cm" />
+		<line x1="12cm" y1="2.2cm" x2="12cm" y2="1.8cm" fill="none" marker-end="url(#Arrow)"/>
+		<line x1="18.5cm" y1="2.2cm" x2="18.5cm" y2="2.6cm" />
+				
+
+		<line x1="2cm" y1="4.2cm" x2="10.75cm" y2="4.2cm" />
+		<line x1="2cm" y1="4.2cm" x2="2cm" y2="4.6cm" />
+		<line x1="3.75cm" y1="6.6cm" x2="3.75cm" y2="4.2cm" />
+		<line x1="5.5cm" y1="4.6cm" x2="5.5cm" y2="3.8cm" fill="none" marker-end="url(#Arrow)"/>
+		<line x1="7.25cm" y1="6.6cm" x2="7.25cm" y2="4.2cm" />
+		<line x1="9cm" y1="4.2cm" x2="9cm" y2="4.6cm" />
+		<line x1="10.75cm" y1="6.6cm" x2="10.75cm" y2="4.2cm" />		
+
+		<line x1="15cm" y1="4.2cm" x2="22cm" y2="4.2cm" />
+		<line x1="15cm" y1="4.2cm" x2="15cm" y2="4.6cm" />
+		<line x1="16.75cm" y1="6.6cm" x2="16.75cm" y2="4.2cm" />
+		<line x1="18.5cm" y1="4.6cm" x2="18.5cm" y2="3.8cm" fill="none" marker-end="url(#Arrow)"/>
+		<line x1="22cm" y1="4.2cm" x2="22cm" y2="4.6cm" />
+		
+		<line x1="15cm" y1="8.2cm" x2="15cm" y2="8.6cm" />
+		<line x1="18.5cm" y1="8.2cm" x2="18.5cm" y2="8.6cm" />
+		<line x1="20.25cm" y1="8.2cm" x2="20.25cm" y2="10.6cm" />
+		<line x1="16.75cm" y1="10.6cm" x2="16.75cm" y2="7.8cm" fill="none" marker-end="url(#Arrow)"/>
+		<line x1="15cm" y1="8.2cm" x2="20.25cm" y2="8.2cm" />
+	</g>
+
+</svg>
