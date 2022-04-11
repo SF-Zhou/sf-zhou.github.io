@@ -22,7 +22,168 @@
         </a>
       </div>
       <div class="markdown">
-        <p><div class="table-of-contents"><ul><li><a href="#一、uml">一、UML</a><ul><li><a href="#1.1-类图">1.1 类图</a></li><li><a href="#1.2-对象图">1.2 对象图</a></li><li><a href="#1.3-包图">1.3 包图</a></li><li><a href="#1.4-组件图">1.4 组件图</a></li><li><a href="#1.5-部署图">1.5 部署图</a></li><li><a href="#1.6-剖面图">1.6 剖面图</a></li><li><a href="#1.7-复合结构图">1.7 复合结构图</a></li><li><a href="#1.8-用例图">1.8 用例图</a></li><li><a href="#1.9-活动图">1.9 活动图</a></li><li><a href="#1.10-状态图">1.10 状态图</a></li><li><a href="#1.11-时序图">1.11 时序图</a></li><li><a href="#1.12-通信图">1.12 通信图</a></li><li><a href="#1.13-交互概览图">1.13 交互概览图</a></li><li><a href="#1.14-时间图">1.14 时间图</a></li></ul></li><li><a href="#二、网络">二、网络</a><ul><li><a href="#2.1-osi-模型">2.1 OSI 模型</a></li><li><a href="#2.2-tcp/ip-参考模型">2.2 TCP/IP 参考模型</a></li></ul></li><li><a href="#references">References</a></li></ul></div></p>
+        <p><div class="table-of-contents"><ul><li><a href="#计算机组成与体系结构">计算机组成与体系结构</a><ul><li><a href="#1.-flynn-分类法">1. Flynn 分类法</a></li><li><a href="#2.-多级存储体系">2. 多级存储体系</a></li><li><a href="#3.-输入输出方式">3. 输入输出方式</a></li><li><a href="#4.-体系结构">4. 体系结构</a></li></ul></li><li><a href="#操作系统">操作系统</a><ul><li><a href="#1.-类型与结构">1. 类型与结构</a></li></ul></li><li><a href="#一、uml">一、UML</a><ul><li><a href="#1.1-类图">1.1 类图</a></li><li><a href="#1.2-对象图">1.2 对象图</a></li><li><a href="#1.3-包图">1.3 包图</a></li><li><a href="#1.4-组件图">1.4 组件图</a></li><li><a href="#1.5-部署图">1.5 部署图</a></li><li><a href="#1.6-剖面图">1.6 剖面图</a></li><li><a href="#1.7-复合结构图">1.7 复合结构图</a></li><li><a href="#1.8-用例图">1.8 用例图</a></li><li><a href="#1.9-活动图">1.9 活动图</a></li><li><a href="#1.10-状态图">1.10 状态图</a></li><li><a href="#1.11-序列图">1.11 序列图</a></li><li><a href="#1.12-通信图">1.12 通信图</a></li><li><a href="#1.13-交互概览图">1.13 交互概览图</a></li><li><a href="#1.14-定时图">1.14 定时图</a></li></ul></li><li><a href="#二、网络">二、网络</a><ul><li><a href="#2.1-osi-模型">2.1 OSI 模型</a></li><li><a href="#2.2-tcp/ip-参考模型">2.2 TCP/IP 参考模型</a></li><li><a href="#2.3-网络开发">2.3 网络开发</a></li></ul></li><li><a href="#三、法律法规">三、法律法规</a><ul><li><a href="#3.1-软件著作权">3.1 软件著作权</a></li><li><a href="#3.2-商标">3.2 商标</a></li></ul></li><li><a href="#四、计算机组成">四、计算机组成</a><ul><li><a href="#4.1-缓存">4.1 缓存</a></li></ul></li><li><a href="#五、系统分析">五、系统分析</a><ul><li><a href="#5.1-业务流程图">5.1 业务流程图</a></li><li><a href="#5.2-软件配置项">5.2 软件配置项</a></li></ul></li><li><a href="#六、数据库">六、数据库</a><ul><li><a href="#6.1-数据库建模">6.1 数据库建模</a></li></ul></li><li><a href="#references">References</a></li></ul></div></p>
+<h2 id="计算机组成与体系结构" tabindex="-1"><a href="#%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BB%84%E6%88%90%E4%B8%8E%E4%BD%93%E7%B3%BB%E7%BB%93%E6%9E%84">计算机组成与体系结构</a></h2>
+<h3 id="1.-flynn-分类法" tabindex="-1"><a href="#1.-flynn-%E5%88%86%E7%B1%BB%E6%B3%95">1. Flynn 分类法</a></h3>
+<ol>
+<li>指令流</li>
+<li>数据流</li>
+<li>多倍性</li>
+</ol>
+<p>Flynn 根据不同的指令流-数据流，把计算机分成 4 类：</p>
+<ol>
+<li>SISD</li>
+<li>SIMD</li>
+<li>MISD</li>
+<li>MIMD</li>
+</ol>
+<h3 id="2.-多级存储体系" tabindex="-1"><a href="#2.-%E5%A4%9A%E7%BA%A7%E5%AD%98%E5%82%A8%E4%BD%93%E7%B3%BB">2. 多级存储体系</a></h3>
+<ol>
+<li>寄存器</li>
+<li>Cache</li>
+<li>主存</li>
+<li>外存</li>
+</ol>
+<p>存取方式：</p>
+<ol>
+<li>顺序存取：磁带</li>
+<li>直接存取：磁盘</li>
+<li>随机存取：内存</li>
+<li>相联存取：Cache</li>
+</ol>
+<p>RAID：独立磁盘冗余阵列</p>
+<ol>
+<li>RAID 0：无冗余、无校验</li>
+<li>RAID 1：镜像</li>
+<li>RAID 2： 纠错海明码</li>
+<li>RAID 3/4：奇偶校验码，有独立校验盘</li>
+<li>RAID 5：奇偶校验码，无独立校验盘</li>
+<li>RAID 6：专用异步校验盘</li>
+<li>RAID 7：RAID 6 优化，高传输速率</li>
+<li>RAID 10：RAID 0 + RAID 1</li>
+</ol>
+<p>Cache 映射方法：</p>
+<ol>
+<li>全相联</li>
+<li>组相联</li>
+<li>直接映射：哈希，高冲突</li>
+</ol>
+<p>组数计算：Cache 容量 / 每组大小</p>
+<p>Cache 淘汰算法：</p>
+<ol>
+<li>随机</li>
+<li>FIFO</li>
+<li>LRU</li>
+</ol>
+<p>Cache 写操作：</p>
+<ol>
+<li>写直达 write through</li>
+<li>写回 write back</li>
+<li>标记</li>
+</ol>
+<h3 id="3.-输入输出方式" tabindex="-1"><a href="#3.-%E8%BE%93%E5%85%A5%E8%BE%93%E5%87%BA%E6%96%B9%E5%BC%8F">3. 输入输出方式</a></h3>
+<p>工作方式：</p>
+<ol>
+<li>程序控制方式：CPU 直接利用 IO 指令编程，轮询结果，方法简单，硬件开销小</li>
+<li>程序中断方式：IO 系统完成后使用中断通知 CPU，无需等待提高效率</li>
+<li>DMA</li>
+<li>通道方式</li>
+<li>输入输出处理机</li>
+</ol>
+<p>常见接口：</p>
+<ol>
+<li>ESDI</li>
+<li>IDE</li>
+<li>SCSI</li>
+<li>PCMCIA</li>
+<li>IEEE-1394：火线</li>
+<li>USB</li>
+</ol>
+<h3 id="4.-体系结构" tabindex="-1"><a href="#4.-%E4%BD%93%E7%B3%BB%E7%BB%93%E6%9E%84">4. 体系结构</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>CISC</th>
+<th>RISC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>指令数</td>
+<td>多</td>
+<td>少</td>
+</tr>
+<tr>
+<td>指令复杂度</td>
+<td>高</td>
+<td>低</td>
+</tr>
+<tr>
+<td>指令长度</td>
+<td>变化</td>
+<td>短且固定</td>
+</tr>
+<tr>
+<td>指令执行周期</td>
+<td>变化</td>
+<td>高度流水线，一个机器周期</td>
+</tr>
+<tr>
+<td>指令格式</td>
+<td>复杂</td>
+<td>简单</td>
+</tr>
+<tr>
+<td>寻址方式</td>
+<td>多</td>
+<td>极少</td>
+</tr>
+<tr>
+<td>寄存器数量</td>
+<td>一般</td>
+<td>大量</td>
+</tr>
+<tr>
+<td>译码方式</td>
+<td>微程序</td>
+<td>硬件电路</td>
+</tr>
+<tr>
+<td>编译系统要求</td>
+<td>低</td>
+<td>高</td>
+</tr>
+<tr>
+<td>Cache</td>
+<td>一般</td>
+<td>指令+数据</td>
+</tr>
+</tbody>
+</table>
+<p>流水线：</p>
+<ol>
+<li>吞吐率</li>
+<li>加速比</li>
+<li>效率：实际时空区 / 占用时空区</li>
+</ol>
+<p>影响因素：</p>
+<ol>
+<li>转移指令</li>
+<li>资源冲突</li>
+<li>响应中断</li>
+</ol>
+<p>多处理机系统：</p>
+<ol>
+<li>恒等置换：Identity</li>
+<li>交换置换：2^0</li>
+<li>方体置换：2^k</li>
+<li>Shuffle：循环左移</li>
+<li>蝶式置换：最高最低交l换</li>
+<li>位序颠倒置换</li>
+</ol>
+<h2 id="操作系统" tabindex="-1"><a href="#%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F">操作系统</a></h2>
+<h3 id="1.-类型与结构" tabindex="-1"><a href="#1.-%E7%B1%BB%E5%9E%8B%E4%B8%8E%E7%BB%93%E6%9E%84">1. 类型与结构</a></h3>
 <h2 id="一、uml" tabindex="-1"><a href="#%E4%B8%80%E3%80%81uml">一、UML</a></h2>
 <p>统一建模语言，有三个主要的模型：</p>
 <ol>
@@ -60,10 +221,10 @@
 </li>
 <li>交互式图形：强调系统模型中的资料流程
 <ul>
-<li>时序图</li>
+<li>序列图</li>
 <li>通信图</li>
 <li>交互概述图</li>
-<li>时间图</li>
+<li>定时图</li>
 </ul>
 </li>
 </ul>
@@ -103,25 +264,25 @@
 <h3 id="1.10-状态图" tabindex="-1"><a href="#1.10-%E7%8A%B6%E6%80%81%E5%9B%BE">1.10 状态图</a></h3>
 <p>描绘允许的状态和转换以及影响这些转换的事件，它有助于可视化对象的整个生命周期。</p>
 <figure tabindex="11"><a href="../images/0aaa9c03861f99c1735e86b29b8c73ac.png"><img src="../images/0aaa9c03861f99c1735e86b29b8c73ac.png" alt=""></a><figcaption>状态图示例</figcaption></figure>
-<h3 id="1.11-时序图" tabindex="-1"><a href="#1.11-%E6%97%B6%E5%BA%8F%E5%9B%BE">1.11 时序图</a></h3>
-<p>根据时间序列展示对象如何进行协作。</p>
-<figure tabindex="12"><a href="../images/165e586a1aed1698ae4a332122519456.png"><img src="../images/165e586a1aed1698ae4a332122519456.png" alt=""></a><figcaption>时序图示例</figcaption></figure>
+<h3 id="1.11-序列图" tabindex="-1"><a href="#1.11-%E5%BA%8F%E5%88%97%E5%9B%BE">1.11 序列图</a></h3>
+<p>根据时间序列展示对象如何进行协作。基本元素包括对象、生命线和消息。</p>
+<figure tabindex="12"><a href="../images/165e586a1aed1698ae4a332122519456.png"><img src="../images/165e586a1aed1698ae4a332122519456.png" alt=""></a><figcaption>序列图示例</figcaption></figure>
 <h3 id="1.12-通信图" tabindex="-1"><a href="#1.12-%E9%80%9A%E4%BF%A1%E5%9B%BE">1.12 通信图</a></h3>
 <p>模拟用例的动态行为，侧重于显示对象的协作而不是时间顺序。</p>
 <figure tabindex="13"><a href="../images/d287006f248f0a71ee2185794d2d370b.png"><img src="../images/d287006f248f0a71ee2185794d2d370b.png" alt=""></a><figcaption>通信图示例</figcaption></figure>
 <h3 id="1.13-交互概览图" tabindex="-1"><a href="#1.13-%E4%BA%A4%E4%BA%92%E6%A6%82%E8%A7%88%E5%9B%BE">1.13 交互概览图</a></h3>
 <p>侧重于交互控制流程的概述。</p>
 <figure tabindex="14"><a href="../images/f46025b5f9c0a736616ff5bfb5c44504.png"><img src="../images/f46025b5f9c0a736616ff5bfb5c44504.png" alt=""></a><figcaption>交互概览图示例</figcaption></figure>
-<h3 id="1.14-时间图" tabindex="-1"><a href="#1.14-%E6%97%B6%E9%97%B4%E5%9B%BE">1.14 时间图</a></h3>
+<h3 id="1.14-定时图" tabindex="-1"><a href="#1.14-%E5%AE%9A%E6%97%B6%E5%9B%BE">1.14 定时图</a></h3>
 <p>显示了既定时间内对象的行为，时间从左到右增加，生命线显示在垂直排列的独立隔间中。</p>
-<figure tabindex="15"><a href="../images/ffca1819ada130b01a6afbb736b958f5.png"><img src="../images/ffca1819ada130b01a6afbb736b958f5.png" alt=""></a><figcaption>时间图示例</figcaption></figure>
+<figure tabindex="15"><a href="../images/ffca1819ada130b01a6afbb736b958f5.png"><img src="../images/ffca1819ada130b01a6afbb736b958f5.png" alt=""></a><figcaption>定时图示例</figcaption></figure>
 <h2 id="二、网络" tabindex="-1"><a href="#%E4%BA%8C%E3%80%81%E7%BD%91%E7%BB%9C">二、网络</a></h2>
 <h3 id="2.1-osi-模型" tabindex="-1"><a href="#2.1-osi-%E6%A8%A1%E5%9E%8B">2.1 OSI 模型</a></h3>
 <figure tabindex="16"><a href="../images/93294d26a9a39940e753e297cec30a56.svg"><img src="../images/93294d26a9a39940e753e297cec30a56.svg" alt=""></a><figcaption>OSI 模型</figcaption></figure>
 <ol>
 <li>物理层 Physical Layer：参与数据传输的物理设备，将数据转换为字节流</li>
 <li>数据链路层 Data Link Layer：负责促进同一网络之间的数据传输，数据帧 Data Frame</li>
-<li>网络层 Network Layer：负责促进两个网络之间的数据传输，决定路径和路由，IP 协议</li>
+<li>网络层 Network Layer：负责促进两个网络之间的数据传输，决定路径和路由，IP 协议、ICMP 协议</li>
 <li>传输层 Transport Layer：负责两个设备间的端到端通信，依照协议传输数据，例如 TCP/UDP</li>
 <li>会话层 Session Layer：负责在数据传输中设置和维护计算机网络中两台计算机之间的通信连接</li>
 <li>表示层 Presentation Layer：把数据转换为能与接收者的系统格式兼容并适合传输的格式</li>
@@ -133,6 +294,60 @@
 <li>网际互连层：网络层</li>
 <li>传输层：传输层</li>
 <li>应用层：会话层 + 表示层 + 应用层</li>
+</ol>
+<h3 id="2.3-网络开发" tabindex="-1"><a href="#2.3-%E7%BD%91%E7%BB%9C%E5%BC%80%E5%8F%91">2.3 网络开发</a></h3>
+<p>电信号在电缆中的传播速度是 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2.0</mn><mo>∗</mo><mn>1</mn><msup><mn>0</mn><mn>8</mn></msup><mi>m</mi><mi mathvariant="normal">/</mi><mi>s</mi></mrow><annotation encoding="application/x-tex">2.0 * 10^8m/s</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">2.0</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">∗</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">8</span></span></span></span></span></span></span></span><span class="mord mathnormal">m</span><span class="mord">/</span><span class="mord mathnormal">s</span></span></span></span></eq>。</p>
+<figure tabindex="17"><a href="../images/bacb99b62da0c7b19fb25c427e5dfb21.png"><img src="../images/bacb99b62da0c7b19fb25c427e5dfb21.png" alt=""></a><figcaption>五阶段网络开发过程</figcaption></figure>
+<h2 id="三、法律法规" tabindex="-1"><a href="#%E4%B8%89%E3%80%81%E6%B3%95%E5%BE%8B%E6%B3%95%E8%A7%84">三、法律法规</a></h2>
+<h3 id="3.1-软件著作权" tabindex="-1"><a href="#3.1-%E8%BD%AF%E4%BB%B6%E8%91%97%E4%BD%9C%E6%9D%83">3.1 软件著作权</a></h3>
+<p>软件著作权因程序的完成而自动产生，具有独创性，即软件系独立开发完成，不是依现有软件抄袭、复制而来，不必履行任何形式的登记和注册手续。</p>
+<h3 id="3.2-商标" tabindex="-1"><a href="#3.2-%E5%95%86%E6%A0%87">3.2 商标</a></h3>
+<p>特点：</p>
+<ol>
+<li>专有性</li>
+<li>地域性</li>
+<li>时效性</li>
+</ol>
+<p>商标注册优先级：</p>
+<ol>
+<li>申请在先</li>
+<li>协商解决</li>
+<li>抽签决定</li>
+</ol>
+<h2 id="四、计算机组成" tabindex="-1"><a href="#%E5%9B%9B%E3%80%81%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BB%84%E6%88%90">四、计算机组成</a></h2>
+<h3 id="4.1-缓存" tabindex="-1"><a href="#4.1-%E7%BC%93%E5%AD%98">4.1 缓存</a></h3>
+<p>块冲突概率由低变高：</p>
+<ol>
+<li>全相联映像</li>
+<li>组相联映像</li>
+<li>直接映像</li>
+</ol>
+<h2 id="五、系统分析" tabindex="-1"><a href="#%E4%BA%94%E3%80%81%E7%B3%BB%E7%BB%9F%E5%88%86%E6%9E%90">五、系统分析</a></h2>
+<h3 id="5.1-业务流程图" tabindex="-1"><a href="#5.1-%E4%B8%9A%E5%8A%A1%E6%B5%81%E7%A8%8B%E5%9B%BE">5.1 业务流程图</a></h3>
+<h3 id="5.2-软件配置项" tabindex="-1"><a href="#5.2-%E8%BD%AF%E4%BB%B6%E9%85%8D%E7%BD%AE%E9%A1%B9">5.2 软件配置项</a></h3>
+<ol>
+<li>环境类，指软件开发环境或软件维护环境，例如编译器、操作系统、编辑器、数据库管理系统、开发工具、项目管理工具、文档编制工具等</li>
+<li>定义类，是需求分析与定义阶段结束后得到的工作产品，例如需求规格说明、项目开发计划、设计标准或设计准则、验收测试计划等</li>
+<li>设计类，设计阶段结束后得到的工作产品，例如系统设计规格说明、程序规格说明、数据库设计、编码标准、用户界面标准、测试标准、系统测试计划、用户手册等</li>
+<li>测试类，系统测试完成后的工作产品，例如系统测试数据、系统测试结果、操作手册、安装手册等</li>
+<li>维护类，进入维护阶段以后产生的工作产品。</li>
+</ol>
+<h2 id="六、数据库" tabindex="-1"><a href="#%E5%85%AD%E3%80%81%E6%95%B0%E6%8D%AE%E5%BA%93">六、数据库</a></h2>
+<p>实体：现实世界中客观存在并可以被区别的事物
+属性：实体所具有的某一特性，表的某一列
+元组：表中的一行
+码：表中可以唯一确定一个元组的某个属性组
+主属性：包含在任何一个候选码中的属性
+第一范式：属性不可分，所有关系数据库均是
+第二范式：非主属性完全依赖于码，非码主属性不能确定任何一个非主属性
+第三范式：消除传递依赖
+模式：视图-外模式、基本表-模式、存储文件-内模式</p>
+<h3 id="6.1-数据库建模" tabindex="-1"><a href="#6.1-%E6%95%B0%E6%8D%AE%E5%BA%93%E5%BB%BA%E6%A8%A1">6.1 数据库建模</a></h3>
+<ol>
+<li>业务用例设计，使用用例图建立业务模型</li>
+<li>逻辑数据模型设计，确定应用系统所需的持久数据，设计出关系数据库中表达持久数据的实体类及其联系，并将他们映射为数据库表和视图等</li>
+<li>物理数据模型设计，使用组件图、配置图等设计数据库的物理模型</li>
+<li>物理实现设计，根据物理数据模型建立具体数据库环境下的数据库表和视图等</li>
 </ol>
 <h2 id="references" tabindex="-1"><a href="#references">References</a></h2>
 <ol>
