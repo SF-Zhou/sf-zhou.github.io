@@ -1,5 +1,17 @@
 [
   {
+    "title": "在 Apple M1 平台搭建 Ubuntu 开发环境",
+    "date": "2022.06.22",
+    "author": "SF-Zhou",
+    "tags": [
+      "MacBook",
+      "Ubuntu",
+      "Develop"
+    ],
+    "filename": "ubuntu_env_on_apple_m1",
+    "url_path": "/productivity/ubuntu_env_on_apple_m1.html"
+  },
+  {
     "title": "MacBook 键盘效率工具推荐",
     "date": "2022.01.23",
     "author": "SF-Zhou",
