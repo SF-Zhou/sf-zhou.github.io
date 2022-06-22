@@ -23,61 +23,61 @@
       </div>
       <div class="markdown">
         <p>去年年底笔者更新了自己的开发设备，换成了 Apple M1 芯片的 MacBook，偶尔做开发的时候还是会因为环境问题不太方便。所以希望在这台笔记本上搭建一套 Ubuntu 的开发环境。因为可能会有内核开发相关的需求，所以没有使用 Docker，而是选择了 Ubuntu 的发行商 Canonical 开发的 Multipass。安装步骤如下：</p>
-<pre class="language-sh"><code class="language-sh"># 1. install
-brew install multipass
+<pre class="language-bash"><code class="language-bash"><span class="token comment"># 1. install</span>
+brew <span class="token function">install</span> multipass
 
-# 2. launch a instance
-multipass launch --name primary --cpus 8 --mem 8G --disk 20G
+<span class="token comment"># 2. launch a instance</span>
+multipass launch --name primary --cpus <span class="token number">8</span> --mem 8G --disk 20G
 
-# 3. list instances
+<span class="token comment"># 3. list instances</span>
 multipass list
-#&gt; Name                    State             IPv4             Image
-#&gt; primary                 Running           192.168.64.4     Ubuntu 20.04 LTS
+<span class="token comment">#> Name                    State             IPv4             Image</span>
+<span class="token comment">#> primary                 Running           192.168.64.4     Ubuntu 20.04 LTS</span>
 
-# 4. show info
+<span class="token comment"># 4. show info</span>
 multipass info --all
-#&gt; Name:           primary
-#&gt; State:          Running
-#&gt; IPv4:           192.168.64.4
-#&gt; Release:        Ubuntu 20.04.4 LTS
-#&gt; Image hash:     95a027336e19 (Ubuntu 20.04 LTS)
-#&gt; Load:           0.06 0.03 0.00
-#&gt; Disk usage:     1.3G out of 19.2G
-#&gt; Memory usage:   232.2M out of 7.7G
-#&gt; Mounts:         /Users/sf-zhou =&gt; Home
-#&gt;                     UID map: 501:default
-#&gt;                     GID map: 20:default
+<span class="token comment">#> Name:           primary</span>
+<span class="token comment">#> State:          Running</span>
+<span class="token comment">#> IPv4:           192.168.64.4</span>
+<span class="token comment">#> Release:        Ubuntu 20.04.4 LTS</span>
+<span class="token comment">#> Image hash:     95a027336e19 (Ubuntu 20.04 LTS)</span>
+<span class="token comment">#> Load:           0.06 0.03 0.00</span>
+<span class="token comment">#> Disk usage:     1.3G out of 19.2G</span>
+<span class="token comment">#> Memory usage:   232.2M out of 7.7G</span>
+<span class="token comment">#> Mounts:         /Users/sf-zhou => Home</span>
+<span class="token comment">#>                     UID map: 501:default</span>
+<span class="token comment">#>                     GID map: 20:default</span>
 
-# 5. open shell
+<span class="token comment"># 5. open shell</span>
 multipass shell
-#&gt; Welcome to Ubuntu 20.04.4 LTS (GNU/Linux 5.4.0-120-generic aarch64)
-#&gt; 
-#&gt;  * Documentation:  https://help.ubuntu.com
-#&gt;  * Management:     https://landscape.canonical.com
-#&gt;  * Support:        https://ubuntu.com/advantage
-#&gt; 
-#&gt;   System information as of Wed Jun 22 22:50:02 CST 2022
-#&gt; 
-#&gt;   System load:             0.14
-#&gt;   Usage of /:              6.7% of 19.22GB
-#&gt;   Memory usage:            3%
-#&gt;   Swap usage:              0%
-#&gt;   Processes:               174
-#&gt;   Users logged in:         0
-#&gt;   IPv4 address for enp0s1: 192.168.64.2
-#&gt;   IPv6 address for enp0s1: fd33:cb6c:2e62:89c5:5054:ff:feb9:9b5
-#&gt; 
-#&gt; 
-#&gt; 0 updates can be applied immediately.
-#&gt; 
-#&gt; 
-#&gt; To run a command as administrator (user &quot;root&quot;), use &quot;sudo &lt;command&gt;&quot;.
-#&gt; See &quot;man sudo_root&quot; for details.
-#&gt; 
-#&gt; ubuntu@test:~$ uname -a
-#&gt; Linux test 5.4.0-120-generic #136-Ubuntu SMP Fri Jun 10 13:46:10 UTC 2022 aarch64 aarch64 aarch64 GNU/Linux
+<span class="token comment">#> Welcome to Ubuntu 20.04.4 LTS (GNU/Linux 5.4.0-120-generic aarch64)</span>
+<span class="token comment">#> </span>
+<span class="token comment">#>  * Documentation:  https://help.ubuntu.com</span>
+<span class="token comment">#>  * Management:     https://landscape.canonical.com</span>
+<span class="token comment">#>  * Support:        https://ubuntu.com/advantage</span>
+<span class="token comment">#> </span>
+<span class="token comment">#>   System information as of Wed Jun 22 22:50:02 CST 2022</span>
+<span class="token comment">#> </span>
+<span class="token comment">#>   System load:             0.14</span>
+<span class="token comment">#>   Usage of /:              6.7% of 19.22GB</span>
+<span class="token comment">#>   Memory usage:            3%</span>
+<span class="token comment">#>   Swap usage:              0%</span>
+<span class="token comment">#>   Processes:               174</span>
+<span class="token comment">#>   Users logged in:         0</span>
+<span class="token comment">#>   IPv4 address for enp0s1: 192.168.64.2</span>
+<span class="token comment">#>   IPv6 address for enp0s1: fd33:cb6c:2e62:89c5:5054:ff:feb9:9b5</span>
+<span class="token comment">#> </span>
+<span class="token comment">#> </span>
+<span class="token comment">#> 0 updates can be applied immediately.</span>
+<span class="token comment">#> </span>
+<span class="token comment">#> </span>
+<span class="token comment">#> To run a command as administrator (user "root"), use "sudo &lt;command>".</span>
+<span class="token comment">#> See "man sudo_root" for details.</span>
+<span class="token comment">#> </span>
+<span class="token comment">#> ubuntu@test:~$ uname -a</span>
+<span class="token comment">#> Linux test 5.4.0-120-generic #136-Ubuntu SMP Fri Jun 10 13:46:10 UTC 2022 aarch64 aarch64 aarch64 GNU/Linux</span>
 </code></pre>
-<p>可以看到在 Apple M1 平台上，Multipass 启动的虚拟机也是 ARM64 平台。启动 shell 后就可以像一般的虚拟机一样正常使用了。这里再补充一些开发可能遇到的问题。</p>
+<p>可以看到在 Apple M1 平台上，Multipass 启动的虚拟机也是 ARM64 体系。启动 shell 后就可以像一般的虚拟机一样正常使用了。这里再补充一些开发可能遇到的问题。</p>
 <h3 id="1.-ssh-登录" tabindex="-1"><a href="#1.-ssh-%E7%99%BB%E5%BD%95">1. ssh 登录</a></h3>
 <p>直接在 Mac 上使用 ssh 登录虚拟机会被拒绝：</p>
 <pre class="language-bash"><code class="language-bash"><span class="token function">ssh</span> ubuntu@192.168.64.2
