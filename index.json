@@ -1,5 +1,17 @@
 [
   {
+    "title": "Folly Coroutines Cancellation 的实现",
+    "date": "2022.07.04",
+    "author": "SF-Zhou",
+    "tags": [
+      "C++",
+      "Coroutine",
+      "Folly"
+    ],
+    "filename": "folly_coro_cancellation",
+    "url_path": "/coroutine/folly_coro_cancellation.html"
+  },
+  {
     "title": "在 Apple M1 平台搭建 Ubuntu 开发环境",
     "date": "2022.06.22",
     "author": "SF-Zhou",

@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Folly Coroutines Cancellation 的实现 | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Folly Coroutines Cancellation 的实现 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2022.07.04 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>最近在使用 Folly 的协程做 RPC 框架，学习一下它的协程 Cancellation 实现。先举个例子，假设 RPC 框架中使用 <code>co_await</code> 监听端口上的新连接，要如何实现优雅退出？</p>
+<pre class="language-cpp"><code class="language-cpp">folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span>ServerSocket <span class="token function">ss</span><span class="token punctuation">(</span><span class="token class-name">AsyncServerSocket</span><span class="token double-colon punctuation">::</span><span class="token function">newSocket</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>evb<span class="token punctuation">)</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>nullopt<span class="token punctuation">,</span> <span class="token number">16</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">auto</span> cs <span class="token operator">=</span> <span class="token keyword">co_await</span> ss<span class="token punctuation">.</span><span class="token function">accept</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">// ...</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>Folly 中提供了 <code>CancellationToken</code> 来实现 <code>co_await</code> 动作的取消，上方代码可以改写为：</p>
+<pre class="language-cpp"><code class="language-cpp">folly<span class="token double-colon punctuation">::</span>CancellationSource cs<span class="token punctuation">;</span>
+
+<span class="token keyword">try</span> <span class="token punctuation">{</span>
+	<span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  	<span class="token keyword">auto</span> cs <span class="token operator">=</span> <span class="token keyword">co_await</span> <span class="token function">co_withCancellation</span><span class="token punctuation">(</span>cs<span class="token punctuation">.</span><span class="token function">getToken</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> ss<span class="token punctuation">.</span><span class="token function">accept</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  	<span class="token comment">// ...</span>
+	<span class="token punctuation">}</span>
+<span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>folly<span class="token double-colon punctuation">::</span>OperationCancelled<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// be cancelled.</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Later...</span>
+cs<span class="token punctuation">.</span><span class="token function">requestCancellation</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 而后 co_await co_withCancellation 抛出 OperationCancelled 异常</span>
+</code></pre>
+<h3 id="1.-cancellationcallback" tabindex="-1"><a href="#1.-cancellationcallback">1. CancellationCallback</a></h3>
+<p><code>folly::coro::ServerSocket::accept</code> 支持 Cancel 是因为其内部有对应的埋点：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">TaskPromiseBase</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">auto</span> <span class="token function">await_transform</span><span class="token punctuation">(</span>co_current_cancellation_token_t<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token comment">// co_await co_current_cancellation_token 时拿到 cancelToken_</span>
+    <span class="token keyword">return</span> ready_awaitable<span class="token operator">&lt;</span><span class="token keyword">const</span> folly<span class="token double-colon punctuation">::</span>CancellationToken<span class="token operator">&amp;</span><span class="token operator">></span><span class="token punctuation">{</span>cancelToken_<span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span>
+    <span class="token keyword">typename</span> <span class="token class-name">Callable</span><span class="token punctuation">,</span>
+    std<span class="token double-colon punctuation">::</span>enable_if_t<span class="token operator">&lt;</span>
+        std<span class="token double-colon punctuation">::</span>is_constructible<span class="token operator">&lt;</span>CancellationCallback<span class="token double-colon punctuation">::</span>VoidFunction<span class="token punctuation">,</span> Callable<span class="token operator">></span><span class="token double-colon punctuation">::</span>
+            value<span class="token punctuation">,</span>
+        <span class="token keyword">int</span><span class="token operator">>></span>
+<span class="token keyword">inline</span> <span class="token class-name">CancellationCallback</span><span class="token double-colon punctuation">::</span><span class="token function">CancellationCallback</span><span class="token punctuation">(</span>
+    CancellationToken<span class="token operator">&amp;&amp;</span> ct<span class="token punctuation">,</span> Callable<span class="token operator">&amp;&amp;</span> callable<span class="token punctuation">)</span>
+    <span class="token operator">:</span> <span class="token function">next_</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token function">prevNext_</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token function">state_</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token function">callback_</span><span class="token punctuation">(</span><span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>Callable<span class="token operator">&amp;&amp;</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>callable<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token function">destructorHasRunInsideCallback_</span><span class="token punctuation">(</span><span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token function">callbackCompleted_</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>ct<span class="token punctuation">.</span>state_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span> <span class="token operator">&amp;&amp;</span> ct<span class="token punctuation">.</span>state_<span class="token operator">-></span><span class="token function">tryAddCallback</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">,</span> <span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    state_ <span class="token operator">=</span> ct<span class="token punctuation">.</span>state_<span class="token punctuation">.</span><span class="token function">release</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token class-name">CancellationCallback</span><span class="token double-colon punctuation">::</span><span class="token operator">~</span><span class="token function">CancellationCallback</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>state_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    state_<span class="token operator">-></span><span class="token function">removeCallback</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+Task<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>Transport<span class="token operator">>></span> <span class="token class-name">ServerSocket</span><span class="token double-colon punctuation">::</span><span class="token function">accept</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">VLOG</span><span class="token punctuation">(</span><span class="token number">5</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token string">"accept() called"</span><span class="token punctuation">;</span>
+  <span class="token keyword">co_await</span> folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span>co_safe_point<span class="token punctuation">;</span>
+
+  Baton baton<span class="token punctuation">;</span>
+  AcceptCallback <span class="token function">cb</span><span class="token punctuation">(</span>baton<span class="token punctuation">,</span> socket_<span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 有新连接时会唤醒 baton</span>
+  socket_<span class="token operator">-></span><span class="token function">addAcceptCallback</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>cb<span class="token punctuation">,</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  socket_<span class="token operator">-></span><span class="token function">startAccepting</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">auto</span> cancelToken <span class="token operator">=</span> <span class="token keyword">co_await</span> folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span>co_current_cancellation_token<span class="token punctuation">;</span>
+  <span class="token comment">// 构造 CancellationCallback，当 cancel 发生时，执行 callback</span>
+  CancellationCallback cancellationCallback<span class="token punctuation">{</span>cancelToken<span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token operator">&amp;</span>baton<span class="token punctuation">,</span> <span class="token keyword">this</span><span class="token punctuation">]</span> <span class="token punctuation">{</span>
+                                              <span class="token keyword">this</span><span class="token operator">-></span>socket_<span class="token operator">-></span><span class="token function">stopAccepting</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+                                              <span class="token comment">// 被取消时也会唤醒 baton</span>
+                                              baton<span class="token punctuation">.</span><span class="token function">post</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+                                            <span class="token punctuation">}</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">co_await</span> baton<span class="token punctuation">;</span>
+  <span class="token keyword">co_await</span> folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span>co_safe_point<span class="token punctuation">;</span>  <span class="token comment">// 返回 OperationCancelled</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>cb<span class="token punctuation">.</span>error<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">co_yield</span> <span class="token function">co_error</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>cb<span class="token punctuation">.</span>error<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">co_return</span> std<span class="token double-colon punctuation">::</span><span class="token generic-function"><span class="token function">make_unique</span><span class="token generic class-name"><span class="token operator">&lt;</span>Transport<span class="token operator">></span></span></span><span class="token punctuation">(</span>
+      socket_<span class="token operator">-></span><span class="token function">getEventBase</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+      <span class="token class-name">AsyncSocket</span><span class="token double-colon punctuation">::</span><span class="token function">newSocket</span><span class="token punctuation">(</span>
+          socket_<span class="token operator">-></span><span class="token function">getEventBase</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token class-name">NetworkSocket</span><span class="token double-colon punctuation">::</span><span class="token function">fromFd</span><span class="token punctuation">(</span>cb<span class="token punctuation">.</span>acceptFd<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>当 Cancel 发生时，<code>cancellationCallback</code> 对象注册的回调函数会被执行，唤醒 baton，继而调用 <code>co_await folly::coro::co_safe_point</code>。该操作会检查当前协程是否已经被取消，若是则抛出 <code>OperationCancelled</code> 异常。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">co_cancelled_t</span> <span class="token keyword">final</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">/* implicit */</span> <span class="token keyword">operator</span> <span class="token function">co_error</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">co_error</span><span class="token punctuation">(</span>OperationCancelled<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+FOLLY_INLINE_VARIABLE <span class="token keyword">constexpr</span> co_cancelled_t co_cancelled<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">TaskPromiseBase</span> <span class="token punctuation">{</span>
+ <span class="token keyword">protected</span><span class="token operator">:</span>
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">Promise</span><span class="token operator">></span>
+  variant_awaitable<span class="token operator">&lt;</span>FinalAwaiter<span class="token punctuation">,</span> ready_awaitable<span class="token operator">&lt;</span><span class="token operator">>></span> <span class="token function">do_safe_point</span><span class="token punctuation">(</span>
+      Promise<span class="token operator">&amp;</span> promise<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>cancelToken_<span class="token punctuation">.</span><span class="token function">isCancellationRequested</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// 如果已经被取消，则 yield 一个 OperationCancelled 异常</span>
+      <span class="token keyword">return</span> promise<span class="token punctuation">.</span><span class="token function">yield_value</span><span class="token punctuation">(</span>co_cancelled<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> ready_awaitable<span class="token operator">&lt;</span><span class="token operator">></span><span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token function">TEST_F</span><span class="token punctuation">(</span>TaskTest<span class="token punctuation">,</span> SafePoint<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span><span class="token function">blockingWait</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-></span> folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span>Task<span class="token operator">&lt;</span><span class="token keyword">void</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token keyword">enum</span> <span class="token keyword">class</span> <span class="token class-name">step_type</span> <span class="token punctuation">{</span>
+      init<span class="token punctuation">,</span>
+      before_continue_sp<span class="token punctuation">,</span>
+      after_continue_sp<span class="token punctuation">,</span>
+      before_cancel_sp<span class="token punctuation">,</span>
+      after_cancel_sp<span class="token punctuation">,</span>
+    <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    step_type step <span class="token operator">=</span> step_type<span class="token double-colon punctuation">::</span>init<span class="token punctuation">;</span>
+
+    folly<span class="token double-colon punctuation">::</span>CancellationSource cancelSrc<span class="token punctuation">;</span>
+    <span class="token keyword">auto</span> makeTask <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token operator">&amp;</span><span class="token punctuation">]</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-></span> folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span>Task<span class="token operator">&lt;</span><span class="token keyword">void</span><span class="token operator">></span> <span class="token punctuation">{</span>
+      step <span class="token operator">=</span> step_type<span class="token double-colon punctuation">::</span>before_continue_sp<span class="token punctuation">;</span>
+      <span class="token keyword">co_await</span> folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span>co_safe_point<span class="token punctuation">;</span>  <span class="token comment">// 未取消，直接通过</span>
+      step <span class="token operator">=</span> step_type<span class="token double-colon punctuation">::</span>after_continue_sp<span class="token punctuation">;</span>
+
+      cancelSrc<span class="token punctuation">.</span><span class="token function">requestCancellation</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// 触发取消操作</span>
+
+      step <span class="token operator">=</span> step_type<span class="token double-colon punctuation">::</span>before_cancel_sp<span class="token punctuation">;</span>
+      <span class="token keyword">co_await</span> folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span>co_safe_point<span class="token punctuation">;</span>  <span class="token comment">// 检查到取消，抛出异常</span>
+      step <span class="token operator">=</span> step_type<span class="token double-colon punctuation">::</span>after_cancel_sp<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">auto</span> result <span class="token operator">=</span> <span class="token keyword">co_await</span> folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span><span class="token function">co_awaitTry</span><span class="token punctuation">(</span> <span class="token comment">//</span>
+        folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span><span class="token function">co_withCancellation</span><span class="token punctuation">(</span>cancelSrc<span class="token punctuation">.</span><span class="token function">getToken</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">makeTask</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">EXPECT_THROW</span><span class="token punctuation">(</span>result<span class="token punctuation">.</span><span class="token function">value</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> folly<span class="token double-colon punctuation">::</span>OperationCancelled<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">EXPECT_EQ</span><span class="token punctuation">(</span>step_type<span class="token double-colon punctuation">::</span>before_cancel_sp<span class="token punctuation">,</span> step<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="2.-co_withcancellation" tabindex="-1"><a href="#2.-co_withcancellation">2. co_withCancellation</a></h3>
+<p>Folly 的协程对象默认会在 <code>co_await</code> 时透传 <code>cancelToken_</code> 对象，因此在 Cancel 时可以对深层协程调用进行取消，自底向上传递 <code>OperationCancelled</code>。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">TaskPromiseBase</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">void</span> <span class="token function">setCancelToken</span><span class="token punctuation">(</span>folly<span class="token double-colon punctuation">::</span>CancellationToken<span class="token operator">&amp;&amp;</span> cancelToken<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>hasCancelTokenOverride_<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      cancelToken_ <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>cancelToken<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      hasCancelTokenOverride_ <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">Awaitable</span><span class="token operator">></span>
+  <span class="token keyword">auto</span> <span class="token function">await_transform</span><span class="token punctuation">(</span>Awaitable<span class="token operator">&amp;&amp;</span> awaitable<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    bypassExceptionThrowing_ <span class="token operator">=</span>
+        bypassExceptionThrowing_ <span class="token operator">==</span> BypassExceptionThrowing<span class="token double-colon punctuation">::</span>REQUESTED
+        <span class="token operator">?</span> BypassExceptionThrowing<span class="token double-colon punctuation">::</span>ACTIVE
+        <span class="token operator">:</span> BypassExceptionThrowing<span class="token double-colon punctuation">::</span>INACTIVE<span class="token punctuation">;</span>
+
+    <span class="token comment">// cancellable 的协程内 co_await 会继续透传 cancelToken_</span>
+    <span class="token keyword">return</span> folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span><span class="token function">co_withAsyncStack</span><span class="token punctuation">(</span>folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span><span class="token function">co_viaIfAsync</span><span class="token punctuation">(</span>
+        executor_<span class="token punctuation">.</span><span class="token function">get_alias</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        folly<span class="token double-colon punctuation">::</span>coro<span class="token double-colon punctuation">::</span><span class="token function">co_withCancellation</span><span class="token punctuation">(</span>
+            cancelToken_<span class="token punctuation">,</span> <span class="token generic-function"><span class="token function">static_cast</span><span class="token generic class-name"><span class="token operator">&lt;</span>Awaitable<span class="token operator">&amp;&amp;</span><span class="token operator">></span></span></span><span class="token punctuation">(</span>awaitable<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">T</span><span class="token operator">></span>
+<span class="token keyword">class</span> <span class="token class-name">FOLLY_NODISCARD</span> Task <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">friend</span> Task <span class="token function">co_withCancellation</span><span class="token punctuation">(</span>
+      folly<span class="token double-colon punctuation">::</span>CancellationToken cancelToken<span class="token punctuation">,</span> Task<span class="token operator">&amp;&amp;</span> task<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token function">DCHECK</span><span class="token punctuation">(</span>task<span class="token punctuation">.</span>coro_<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    task<span class="token punctuation">.</span>coro_<span class="token punctuation">.</span><span class="token function">promise</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">setCancelToken</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>cancelToken<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> std<span class="token double-colon punctuation">::</span><span class="token function">move</span><span class="token punctuation">(</span>task<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<h3 id="3.-cancellationtoken" tabindex="-1"><a href="#3.-cancellationtoken">3. CancellationToken</a></h3>
+<p><code>CancellationToken</code> 是一个可以传递给函数或操作的对象，允许调用者稍后请求取消操作。该对象可以通过 <code>CancellationSource.getToken()</code> 来获取，支持复制。从同一个原始的 <code>CancellationSource</code> 对象获取的 <code>CancellationToken</code> 对象使用引用计数指向相同的底层状态 <code>CancellationState</code>，在 <code>CancellationSource.requestCancellation()</code> 发生时会被一起取消。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">CancellationState</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token class-name">CancellationStateTokenDeleter</span> <span class="token punctuation">{</span>
+  <span class="token keyword">void</span> <span class="token keyword">operator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">(</span>CancellationState<span class="token operator">*</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    state<span class="token operator">-></span><span class="token function">removeTokenReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token keyword">using</span> CancellationStateTokenPtr <span class="token operator">=</span>
+    std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>CancellationState<span class="token punctuation">,</span> CancellationStateTokenDeleter<span class="token operator">></span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">CancellationToken</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token keyword">bool</span> <span class="token function">canBeCancelled</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> state_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span> <span class="token operator">&amp;&amp;</span> state_<span class="token operator">-></span><span class="token function">canBeCancelled</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">friend</span> <span class="token keyword">class</span> <span class="token class-name">CancellationCallback</span><span class="token punctuation">;</span>
+  <span class="token keyword">friend</span> <span class="token keyword">class</span> <span class="token class-name">CancellationSource</span><span class="token punctuation">;</span>
+
+  detail<span class="token double-colon punctuation">::</span>CancellationStateTokenPtr state_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><code>CancellationSource</code> 对象可以构造 <code>CancellationToken</code> 对象，并且可以通过调用 <code>requestCancellation</code> 取消关联了 <code>CancellationToken</code> 对象的操作。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">CancellationStateSourceDeleter</span> <span class="token punctuation">{</span>
+  <span class="token keyword">void</span> <span class="token keyword">operator</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">(</span>CancellationState<span class="token operator">*</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    state<span class="token operator">-></span><span class="token function">removeSourceReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token keyword">using</span> CancellationStateSourcePtr <span class="token operator">=</span>
+    std<span class="token double-colon punctuation">::</span>unique_ptr<span class="token operator">&lt;</span>CancellationState<span class="token punctuation">,</span> CancellationStateSourceDeleter<span class="token operator">></span><span class="token punctuation">;</span>
+
+<span class="token keyword">class</span> <span class="token class-name">CancellationSource</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  <span class="token comment">// Construct to a new, independent cancellation source.</span>
+  <span class="token function">CancellationSource</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token function">state_</span><span class="token punctuation">(</span>detail<span class="token double-colon punctuation">::</span><span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">create</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+  CancellationToken <span class="token function">getToken</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>state_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> CancellationToken<span class="token punctuation">{</span>state_<span class="token operator">-></span><span class="token function">addTokenReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> CancellationToken<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">bool</span> <span class="token function">requestCancellation</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span><span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>state_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> state_<span class="token operator">-></span><span class="token function">requestCancellation</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  detail<span class="token double-colon punctuation">::</span>CancellationStateSourcePtr state_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p><code>CancellationState</code> 的实现原理并不复杂，核心原理是引用计数和 CAS。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">class</span> <span class="token class-name">CancellationState</span> <span class="token punctuation">{</span>
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  FOLLY_NODISCARD <span class="token keyword">static</span> CancellationStateSourcePtr <span class="token function">create</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">protected</span><span class="token operator">:</span>
+  <span class="token comment">// Constructed initially with a CancellationSource reference count of 1.</span>
+  <span class="token function">CancellationState</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token comment">// Constructed initially with a CancellationToken reference count of 1.</span>
+  <span class="token keyword">explicit</span> <span class="token function">CancellationState</span><span class="token punctuation">(</span>FixedMergingCancellationStateTag<span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">virtual</span> <span class="token operator">~</span><span class="token function">CancellationState</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">friend</span> <span class="token keyword">struct</span> <span class="token class-name">CancellationStateTokenDeleter</span><span class="token punctuation">;</span>
+  <span class="token keyword">friend</span> <span class="token keyword">struct</span> <span class="token class-name">CancellationStateSourceDeleter</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">removeTokenReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">removeSourceReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">public</span><span class="token operator">:</span>
+  FOLLY_NODISCARD CancellationStateTokenPtr <span class="token function">addTokenReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+  FOLLY_NODISCARD CancellationStateSourcePtr <span class="token function">addSourceReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">tryAddCallback</span><span class="token punctuation">(</span>
+      CancellationCallback<span class="token operator">*</span> callback<span class="token punctuation">,</span>
+      <span class="token keyword">bool</span> incrementRefCountIfSuccessful<span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">void</span> <span class="token function">removeCallback</span><span class="token punctuation">(</span>CancellationCallback<span class="token operator">*</span> callback<span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">bool</span> <span class="token function">isCancellationRequested</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> <span class="token function">canBeCancelled</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Request cancellation.</span>
+  <span class="token comment">// Return 'true' if cancellation had already been requested.</span>
+  <span class="token comment">// Return 'false' if this was the first thread to request</span>
+  <span class="token comment">// cancellation.</span>
+  <span class="token keyword">bool</span> <span class="token function">requestCancellation</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+ <span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">void</span> <span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">unlockAndIncrementTokenCount</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">unlockAndDecrementTokenCount</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token keyword">bool</span> <span class="token function">tryLockAndCancelUnlessCancelled</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">Predicate</span><span class="token operator">></span>
+  <span class="token keyword">bool</span> <span class="token function">tryLock</span><span class="token punctuation">(</span>Predicate predicate<span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">static</span> <span class="token keyword">bool</span> <span class="token function">canBeCancelled</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> state<span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">bool</span> <span class="token function">isCancellationRequested</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> state<span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">bool</span> <span class="token function">isLocked</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> state<span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> kCancellationRequestedFlag <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> kLockedFlag <span class="token operator">=</span> <span class="token number">2</span><span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> kMergingFlag <span class="token operator">=</span> <span class="token number">4</span><span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> kTokenReferenceCountIncrement <span class="token operator">=</span> <span class="token number">8</span><span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> kSourceReferenceCountIncrement <span class="token operator">=</span>
+      std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> <span class="token number">34u</span><span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> kTokenReferenceCountMask <span class="token operator">=</span>
+      <span class="token punctuation">(</span>kSourceReferenceCountIncrement <span class="token operator">-</span> <span class="token number">1u</span><span class="token punctuation">)</span> <span class="token operator">-</span>
+      <span class="token punctuation">(</span>kTokenReferenceCountIncrement <span class="token operator">-</span> <span class="token number">1u</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">static</span> <span class="token keyword">constexpr</span> std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> kSourceReferenceCountMask <span class="token operator">=</span>
+      std<span class="token double-colon punctuation">::</span><span class="token class-name">numeric_limits</span><span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span><span class="token operator">></span><span class="token double-colon punctuation">::</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span>
+      <span class="token punctuation">(</span>kSourceReferenceCountIncrement <span class="token operator">-</span> <span class="token number">1u</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Bit 0 - Cancellation Requested</span>
+  <span class="token comment">// Bit 1 - Locked Flag</span>
+  <span class="token comment">// Bit 2 - MergingCancellationState Flag</span>
+  <span class="token comment">// Bits 3-33  - Token reference count (max ~2 billion)</span>
+  <span class="token comment">// Bits 34-63 - Source reference count (max ~1 billion)</span>
+  std<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span>std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span><span class="token operator">></span> state_<span class="token punctuation">;</span>
+  CancellationCallback<span class="token operator">*</span> head_<span class="token punctuation">{</span><span class="token keyword">nullptr</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>thread<span class="token double-colon punctuation">::</span>id signallingThreadId_<span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">inline</span> <span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">CancellationState</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span>
+    <span class="token operator">:</span> <span class="token function">state_</span><span class="token punctuation">(</span>kSourceReferenceCountIncrement<span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> CancellationStateTokenPtr
+<span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">addTokenReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+  state_<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span>kTokenReferenceCountIncrement<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> CancellationStateTokenPtr<span class="token punctuation">{</span><span class="token keyword">this</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">void</span> <span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">removeTokenReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">auto</span> oldState <span class="token operator">=</span> state_<span class="token punctuation">.</span><span class="token function">fetch_sub</span><span class="token punctuation">(</span>
+      kTokenReferenceCountIncrement<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>memory_order_acq_rel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">DCHECK</span><span class="token punctuation">(</span>
+      <span class="token punctuation">(</span>oldState <span class="token operator">&amp;</span> kTokenReferenceCountMask<span class="token punctuation">)</span> <span class="token operator">>=</span> kTokenReferenceCountIncrement<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>oldState <span class="token operator">&lt;</span> <span class="token punctuation">(</span><span class="token number">2</span> <span class="token operator">*</span> kTokenReferenceCountIncrement<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">delete</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> CancellationStateSourcePtr
+<span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">addSourceReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+  state_<span class="token punctuation">.</span><span class="token function">fetch_add</span><span class="token punctuation">(</span>kSourceReferenceCountIncrement<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>memory_order_relaxed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> CancellationStateSourcePtr<span class="token punctuation">{</span><span class="token keyword">this</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">inline</span> <span class="token keyword">void</span> <span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">removeSourceReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token keyword">auto</span> oldState <span class="token operator">=</span> state_<span class="token punctuation">.</span><span class="token function">fetch_sub</span><span class="token punctuation">(</span>
+      kSourceReferenceCountIncrement<span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>memory_order_acq_rel<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">DCHECK</span><span class="token punctuation">(</span>
+      <span class="token punctuation">(</span>oldState <span class="token operator">&amp;</span> kSourceReferenceCountMask<span class="token punctuation">)</span> <span class="token operator">>=</span> kSourceReferenceCountIncrement<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>oldState <span class="token operator">&lt;</span>
+      <span class="token punctuation">(</span>kSourceReferenceCountIncrement <span class="token operator">+</span> kTokenReferenceCountIncrement<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">delete</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>CancellationCallback</code> 对象会调用 <code>tryAddCallback</code> 接口增加 Cancel 时的回调。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">bool</span> <span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">tryAddCallback</span><span class="token punctuation">(</span>
+    CancellationCallback<span class="token operator">*</span> callback<span class="token punctuation">,</span>
+    <span class="token keyword">bool</span> incrementRefCountIfSuccessful<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Try to acquire the lock, but abandon trying to acquire the lock if</span>
+  <span class="token comment">// cancellation has already been requested (we can just immediately invoke</span>
+  <span class="token comment">// the callback) or if cancellation can never be requested (we can just</span>
+  <span class="token comment">// skip registration).</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">tryLock</span><span class="token punctuation">(</span><span class="token punctuation">[</span>callback<span class="token punctuation">]</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> oldState<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">isCancellationRequested</span><span class="token punctuation">(</span>oldState<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          callback<span class="token operator">-></span><span class="token function">invokeCallback</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+        <span class="token keyword">return</span> <span class="token function">canBeCancelled</span><span class="token punctuation">(</span>oldState<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// We've acquired the lock and cancellation has not yet been requested.</span>
+  <span class="token comment">// Push this callback onto the head of the list.</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>head_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    head_<span class="token operator">-></span>prevNext_ <span class="token operator">=</span> <span class="token operator">&amp;</span>callback<span class="token operator">-></span>next_<span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+  callback<span class="token operator">-></span>next_ <span class="token operator">=</span> head_<span class="token punctuation">;</span>
+  callback<span class="token operator">-></span>prevNext_ <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">;</span>
+  head_ <span class="token operator">=</span> callback<span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>incrementRefCountIfSuccessful<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Combine multiple atomic operations into a single atomic operation.</span>
+    <span class="token function">unlockAndIncrementTokenCount</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Successfully added the callback.</span>
+  <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">template</span> <span class="token operator">&lt;</span><span class="token keyword">typename</span> <span class="token class-name">Predicate</span><span class="token operator">></span>
+<span class="token keyword">bool</span> <span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">tryLock</span><span class="token punctuation">(</span>Predicate predicate<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+  folly<span class="token double-colon punctuation">::</span>detail<span class="token double-colon punctuation">::</span>Sleeper sleeper<span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span><span class="token keyword">uint64_t</span> oldState <span class="token operator">=</span> state_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">predicate</span><span class="token punctuation">(</span>oldState<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">isLocked</span><span class="token punctuation">(</span>oldState<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      sleeper<span class="token punctuation">.</span><span class="token function">wait</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      oldState <span class="token operator">=</span> state_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>state_<span class="token punctuation">.</span><span class="token function">compare_exchange_weak</span><span class="token punctuation">(</span>
+                   oldState<span class="token punctuation">,</span>
+                   oldState <span class="token operator">|</span> kLockedFlag<span class="token punctuation">,</span>
+                   std<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>调用 <code>requestCancellation</code> 接口时，从链表中依次取出 <code>CancellationCallback</code> 对象，循环调用。这里需要处理可能存在的 <code>removeCallback</code> 时的竞争关系。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">inline</span> <span class="token keyword">void</span> <span class="token class-name">CancellationCallback</span><span class="token double-colon punctuation">::</span><span class="token function">invokeCallback</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Invoke within a noexcept context so that we std::terminate() if it throws.</span>
+  <span class="token function">callback_</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">bool</span> <span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">requestCancellation</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">tryLockAndCancelUnlessCancelled</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Was already marked as cancelled</span>
+    <span class="token keyword">return</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// This thread marked as cancelled and acquired the lock</span>
+
+  signallingThreadId_ <span class="token operator">=</span> std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span>head_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Dequeue the first item on the queue.</span>
+    CancellationCallback<span class="token operator">*</span> callback <span class="token operator">=</span> head_<span class="token punctuation">;</span>
+    head_ <span class="token operator">=</span> callback<span class="token operator">-></span>next_<span class="token punctuation">;</span>
+    <span class="token keyword">const</span> <span class="token keyword">bool</span> anyMore <span class="token operator">=</span> head_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>anyMore<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      head_<span class="token operator">-></span>prevNext_ <span class="token operator">=</span> <span class="token operator">&amp;</span>head_<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">// Mark this item as removed from the list.</span>
+    callback<span class="token operator">-></span>prevNext_ <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// Don't hold the lock while executing the callback</span>
+    <span class="token comment">// as we don't want to block other threads from</span>
+    <span class="token comment">// deregistering callbacks.</span>
+    <span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// TRICKY: Need to store a flag on the stack here that the callback</span>
+    <span class="token comment">// can use to signal that the destructor was executed inline</span>
+    <span class="token comment">// during the call.</span>
+    <span class="token comment">// If the destructor was executed inline then it's not safe to</span>
+    <span class="token comment">// dereference 'callback' after 'invokeCallback()' returns.</span>
+    <span class="token comment">// If the destructor runs on some other thread then the other</span>
+    <span class="token comment">// thread will block waiting for this thread to signal that the</span>
+    <span class="token comment">// callback has finished executing.</span>
+    <span class="token keyword">bool</span> destructorHasRunInsideCallback <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    callback<span class="token operator">-></span>destructorHasRunInsideCallback_ <span class="token operator">=</span> <span class="token operator">&amp;</span>destructorHasRunInsideCallback<span class="token punctuation">;</span>
+
+    callback<span class="token operator">-></span><span class="token function">invokeCallback</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>destructorHasRunInsideCallback<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      callback<span class="token operator">-></span>destructorHasRunInsideCallback_ <span class="token operator">=</span> <span class="token keyword">nullptr</span><span class="token punctuation">;</span>
+      callback<span class="token operator">-></span>callbackCompleted_<span class="token punctuation">.</span><span class="token function">store</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">,</span> std<span class="token double-colon punctuation">::</span>memory_order_release<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>anyMore<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// This was the last item in the queue when we dequeued it.</span>
+      <span class="token comment">// No more items should be added to the queue after we have</span>
+      <span class="token comment">// marked the state as cancelled, only removed from the queue.</span>
+      <span class="token comment">// Avoid acquiring/releasing the lock in this case.</span>
+      <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">return</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token class-name">CancellationState</span><span class="token double-colon punctuation">::</span><span class="token function">removeCallback</span><span class="token punctuation">(</span>
+    CancellationCallback<span class="token operator">*</span> callback<span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
+  <span class="token function">DCHECK</span><span class="token punctuation">(</span>callback <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>callback<span class="token operator">-></span>prevNext_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Still registered in the list => not yet executed.</span>
+    <span class="token comment">// Just remove it from the list.</span>
+    <span class="token operator">*</span>callback<span class="token operator">-></span>prevNext_ <span class="token operator">=</span> callback<span class="token operator">-></span>next_<span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>callback<span class="token operator">-></span>next_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      callback<span class="token operator">-></span>next_<span class="token operator">-></span>prevNext_ <span class="token operator">=</span> callback<span class="token operator">-></span>prevNext_<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token function">unlockAndDecrementTokenCount</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Callback has either already executed or is executing concurrently on</span>
+  <span class="token comment">// another thread.</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>signallingThreadId_ <span class="token operator">==</span> std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">get_id</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Callback executed on this thread or is still currently executing</span>
+    <span class="token comment">// and is deregistering itself from within the callback.</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>callback<span class="token operator">-></span>destructorHasRunInsideCallback_ <span class="token operator">!=</span> <span class="token keyword">nullptr</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// Currently inside the callback, let the requestCancellation() method</span>
+      <span class="token comment">// know the object is about to be destructed and that it should</span>
+      <span class="token comment">// not try to access the object when the callback returns.</span>
+      <span class="token operator">*</span>callback<span class="token operator">-></span>destructorHasRunInsideCallback_ <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Callback is currently executing on another thread, block until it</span>
+    <span class="token comment">// finishes executing.</span>
+    folly<span class="token double-colon punctuation">::</span>detail<span class="token double-colon punctuation">::</span>Sleeper sleeper<span class="token punctuation">;</span>
+    <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token operator">!</span>callback<span class="token operator">-></span>callbackCompleted_<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      sleeper<span class="token punctuation">.</span><span class="token function">wait</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">removeTokenReference</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://github.com/facebook/folly/tree/main/folly/experimental/coro"><code>folly::coro</code>, Meta</a></li>
+</ol>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>
