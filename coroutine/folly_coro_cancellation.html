@@ -33,10 +33,10 @@
 <pre class="language-cpp"><code class="language-cpp">folly<span class="token double-colon punctuation">::</span>CancellationSource cs<span class="token punctuation">;</span>
 
 <span class="token keyword">try</span> <span class="token punctuation">{</span>
-	<span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
-  	<span class="token keyword">auto</span> cs <span class="token operator">=</span> <span class="token keyword">co_await</span> <span class="token function">co_withCancellation</span><span class="token punctuation">(</span>cs<span class="token punctuation">.</span><span class="token function">getToken</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> ss<span class="token punctuation">.</span><span class="token function">accept</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-  	<span class="token comment">// ...</span>
-	<span class="token punctuation">}</span>
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">auto</span> cs <span class="token operator">=</span> <span class="token keyword">co_await</span> <span class="token function">co_withCancellation</span><span class="token punctuation">(</span>cs<span class="token punctuation">.</span><span class="token function">getToken</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> ss<span class="token punctuation">.</span><span class="token function">accept</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">// ...</span>
+  <span class="token punctuation">}</span>
 <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>folly<span class="token double-colon punctuation">::</span>OperationCancelled<span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token comment">// be cancelled.</span>
 <span class="token punctuation">}</span>
@@ -423,7 +423,7 @@ FOLLY_INLINE_VARIABLE <span class="token keyword">constexpr</span> co_cancelled_
   <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<p>调用 <code>requestCancellation</code> 接口时，从链表中依次取出 <code>CancellationCallback</code> 对象，循环调用。这里需要处理可能存在的 <code>removeCallback</code> 时的竞争关系。</p>
+<p>调用 <code>requestCancellation</code> 接口时，从链表中依次取出 <code>CancellationCallback</code> 对象，调用回调函数。这里需要处理可能存在的 <code>removeCallback</code> 时的竞争关系。</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">inline</span> <span class="token keyword">void</span> <span class="token class-name">CancellationCallback</span><span class="token double-colon punctuation">::</span><span class="token function">invokeCallback</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span> <span class="token punctuation">{</span>
   <span class="token comment">// Invoke within a noexcept context so that we std::terminate() if it throws.</span>
   <span class="token function">callback_</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
