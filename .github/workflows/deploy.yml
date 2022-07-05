@@ -12,6 +12,10 @@ jobs:
     - uses: actions/checkout@v3
       with:
         persist-credentials: false
+        fetch-depth: 8
+
+    - name: 🪞Mirror
+      run: git config --global credential.username "SF-Zhou" && git push -f https://SF-Zhou:${{ secrets.GITLAB }}@gitlab.com/SF-Zhou/sf-zhou.gitlab.io.git blog
 
     - name: 🏗Generate
       run: npm i && npm run build
