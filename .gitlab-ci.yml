@@ -1,0 +1,19 @@
+image: node
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+cache:
+  paths:
+    - node_modules/
+
+pages:
+  stage: deploy
+  script:
+    - npm i && npm run build
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == "blog"
