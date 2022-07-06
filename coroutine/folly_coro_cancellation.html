@@ -37,7 +37,7 @@
     <span class="token keyword">auto</span> cs <span class="token operator">=</span> <span class="token keyword">co_await</span> <span class="token function">co_withCancellation</span><span class="token punctuation">(</span>cs<span class="token punctuation">.</span><span class="token function">getToken</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> ss<span class="token punctuation">.</span><span class="token function">accept</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
     <span class="token comment">// ...</span>
   <span class="token punctuation">}</span>
-<span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>folly<span class="token double-colon punctuation">::</span>OperationCancelled<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+<span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>folly<span class="token double-colon punctuation">::</span>OperationCancelled <span class="token operator">&amp;</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
   <span class="token comment">// be cancelled.</span>
 <span class="token punctuation">}</span>
 
