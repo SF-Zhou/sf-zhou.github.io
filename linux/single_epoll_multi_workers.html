@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>single_epoll_multi_workers | SF-Zhou's Blog</title>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> single_epoll_multi_workers </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2022.07.24 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h1 id="单-epoll-多线程-io-模型" tabindex="-1"><a href="#%E5%8D%95-epoll-%E5%A4%9A%E7%BA%BF%E7%A8%8B-io-%E6%A8%A1%E5%9E%8B">单 Epoll 多线程 IO 模型</a></h1>
+<p>最近在使用 Folly 的协程做 RPC 框架，遇到一些问题：</p>
+<ol>
+<li>Folly 的 EventBase 与 AsyncSocket 是绑定的，Socket 连接建立后不能再跨线程操作</li>
+<li>Folly 的 IOThreadPoolExecutor 执行协程的 <code>co_await</code> 操作时，会出现线程切换的情况</li>
+</ol>
+<p>这就导致了目前只能使用单线程的 IOThreadPoolExecutor 执行协程中的 IO 操作。即使修复了这个问题，每个线程一个 EventBase 也会限制对应连接的 IO 能力。好在目前的 RPC 框架中已经使用队列剥离了 IO 操作和请求处理，请求处理阶段依然可以使用 Folly 的协程框架，IO 部分可以替换为无协程的实现。为了尽可能地提升性能，笔者自己造了一个单 Epoll 多线程 IO 的轮子，供参考。</p>
+<h3 id="1.-设计目标" tabindex="-1"><a href="#1.-%E8%AE%BE%E8%AE%A1%E7%9B%AE%E6%A0%87">1. 设计目标</a></h3>
+<p>对于这个 IO 模型，笔者计划的目标是：</p>
+<ol>
+<li>单 Epoll，只负责处理可读/可写事件，不负责具体的 IO 操作</li>
+<li>多线程，负责并发地处理 Epoll 丢过来的具体 IO 操作任务</li>
+<li>支持并发读写同一个连接，读写操作均 Lock-free</li>
+</ol>
+<h3 id="2.-epoll-事件触发时机" tabindex="-1"><a href="#2.-epoll-%E4%BA%8B%E4%BB%B6%E8%A7%A6%E5%8F%91%E6%97%B6%E6%9C%BA">2. Epoll 事件触发时机</a></h3>
+<p>先看一个 Epoll 边缘触发的例子（<a href="https://godbolt.org/z/ahc9v1MbW">在线执行</a>）：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;arpa/inet.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;ctype.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;errno.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;fcntl.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdio.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;stdlib.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;sys/epoll.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;sys/socket.h></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;unistd.h></span></span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;atomic></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;thread></span></span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name function">CHECK</span><span class="token expression"><span class="token punctuation">(</span>expr<span class="token punctuation">)</span>                           </span><span class="token punctuation">\</span>
+  <span class="token expression"><span class="token keyword">do</span> <span class="token punctuation">{</span>                                        </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token keyword">int</span> ret <span class="token operator">=</span> <span class="token punctuation">(</span>expr<span class="token punctuation">)</span><span class="token punctuation">;</span>                         </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token keyword">if</span> <span class="token punctuation">(</span>ret <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>                           </span><span class="token punctuation">\</span>
+      <span class="token expression"><span class="token function">printf</span><span class="token punctuation">(</span></span><span class="token string">"%d error %d\n"</span><span class="token expression"><span class="token punctuation">,</span> <span class="token constant">__LINE__</span><span class="token punctuation">,</span> ret<span class="token punctuation">)</span><span class="token punctuation">;</span> </span><span class="token punctuation">\</span>
+      <span class="token expression"><span class="token keyword">return</span> ret<span class="token punctuation">;</span>                             </span><span class="token punctuation">\</span>
+    <span class="token expression"><span class="token punctuation">}</span>                                         </span><span class="token punctuation">\</span>
+  <span class="token expression"><span class="token punctuation">}</span> <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span></span></span>
+
+<span class="token keyword">constexpr</span> <span class="token keyword">uint16_t</span> port <span class="token operator">=</span> <span class="token number">8000</span><span class="token punctuation">;</span>
+<span class="token keyword">constexpr</span> <span class="token keyword">uint32_t</span> maxevents <span class="token operator">=</span> <span class="token number">32</span><span class="token punctuation">;</span>
+std<span class="token double-colon punctuation">::</span>atomic<span class="token operator">&lt;</span><span class="token keyword">bool</span><span class="token operator">></span> quit<span class="token punctuation">{</span><span class="token boolean">false</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">int</span> <span class="token function">server</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">struct</span> <span class="token class-name">sockaddr_in</span> serv_addr<span class="token punctuation">;</span>
+  socklen_t serv_len <span class="token operator">=</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>serv_addr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> lfd <span class="token operator">=</span> <span class="token double-colon punctuation">::</span><span class="token function">socket</span><span class="token punctuation">(</span>AF_INET<span class="token punctuation">,</span> SOCK_STREAM<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">fcntl</span><span class="token punctuation">(</span>lfd<span class="token punctuation">,</span> F_SETFL<span class="token punctuation">,</span> <span class="token double-colon punctuation">::</span><span class="token function">fcntl</span><span class="token punctuation">(</span>lfd<span class="token punctuation">,</span> F_GETFL<span class="token punctuation">)</span> <span class="token operator">|</span> O_NONBLOCK<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">int</span> value <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">setsockopt</span><span class="token punctuation">(</span>lfd<span class="token punctuation">,</span> SOL_SOCKET<span class="token punctuation">,</span> SO_REUSEADDR<span class="token punctuation">,</span> <span class="token operator">&amp;</span>value<span class="token punctuation">,</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span><span class="token keyword">int</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">setsockopt</span><span class="token punctuation">(</span>lfd<span class="token punctuation">,</span> SOL_SOCKET<span class="token punctuation">,</span> SO_REUSEPORT<span class="token punctuation">,</span> <span class="token operator">&amp;</span>value<span class="token punctuation">,</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span><span class="token keyword">int</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">memset</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>serv_addr<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>serv_addr<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  serv_addr<span class="token punctuation">.</span>sin_family <span class="token operator">=</span> AF_INET<span class="token punctuation">;</span>
+  serv_addr<span class="token punctuation">.</span>sin_addr<span class="token punctuation">.</span>s_addr <span class="token operator">=</span> <span class="token function">htonl</span><span class="token punctuation">(</span>INADDR_ANY<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  serv_addr<span class="token punctuation">.</span>sin_port <span class="token operator">=</span> <span class="token function">htons</span><span class="token punctuation">(</span>port<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">bind</span><span class="token punctuation">(</span>lfd<span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">sockaddr</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token operator">&amp;</span>serv_addr<span class="token punctuation">,</span> serv_len<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">listen</span><span class="token punctuation">(</span>lfd<span class="token punctuation">,</span> <span class="token number">64</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> epfd <span class="token operator">=</span> <span class="token double-colon punctuation">::</span><span class="token function">epoll_create</span><span class="token punctuation">(</span>maxevents<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">struct</span> <span class="token class-name">epoll_event</span> ev <span class="token punctuation">{</span>
+    EPOLLIN <span class="token operator">|</span> EPOLLET<span class="token punctuation">,</span> <span class="token punctuation">{</span> <span class="token punctuation">.</span>fd <span class="token operator">=</span> lfd <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">epoll_ctl</span><span class="token punctuation">(</span>epfd<span class="token punctuation">,</span> EPOLL_CTL_ADD<span class="token punctuation">,</span> lfd<span class="token punctuation">,</span> <span class="token operator">&amp;</span>ev<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">struct</span> <span class="token class-name">epoll_event</span> events<span class="token punctuation">[</span>maxevents<span class="token punctuation">]</span><span class="token punctuation">;</span>
+    <span class="token keyword">int</span> ret <span class="token operator">=</span> <span class="token double-colon punctuation">::</span><span class="token function">epoll_wait</span><span class="token punctuation">(</span>epfd<span class="token punctuation">,</span> events<span class="token punctuation">,</span> maxevents<span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">CHECK</span><span class="token punctuation">(</span>ret <span class="token operator">==</span> <span class="token operator">-</span><span class="token number">1</span> <span class="token operator">?</span> errno <span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>quit<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">break</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">int</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> ret<span class="token punctuation">;</span> <span class="token operator">++</span>i<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">int</span> fd <span class="token operator">=</span> events<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>data<span class="token punctuation">.</span>fd<span class="token punctuation">;</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>fd <span class="token operator">==</span> lfd<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">struct</span> <span class="token class-name">sockaddr_in</span> client_addr<span class="token punctuation">;</span>
+        socklen_t cli_len <span class="token operator">=</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>client_addr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">int</span> cfd <span class="token operator">=</span> <span class="token double-colon punctuation">::</span><span class="token function">accept</span><span class="token punctuation">(</span>lfd<span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">sockaddr</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token operator">&amp;</span>client_addr<span class="token punctuation">,</span> <span class="token operator">&amp;</span>cli_len<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">CHECK</span><span class="token punctuation">(</span>cfd <span class="token operator">==</span> <span class="token operator">-</span><span class="token number">1</span> <span class="token operator">?</span> errno <span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">int</span> flags <span class="token operator">=</span> <span class="token double-colon punctuation">::</span><span class="token function">fcntl</span><span class="token punctuation">(</span>cfd<span class="token punctuation">,</span> F_GETFL<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">CHECK</span><span class="token punctuation">(</span>flags <span class="token operator">==</span> <span class="token operator">-</span><span class="token number">1</span> <span class="token operator">?</span> errno <span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">fcntl</span><span class="token punctuation">(</span>cfd<span class="token punctuation">,</span> F_SETFL<span class="token punctuation">,</span> <span class="token punctuation">(</span>flags <span class="token operator">|</span> O_NONBLOCK<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">struct</span> <span class="token class-name">epoll_event</span> evt <span class="token punctuation">{</span>
+          <span class="token punctuation">(</span>EPOLLIN <span class="token operator">|</span> EPOLLOUT <span class="token operator">|</span> EPOLLET<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token punctuation">{</span> <span class="token punctuation">.</span>fd <span class="token operator">=</span> cfd <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span><span class="token punctuation">;</span>
+        <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">epoll_ctl</span><span class="token punctuation">(</span>epfd<span class="token punctuation">,</span> EPOLL_CTL_ADD<span class="token punctuation">,</span> cfd<span class="token punctuation">,</span> <span class="token operator">&amp;</span>evt<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">continue</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+
+      <span class="token keyword">int</span> e <span class="token operator">=</span> events<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span>events<span class="token punctuation">;</span>
+      <span class="token keyword">bool</span> in <span class="token operator">=</span> e <span class="token operator">&amp;</span> EPOLLIN<span class="token punctuation">;</span>
+      <span class="token keyword">bool</span> out <span class="token operator">=</span> e <span class="token operator">&amp;</span> EPOLLOUT<span class="token punctuation">;</span>
+      <span class="token function">printf</span><span class="token punctuation">(</span><span class="token string">"fd: %d, events %d, epoll in %d, epoll out %d\n"</span><span class="token punctuation">,</span> fd<span class="token punctuation">,</span> e<span class="token punctuation">,</span> in<span class="token punctuation">,</span> out<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token double-colon punctuation">::</span><span class="token function">close</span><span class="token punctuation">(</span>epfd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token double-colon punctuation">::</span><span class="token function">close</span><span class="token punctuation">(</span>lfd<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">client</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">struct</span> <span class="token class-name">sockaddr_in</span> cli_addr<span class="token punctuation">;</span>
+  socklen_t cli_len <span class="token operator">=</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>cli_addr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">memset</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>cli_addr<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>cli_addr<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  cli_addr<span class="token punctuation">.</span>sin_family <span class="token operator">=</span> AF_INET<span class="token punctuation">;</span>
+  cli_addr<span class="token punctuation">.</span>sin_addr<span class="token punctuation">.</span>s_addr <span class="token operator">=</span> <span class="token function">htonl</span><span class="token punctuation">(</span>INADDR_LOOPBACK<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  cli_addr<span class="token punctuation">.</span>sin_port <span class="token operator">=</span> <span class="token function">htons</span><span class="token punctuation">(</span>port<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">int</span> fd <span class="token operator">=</span> <span class="token double-colon punctuation">::</span><span class="token function">socket</span><span class="token punctuation">(</span>AF_INET<span class="token punctuation">,</span> SOCK_STREAM<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">connect</span><span class="token punctuation">(</span>fd<span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">sockaddr</span> <span class="token operator">*</span><span class="token punctuation">)</span><span class="token operator">&amp;</span>cli_addr<span class="token punctuation">,</span> cli_len<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">sleep_for</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>chrono<span class="token double-colon punctuation">::</span><span class="token function">seconds</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">write</span><span class="token punctuation">(</span>fd<span class="token punctuation">,</span> <span class="token string">"write"</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">5</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">sleep_for</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>chrono<span class="token double-colon punctuation">::</span><span class="token function">seconds</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">write</span><span class="token punctuation">(</span>fd<span class="token punctuation">,</span> <span class="token string">"write"</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token number">5</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>this_thread<span class="token double-colon punctuation">::</span><span class="token function">sleep_for</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>chrono<span class="token double-colon punctuation">::</span><span class="token function">seconds</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  quit <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+  <span class="token function">CHECK</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span><span class="token function">close</span><span class="token punctuation">(</span>fd<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  std<span class="token double-colon punctuation">::</span>thread <span class="token function">svr</span><span class="token punctuation">(</span>server<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>thread <span class="token function">cli</span><span class="token punctuation">(</span>client<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  cli<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  svr<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>从上面的例子得到的结论是，当 fd 发生以下几种状态变化时，<code>epoll_wait</code> 会返回该 fd 所有关注的事件。</p>
+<ol>
+<li>由不可读变为可读</li>
+<li>由不可写变为可写</li>
+<li>可读状态下继续收到新数据</li>
+</ol>
+<p>进而，当 fd 可读或可写时，Epoll 也可能会重复的报告该事件。</p>
+<h3 id="3.-可靠地处理读事件" tabindex="-1"><a href="#3.-%E5%8F%AF%E9%9D%A0%E5%9C%B0%E5%A4%84%E7%90%86%E8%AF%BB%E4%BA%8B%E4%BB%B6">3. 可靠地处理读事件</a></h3>
+<p>设计目标中希望 Epoll 收到可读事件后，打包成 IO 任务丢给线程池。但 Epoll 可能会重复的报告可读事件，此时可能有正在执行的读操作，造成竞争。这也就需要一种机制，保证可读事件出现时，有且仅有一个正在执行的读操作，完成所有可读事件的处理。</p>
+<p>加锁非吾所愿。分析一下当前的需求：</p>
+<ol>
+<li>当 Epoll 收到可读事件时，如果当前还没有正在执行的读操作，则尝试启动一个；否则想办法通知该任务有新的可读事件出现</li>
+<li>当读操作返回 EAGAIN 时，如果当前没有新的可读事件出现，则结束；否则重新打包一个读任务，同步或异步地去执行</li>
+</ol>
+<p>该需求可以通过原子量完成，需要使用两个 Bit 位，分别命名为 Reading 和 NewEvent。Reading 为 1 时表示当前已经有读操作启动，NewEvent 为 1 时表示有新的可读事件出现。在可读事件出现时，同时打上 Reading 和 NewEvent 标记，如果此前没有 Reading 标记，则启动一个新的读任务；读任务启动时去除 NewEvent 标记，而后持续进行读操作直至返回 <code>EAGAIN</code>，此时检查是否有 NewEvent 标记，如果有则去除该标记继续重试，否则尝试 CAS 去除 Reading 标记，如果成功则该读任务成功退出。这样可以保证总会有一个正在执行或待执行的读任务处理新出现的读事件。</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token comment">// Epoll thread</span>
+<span class="token keyword">if</span> <span class="token punctuation">(</span>events <span class="token operator">&amp;</span> <span class="token punctuation">(</span>EPOLLIN <span class="token operator">|</span> EPOLLERR <span class="token operator">|</span> EPOLLHUP<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">auto</span> flags <span class="token operator">=</span> socket<span class="token operator">-></span>flags<span class="token punctuation">.</span><span class="token function">fetch_or</span><span class="token punctuation">(</span>ReadingFlag <span class="token operator">|</span> NewEventFlag<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>flags <span class="token operator">&amp;</span> ReadingFlag<span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    socket<span class="token operator">-></span><span class="token function">start_read_task</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Read thread</span>
+<span class="token keyword">void</span> <span class="token function">read_task</span><span class="token punctuation">(</span>Socket <span class="token operator">*</span>socket<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  socket<span class="token operator">-></span>flags <span class="token operator">&amp;=</span> <span class="token operator">~</span>NewEventFlag<span class="token punctuation">;</span>
+
+  <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">int</span> ret <span class="token operator">=</span> <span class="token double-colon punctuation">::</span><span class="token function">read</span><span class="token punctuation">(</span>socket<span class="token operator">-></span>fd<span class="token punctuation">,</span> buff<span class="token punctuation">,</span> size<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>ret <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// ...</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>ret <span class="token operator">==</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// closed.</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>errno <span class="token operator">==</span> EAGAIN<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">auto</span> flags <span class="token operator">=</span> socket<span class="token operator">-></span>flags<span class="token punctuation">.</span><span class="token function">load</span><span class="token punctuation">(</span>std<span class="token double-colon punctuation">::</span>memory_order_acquire<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">while</span> <span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>flags <span class="token operator">&amp;</span> NewEventFlag<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          socket<span class="token operator">-></span>flags <span class="token operator">&amp;=</span> <span class="token operator">~</span>NewEventFlag<span class="token punctuation">;</span>
+          <span class="token comment">// 当前有新的可读事件出现，可以直接重试，或者重新打包一个读任务丢给线程池</span>
+          <span class="token comment">// ...</span>
+        <span class="token punctuation">}</span>
+        <span class="token keyword">auto</span> newFlags <span class="token operator">=</span> flags <span class="token operator">&amp;</span> <span class="token operator">~</span>ReadingFlag<span class="token punctuation">.</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>socket<span class="token operator">-></span>flags<span class="token punctuation">.</span><span class="token function">compare_exchange_strong</span><span class="token punctuation">(</span>flags<span class="token punctuation">,</span> newFlags<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token comment">// CAS 成功，去除了 ReadingFlag，可以成功退出</span>
+        <span class="token punctuation">}</span>
+        <span class="token comment">// 如果失败，则继续重试</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+      <span class="token comment">// error.</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="4.-可靠地处理写事件" tabindex="-1"><a href="#4.-%E5%8F%AF%E9%9D%A0%E5%9C%B0%E5%A4%84%E7%90%86%E5%86%99%E4%BA%8B%E4%BB%B6">4. 可靠地处理写事件</a></h3>
+<p>与读事件的处理略微有些不同，写事件的处理要麻烦一些。当写入队列中有数据、且 fd 可写时，就需要有且仅有一个写任务处理所有的写入。也就说，当前没有写任务的前提下，会有两种可能的启动写任务的场景：</p>
+<ol>
+<li>fd 当前可写，写入队列中首次加入数据</li>
+<li>写入队列中有数据，fd 首次由不可写转为可写</li>
+</ol>
+<p>写入任务退出也有两种场景：</p>
+<ol>
+<li>写入队列写空</li>
+<li>fd 不可写</li>
+</ol>
+<p>bRPC 是这样处理上述需求的：</p>
+<ol>
+<li>写入队列首次加入数据时，启动写任务；写入队列中已经有数据时，则等待已有的写任务完成所有的写入</li>
+<li>当 fd 不可写时，再将对应的 EPOLLOUT 事件增加到 Epoll 的关注列表中，待 fd 可写时，将该关注移除，恢复写任务</li>
+<li>只有写入队列写完时，写入任务才会退出</li>
+</ol>
+<p>bRPC 的处理是完备的，但可能需要频繁地操作 Epoll，这也是非吾所愿。笔者这里仍然依靠原子量实现写任务的启动与退出。这里需要使用四个 Bit 位，使用 Writable 和 NewEpollOut 表示当前 fd 是否可写、是否有新的可写入事件，使用 HasMsg 和 NewMsg 表示当前写入队列是否有数据、是否有新的数据插入队列。当且仅当 Writable 和 HasMsg 首次同时变为 1 时才启动写入任务。当写入队列写完时，尝试去除 HasMsg 和 NewMsg 标记；当 fd 不可写时，尝试去除 Writable 和 NewEpollOut 标记；当 Epoll 收到新的可写入事件时，仍然使用 <code>fetch_or</code> 打上可写入标记，并判断是否启动新的写入任务。事实上 Epoll 收到可读可写事件时，可以一次性地完成 <code>fetch_or</code> 打标记的任务。</p>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://github.com/apache/incubator-brpc/blob/master/docs/cn/io.md">bRPC IO</a></li>
+</ol>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+    <script> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-61723712-2', 'auto'); ga('send', 'pageview'); </script>
+  </body>
+</html>
