@@ -8,12 +8,12 @@
     <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
     <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
     <link rel="stylesheet" type="text/css" href="/dist/main.css">
-    <title>single_epoll_multi_workers | SF-Zhou's Blog</title>
+    <title>单 Epoll 多线程 IO 模型 | SF-Zhou's Blog</title>
   </head>
   <body>
     <div class="app">
       <div class="title">
-        <h1> single_epoll_multi_workers </h1>
+        <h1> 单 Epoll 多线程 IO 模型 </h1>
       </div>
       <div class="info">
         <div class="date"> 2022.07.24 </div>
@@ -22,8 +22,7 @@
         </a>
       </div>
       <div class="markdown">
-        <h1 id="单-epoll-多线程-io-模型" tabindex="-1"><a href="#%E5%8D%95-epoll-%E5%A4%9A%E7%BA%BF%E7%A8%8B-io-%E6%A8%A1%E5%9E%8B">单 Epoll 多线程 IO 模型</a></h1>
-<p>最近在使用 Folly 的协程做 RPC 框架，遇到一些问题：</p>
+        <p>最近在使用 Folly 的协程做 RPC 框架，遇到一些问题：</p>
 <ol>
 <li>Folly 的 EventBase 与 AsyncSocket 是绑定的，Socket 连接建立后不能再跨线程操作</li>
 <li>Folly 的 IOThreadPoolExecutor 执行协程的 <code>co_await</code> 操作时，会出现线程切换的情况</li>
