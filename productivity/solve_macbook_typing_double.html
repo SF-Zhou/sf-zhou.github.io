@@ -145,7 +145,7 @@ CGEventRef <span class="token function">myCGEventCallback</span><span class="tok
 <span class="token punctuation">}</span>
 </code></pre>
 <p>将上述代码命名为 <code>kill_double_typing.cpp</code>，编译：</p>
-<pre class="language-bash"><code class="language-bash">g++ -O2 -Wall -o kill_double_typing kill_double_typing.cpp -framework ApplicationServices
+<pre class="language-bash"><code class="language-bash">g++ <span class="token parameter variable">-O2</span> <span class="token parameter variable">-Wall</span> <span class="token parameter variable">-o</span> kill_double_typing kill_double_typing.cpp <span class="token parameter variable">-framework</span> ApplicationServices
 </code></pre>
 <p>编译后得到可执行文件，可以使用 nohup 命令，将其设为后台执行。做得更复杂一点的，可以设置为自动启动，就自己搜索啦。</p>
 <h3 id="3.-总结" tabindex="-1"><a href="#3.-%E6%80%BB%E7%BB%93">3. 总结</a></h3>

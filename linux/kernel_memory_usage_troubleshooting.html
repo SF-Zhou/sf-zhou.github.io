@@ -46,7 +46,7 @@
 <span class="token function">sudo</span> <span class="token function">cat</span> /sys/kernel/debug/kmemleak <span class="token operator">></span> result.txt
 
 <span class="token comment"># 5. 简单统计下高频函数</span>
-<span class="token function">cat</span> result.txt <span class="token operator">|</span> <span class="token function">grep</span> <span class="token string">"Call Trace"</span> -A <span class="token number">30</span> <span class="token operator">|</span> <span class="token function">awk</span> <span class="token string">'{print $6}'</span> <span class="token operator">|</span> <span class="token function">awk</span> -F <span class="token string">'+'</span> <span class="token string">'{print $1}'</span> <span class="token operator">|</span> <span class="token function">sort</span> <span class="token operator">|</span> <span class="token function">uniq</span> -c <span class="token operator">|</span> <span class="token function">sort</span> -n -k <span class="token number">1</span>
+<span class="token function">cat</span> result.txt <span class="token operator">|</span> <span class="token function">grep</span> <span class="token string">"Call Trace"</span> <span class="token parameter variable">-A</span> <span class="token number">30</span> <span class="token operator">|</span> <span class="token function">awk</span> <span class="token string">'{print $6}'</span> <span class="token operator">|</span> <span class="token function">awk</span> <span class="token parameter variable">-F</span> <span class="token string">'+'</span> <span class="token string">'{print $1}'</span> <span class="token operator">|</span> <span class="token function">sort</span> <span class="token operator">|</span> <span class="token function">uniq</span> <span class="token parameter variable">-c</span> <span class="token operator">|</span> <span class="token function">sort</span> <span class="token parameter variable">-n</span> <span class="token parameter variable">-k</span> <span class="token number">1</span>
 </code></pre>
 <p>然而 kmemleak 并没有发现什么内存泄漏，也就是说这里可能并不是泄漏。山重水复疑无路，在进行一些无关的操作后，<code>kmalloc-32</code> 的内存占用竟然自己慢慢下降了，所以这不是泄漏！</p>
 <h3 id="4.-slab-alloctor" tabindex="-1"><a href="#4.-slab-alloctor">4. Slab Alloctor</a></h3>
@@ -55,7 +55,7 @@
 <span class="token builtin class-name">echo</span> <span class="token number">2</span> <span class="token operator">|</span> <span class="token function">sudo</span> <span class="token function">tee</span> /proc/sys/vm/drop_caches
 
 <span class="token comment"># 2. 观察 Slab 内存使用情况</span>
-<span class="token function">watch</span> -n <span class="token number">1</span> <span class="token string">"cat /proc/meminfo | grep Slab -A 2"</span>
+<span class="token function">watch</span> <span class="token parameter variable">-n</span> <span class="token number">1</span> <span class="token string">"cat /proc/meminfo | grep Slab -A 2"</span>
 </code></pre>
 <p>可以观察到 <code>Reclaimable</code> 和 <code>kmalloc-32</code> 的内存以几十 MB 的速度逐渐下降！虽然可以稳定触发，但清理速度过慢并不能解决业务的需求。故仍需要进一步定位是谁在申请这些小内存。</p>
 <h3 id="5.-slab-trace" tabindex="-1"><a href="#5.-slab-trace">5. Slab Trace</a></h3>

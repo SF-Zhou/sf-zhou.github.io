@@ -145,11 +145,11 @@ parser<span class="token punctuation">.</span>add_argument<span class="token pun
 <span class="token keyword">print</span><span class="token punctuation">(</span>argparse_schema<span class="token punctuation">.</span>parse<span class="token punctuation">(</span>schema<span class="token operator">=</span><span class="token string">'./tests/argument_config.json'</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
 </code></pre>
 <p>执行：</p>
-<pre class="language-bash"><code class="language-bash">python3 demo.py --config /path/to/config.py
+<pre class="language-bash"><code class="language-bash">python3 demo.py <span class="token parameter variable">--config</span> /path/to/config.py
 <span class="token comment">#> {'config': '/path/to/config.py', 'resume': False, 'scale': 1.0}</span>
 </code></pre>
 <p>也可以通过提供的 CLI 工具查看 Argument Schema 对应的命令行帮助：</p>
-<pre class="language-bash"><code class="language-bash">argparse-schema --schema_path tests/argument_config.json
+<pre class="language-bash"><code class="language-bash">argparse-schema <span class="token parameter variable">--schema_path</span> tests/argument_config.json
 <span class="token comment">#> Show help for [tests/argument_config.json]:</span>
 <span class="token comment">#> usage: argparse-schema [-h] --config CONFIG [--resume] [--scale SCALE]</span>
 <span class="token comment">#></span>

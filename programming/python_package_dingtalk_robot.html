@@ -173,7 +173,7 @@ __github__ <span class="token operator">=</span> <span class="token string">'htt
 __description__ <span class="token operator">=</span> <span class="token string">'Python Package for Dingtalk Robot'</span>
 </code></pre>
 <p><code>install_requires</code> 参数中描述了该包的依赖，<code>dingtalk_robot</code> 的外部依赖只有 <code>requests</code>。对于一个 Python 项目通常也会使用 <code>requirements.txt</code> 来描述依赖，故而新建一个 <code>requirements.txt</code>，文件内容仅填入一行 <code>requests</code> 即可。当其他人需要手动安装依赖的时候，可以执行：</p>
-<pre class="language-bash"><code class="language-bash">pip3 <span class="token function">install</span> -r requirements.txt
+<pre class="language-bash"><code class="language-bash">pip3 <span class="token function">install</span> <span class="token parameter variable">-r</span> requirements.txt
 </code></pre>
 <p>各项配置工作均已完成，下面可以执行 <code>build</code> 命令构建包：</p>
 <pre class="language-bash"><code class="language-bash">python setup.py build
@@ -296,7 +296,7 @@ The command "pycodestyle . --max-line-length=120" exited with 1.
       <span class="token key atrule">python</span><span class="token punctuation">:</span> <span class="token number">3.6</span>
 </code></pre>
 <p>当然发布还需要密码，而这里并不能直接把密码放到 GitHub 中。所以 Travis-CI 提供了一个加密密码的工具。使用 <code>pip</code> 安装名为 <code>travis</code> 的小工具，在项目目录下执行：</p>
-<pre class="language-bash"><code class="language-bash">travis encrypt --add deploy.password
+<pre class="language-bash"><code class="language-bash">travis encrypt <span class="token parameter variable">--add</span> deploy.password
 </code></pre>
 <p>按照提示输入密码，成功后会自动把加密的密码写入 <code>.travis.yml</code> 中。最后将变更提交。</p>
 <p>注意，这里配置了当且仅当运行环境为 Python 3.6，且附带 tag，才会执行发布的操作。之后需要发布的话，可以使用类似如下的命令：</p>
@@ -304,7 +304,7 @@ The command "pycodestyle . --max-line-length=120" exited with 1.
 
 <span class="token function">git</span> checkout master
 <span class="token function">git</span> tag V0.0.5
-<span class="token function">git</span> push origin master --tag
+<span class="token function">git</span> push origin master <span class="token parameter variable">--tag</span>
 </code></pre>
 <p>至此本步骤完成。</p>
 <h3 id="7.-总结" tabindex="-1"><a href="#7.-%E6%80%BB%E7%BB%93">7. 总结</a></h3>

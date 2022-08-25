@@ -64,7 +64,7 @@
 <pre class="language-shell"><code class="language-shell"><span class="token function">vim</span> <span class="token variable"><span class="token variable">`</span>f a.cpp<span class="token variable">`</span></span>
 </code></pre>
 <p>对于上面的操作，我们也可以这样：</p>
-<pre class="language-shell"><code class="language-shell">f -e <span class="token function">vim</span> a.cpp
+<pre class="language-shell"><code class="language-shell">f <span class="token parameter variable">-e</span> <span class="token function">vim</span> a.cpp
 </code></pre>
 <p>所以，我们可以把 <code>f -e vim</code> 加到 bashrc 文件里……</p>
 <pre class="language-shell"><code class="language-shell"><span class="token builtin class-name">alias</span> <span class="token assign-left variable">v</span><span class="token operator">=</span><span class="token string">'f -e vim'</span> <span class="token comment"># quick opening files with vim</span>
@@ -78,18 +78,18 @@
 </code></pre>
 <p>另外，建议安装 Zsh 的另一个工具是 zsh-syntax-highlighting，也可以通过 brew 安装。使用 brew search zsh，可以找到更多好用的工具。</p>
 <p>安装 oh-my-zsh，在官网上找到安装命令：</p>
-<pre class="language-shell"><code class="language-shell"><span class="token function">sh</span> -c <span class="token string">"<span class="token variable"><span class="token variable">$(</span><span class="token function">curl</span> -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh<span class="token variable">)</span></span>"</span>
+<pre class="language-shell"><code class="language-shell"><span class="token function">sh</span> <span class="token parameter variable">-c</span> <span class="token string">"<span class="token variable"><span class="token variable">$(</span><span class="token function">curl</span> <span class="token parameter variable">-fsSL</span> https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh<span class="token variable">)</span></span>"</span>
 </code></pre>
 <p>因为走 GitHub，所以连接不畅的，请注意科学上网。</p>
 <p>全部安装好后，使用命令：</p>
-<pre class="language-shell"><code class="language-shell">chsh -s /bin/zsh
+<pre class="language-shell"><code class="language-shell">chsh <span class="token parameter variable">-s</span> /bin/zsh
 </code></pre>
 <p>将自己的默认终端切换为 Zsh。注意不加 sudo，执行该命令后会要求输入密码的。</p>
 <p>OK，安装完 Zsh 和 oh-my-zsh 后终端就变得很好用了。可以再看看网上的一些配置，让自己的终端更好用。</p>
 <p>配置 fasd。编辑 ~/.zshrc，加入：</p>
 <pre class="language-shell"><code class="language-shell"><span class="token assign-left variable">fasd_cache</span><span class="token operator">=</span><span class="token string">"<span class="token environment constant">$HOME</span>/.fasd-init-bash"</span>
-<span class="token keyword">if</span> <span class="token punctuation">[</span> <span class="token string">"<span class="token variable"><span class="token variable">$(</span><span class="token builtin class-name">command</span> -v fasd<span class="token variable">)</span></span>"</span> -nt <span class="token string">"<span class="token variable">$fasd_cache</span>"</span> -o <span class="token operator">!</span> -s <span class="token string">"<span class="token variable">$fasd_cache</span>"</span> <span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token keyword">then</span>
-  fasd --init posix-alias bash-hook bash-ccomp bash-ccomp-install <span class="token operator">>|</span> <span class="token string">"<span class="token variable">$fasd_cache</span>"</span>
+<span class="token keyword">if</span> <span class="token punctuation">[</span> <span class="token string">"<span class="token variable"><span class="token variable">$(</span><span class="token builtin class-name">command</span> <span class="token parameter variable">-v</span> fasd<span class="token variable">)</span></span>"</span> <span class="token parameter variable">-nt</span> <span class="token string">"<span class="token variable">$fasd_cache</span>"</span> <span class="token parameter variable">-o</span> <span class="token operator">!</span> <span class="token parameter variable">-s</span> <span class="token string">"<span class="token variable">$fasd_cache</span>"</span> <span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token keyword">then</span>
+  fasd <span class="token parameter variable">--init</span> posix-alias bash-hook bash-ccomp bash-ccomp-install <span class="token operator">>|</span> <span class="token string">"<span class="token variable">$fasd_cache</span>"</span>
 <span class="token keyword">fi</span>
 <span class="token builtin class-name">source</span> <span class="token string">"<span class="token variable">$fasd_cache</span>"</span>
 <span class="token builtin class-name">unset</span> fasd_cache

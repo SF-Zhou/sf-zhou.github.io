@@ -48,7 +48,7 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p>确保当前路径下没有 <code>testdb</code> 目录，然后执行上方的代码。可以在写入前加入 <code>getchar()</code> 中断以观察中间的状态，测试得到的中间状态如下：</p>
-<pre class="language-bash"><code class="language-bash">❯ <span class="token function">ls</span> -l
+<pre class="language-bash"><code class="language-bash">❯ <span class="token function">ls</span> <span class="token parameter variable">-l</span>
 total <span class="token number">24</span>
 -rw-r--r--  <span class="token number">1</span> sfzhou  staff     0B Sep  <span class="token number">7</span> <span class="token number">10</span>:02 000003.log
 -rw-r--r--  <span class="token number">1</span> sfzhou  staff    16B Sep  <span class="token number">7</span> <span class="token number">10</span>:02 CURRENT
@@ -499,7 +499,7 @@ prev_log_number_ <span class="token operator">=</span> prev_log_number<span clas
 <span class="token punctuation">}</span>
 </code></pre>
 <p>在上一节创建的数据库的基础上，执行上方的代码。首先打开数据库，再读取 Key 对应的 Value。最终的数据库文件状态为：</p>
-<pre class="language-bash"><code class="language-bash">❯ <span class="token function">ls</span> -l
+<pre class="language-bash"><code class="language-bash">❯ <span class="token function">ls</span> <span class="token parameter variable">-l</span>
 total <span class="token number">40</span>
 -rw-r--r--  <span class="token number">1</span> sfzhou  staff   124B Sep  <span class="token number">7</span> 09:57 000005.ldb
 -rw-r--r--  <span class="token number">1</span> sfzhou  staff     0B Sep  <span class="token number">7</span> 09:57 000006.log

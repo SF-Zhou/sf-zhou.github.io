@@ -24,7 +24,7 @@
       <div class="markdown">
         <h3 id="1.-write" tabindex="-1"><a href="#1.-write">1. Write</a></h3>
 <p>Minimal exmaple:</p>
-<pre class="language-bash"><code class="language-bash">fio --name<span class="token operator">=</span>test --rw<span class="token operator">=</span>write --size<span class="token operator">=</span>1M
+<pre class="language-bash"><code class="language-bash">fio <span class="token parameter variable">--name</span><span class="token operator">=</span>test <span class="token parameter variable">--rw</span><span class="token operator">=</span>write <span class="token parameter variable">--size</span><span class="token operator">=</span>1M
 <span class="token comment">#> test: (g=0): rw=write, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=psync, iodepth=1</span>
 <span class="token comment">#> fio-3.16</span>
 <span class="token comment">#> Starting 1 process</span>
@@ -51,12 +51,12 @@
 <span class="token comment">#> Run status group 0 (all jobs):</span>
 <span class="token comment">#>   WRITE: bw=333MiB/s (350MB/s), 333MiB/s-333MiB/s (350MB/s-350MB/s), io=1024KiB (1049kB), run=3-3msec</span>
 
-<span class="token function">ls</span> -l
+<span class="token function">ls</span> <span class="token parameter variable">-l</span>
 <span class="token comment">#> total 1.0M</span>
 <span class="token comment">#> -rw-r--r-- 1 zsf zsf 1.0M Mar 15 14:45 test.0.0</span>
 </code></pre>
 <p>Create multiple files:</p>
-<pre class="language-bash"><code class="language-bash">fio --name<span class="token operator">=</span>test --group_reporting --directory<span class="token operator">=</span>/tmp/test --ioengine<span class="token operator">=</span>psync --rw<span class="token operator">=</span>write --direct<span class="token operator">=</span><span class="token number">1</span> --bs<span class="token operator">=</span>1M --size<span class="token operator">=</span>1G --numjobs<span class="token operator">=</span><span class="token number">8</span>
+<pre class="language-bash"><code class="language-bash">fio <span class="token parameter variable">--name</span><span class="token operator">=</span>test <span class="token parameter variable">--group_reporting</span> <span class="token parameter variable">--directory</span><span class="token operator">=</span>/tmp/test <span class="token parameter variable">--ioengine</span><span class="token operator">=</span>psync <span class="token parameter variable">--rw</span><span class="token operator">=</span>write <span class="token parameter variable">--direct</span><span class="token operator">=</span><span class="token number">1</span> <span class="token parameter variable">--bs</span><span class="token operator">=</span>1M <span class="token parameter variable">--size</span><span class="token operator">=</span>1G <span class="token parameter variable">--numjobs</span><span class="token operator">=</span><span class="token number">8</span>
 <span class="token comment">#> test: (g=0): rw=write, bs=(R) 1024KiB-1024KiB, (W) 1024KiB-1024KiB, (T) 1024KiB-1024KiB, ioengine=psync, iodepth=1</span>
 <span class="token comment">#> ...</span>
 <span class="token comment">#> fio-3.16</span>
@@ -94,7 +94,7 @@
 <span class="token comment">#> Run status group 0 (all jobs):</span>
 <span class="token comment">#>   WRITE: bw=1204MiB/s (1263MB/s), 1204MiB/s-1204MiB/s (1263MB/s-1263MB/s), io=8192MiB (8590MB), run=6803-6803msec</span>
 
-<span class="token function">ls</span> -l /tmp/test
+<span class="token function">ls</span> <span class="token parameter variable">-l</span> /tmp/test
 <span class="token comment">#> total 8.0G</span>
 <span class="token comment">#> -rw-r--r-- 1 zsf zsf 1.0G Mar 15 14:57 test.0.0</span>
 <span class="token comment">#> -rw-r--r-- 1 zsf zsf 1.0G Mar 15 14:57 test.1.0</span>
@@ -106,7 +106,7 @@
 <span class="token comment">#> -rw-r--r-- 1 zsf zsf 1.0G Mar 15 14:57 test.7.0</span>
 </code></pre>
 <p>Write for a while:</p>
-<pre class="language-bash"><code class="language-bash">fio --name<span class="token operator">=</span>test --group_reporting --time_based --opendir<span class="token operator">=</span>/tmp/test --ioengine<span class="token operator">=</span>psync --rw<span class="token operator">=</span>write --direct<span class="token operator">=</span><span class="token number">1</span> --bs<span class="token operator">=</span>1M --runtime<span class="token operator">=</span><span class="token number">60</span> --numjobs<span class="token operator">=</span><span class="token number">8</span>
+<pre class="language-bash"><code class="language-bash">fio <span class="token parameter variable">--name</span><span class="token operator">=</span>test <span class="token parameter variable">--group_reporting</span> <span class="token parameter variable">--time_based</span> <span class="token parameter variable">--opendir</span><span class="token operator">=</span>/tmp/test <span class="token parameter variable">--ioengine</span><span class="token operator">=</span>psync <span class="token parameter variable">--rw</span><span class="token operator">=</span>write <span class="token parameter variable">--direct</span><span class="token operator">=</span><span class="token number">1</span> <span class="token parameter variable">--bs</span><span class="token operator">=</span>1M <span class="token parameter variable">--runtime</span><span class="token operator">=</span><span class="token number">60</span> <span class="token parameter variable">--numjobs</span><span class="token operator">=</span><span class="token number">8</span>
 <span class="token comment">#> fio: opendir added 8 files</span>
 <span class="token comment">#> test: (g=0): rw=write, bs=(R) 1024KiB-1024KiB, (W) 1024KiB-1024KiB, (T) 1024KiB-1024KiB, ioengine=psync, iodepth=1</span>
 <span class="token comment">#> ...</span>
@@ -140,7 +140,7 @@
 </code></pre>
 <h3 id="2.-read" tabindex="-1"><a href="#2.-read">2. Read</a></h3>
 <p>Read for a while:</p>
-<pre class="language-bash"><code class="language-bash">fio --name<span class="token operator">=</span>test --group_reporting --time_based --opendir<span class="token operator">=</span>/tmp/test --ioengine<span class="token operator">=</span>psync --rw<span class="token operator">=</span>read --direct<span class="token operator">=</span><span class="token number">1</span> --bs<span class="token operator">=</span>1M --runtime<span class="token operator">=</span><span class="token number">60</span> --numjobs<span class="token operator">=</span><span class="token number">8</span>
+<pre class="language-bash"><code class="language-bash">fio <span class="token parameter variable">--name</span><span class="token operator">=</span>test <span class="token parameter variable">--group_reporting</span> <span class="token parameter variable">--time_based</span> <span class="token parameter variable">--opendir</span><span class="token operator">=</span>/tmp/test <span class="token parameter variable">--ioengine</span><span class="token operator">=</span>psync <span class="token parameter variable">--rw</span><span class="token operator">=</span>read <span class="token parameter variable">--direct</span><span class="token operator">=</span><span class="token number">1</span> <span class="token parameter variable">--bs</span><span class="token operator">=</span>1M <span class="token parameter variable">--runtime</span><span class="token operator">=</span><span class="token number">60</span> <span class="token parameter variable">--numjobs</span><span class="token operator">=</span><span class="token number">8</span>
 <span class="token comment">#> fio: opendir added 8 files</span>
 <span class="token comment">#> test: (g=0): rw=read, bs=(R) 1024KiB-1024KiB, (W) 1024KiB-1024KiB, (T) 1024KiB-1024KiB, ioengine=psync, iodepth=1</span>
 <span class="token comment">#> ...</span>

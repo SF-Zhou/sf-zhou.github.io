@@ -27,7 +27,7 @@
 brew <span class="token function">install</span> multipass
 
 <span class="token comment"># 2. launch a instance</span>
-multipass launch --name primary --cpus <span class="token number">8</span> --mem 8G --disk 20G
+multipass launch <span class="token parameter variable">--name</span> primary <span class="token parameter variable">--cpus</span> <span class="token number">8</span> <span class="token parameter variable">--mem</span> 8G <span class="token parameter variable">--disk</span> 20G
 
 <span class="token comment"># 3. list instances</span>
 multipass list
@@ -35,7 +35,7 @@ multipass list
 <span class="token comment">#> primary                 Running           192.168.64.4     Ubuntu 20.04 LTS</span>
 
 <span class="token comment"># 4. show info</span>
-multipass info --all
+multipass info <span class="token parameter variable">--all</span>
 <span class="token comment">#> Name:           primary</span>
 <span class="token comment">#> State:          Running</span>
 <span class="token comment">#> IPv4:           192.168.64.4</span>
