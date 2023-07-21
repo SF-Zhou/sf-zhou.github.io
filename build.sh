@@ -8,7 +8,7 @@ cp -r posts/images public
 cp -r dist public
 
 # Less to CSS
-$(npm bin)/lessc dist/main.less public/dist/main.css
+npx lessc dist/main.less public/dist/main.css
 
 # Highlight JS
 cp ./node_modules/prismjs/themes/prism-tomorrow.css public/dist/highlight.css
