@@ -1,5 +1,17 @@
 [
   {
+    "title": "Clang 编译隐藏参数：GCC 的版本",
+    "date": "2023.10.19",
+    "author": "SF-Zhou",
+    "tags": [
+      "C++",
+      "Ubuntu",
+      "Develop"
+    ],
+    "filename": "clang_select_gcc_toolchain",
+    "url_path": "/programming/clang_select_gcc_toolchain.html"
+  },
+  {
     "title": "C++ 静态反射与序列化",
     "date": "2022.11.16",
     "author": "SF-Zhou",

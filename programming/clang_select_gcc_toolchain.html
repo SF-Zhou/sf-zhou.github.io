@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Clang 编译隐藏参数：GCC 的版本 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Clang 编译隐藏参数：GCC 的版本 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2023.10.19 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>最近在调研 <a href="https://github.com/redpanda-data/redpanda">Redpanda</a>，并且尝试将它移动到公司的内网环境下编译，中间踩了不少坑。Redpanda 对新工具新特性的使用上相对激进，而它提供的编译脚本并没有考虑到 C++ 编译环境的复杂性。我在 Ubuntu 23.10 环境下经过“简单”适配最终可以顺利编译完成，但在 Ubuntu 22.04 LTS 下却始终会产生一个 static_assert 静态检查错误。两个系统版本中均使用同一个版本的 clang-16，最终只有一个能编译成功，十分令人困惑。</p>
+<p>抛开依赖包的版本不看，Ubuntu 22.04 与 Ubuntu 23.10 的另一处不同是默认 gcc 的版本。Ubuntu 22.04 默认 gcc 版本是 11.2.0，我这里同时安装了 gcc-12；Ubuntu 23.10 默认 gcc 版本是 13.2.0。同时考虑到 clang 默认使用的标准库是 stdlibc++，进而会使用 gcc 的头文件，那么 gcc 的版本就确实会影响到 clang 的编译结果了。</p>
+<p>简单查询，可以通过 <code>clang -v</code> 查看当前使用的 gcc 工具链目录，Ubuntu 22.04 上显示的是：</p>
+<pre class="language-markup"><code class="language-markup">ubuntu clang version 16.0.6 (++20230710042027+7cbfla259152-1~exp1~20230710162048.105)
+Target: x86_64-pc-linux-gnu
+Thread model: posix
+InstalledDir: /usr/bin
+Found candidate GCC installation: /usr/bin/../lib/gcc/x86_64-linux-gnu/11
+Found candidate GCC installation: /usr/bin/../lib/gcc/x86_64-linux-gnu/12
+Selected GCC installation: /usr/bin/../lib/gcc/x86_64-linux-gnu/12
+Candidate multilib: .;@m64
+Selected multilib: .;@m64
+</code></pre>
+<p>Ubuntu 23.10 的结果是：</p>
+<pre class="language-markup"><code class="language-markup">Ubuntu clang version 16.0.6 (15)
+Target: x86_64-pc-linux-gnu
+Thread model: posix
+InstalledDir: /usr/bin
+Found candidate GCC installation: /usr/bin/../lib/gcc/x86_64-linux-gnu/12
+Found candidate GCC installation: /usr/bin/../lib/gcc/x86_64-linux-gnu/13
+Selected GCC installation: /usr/bin/../lib/gcc/x86_64-linux-gnu/13
+Candidate multilib: .;@m64
+Selected multilib: .;@m64
+</code></pre>
+<p>clang 默认会使用它能找到的最新版本的 gcc，当然也可以通过 <code>--gcc-install-dir</code> 指定。</p>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
