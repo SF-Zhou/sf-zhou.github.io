@@ -84,6 +84,50 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p><a href="https://play.rust-lang.org/?version=stable&amp;mode=debug&amp;edition=2021&amp;gist=0301982aaca7cd56ff66c106c30410db">Run it!</a></p>
+<p>RPITIT stands for Return Position Impl Trait In Trait.</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">trait</span> <span class="token type-definition class-name">Walkable</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">walk</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">trait</span> <span class="token type-definition class-name">IntoWalkable</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">into_walkable</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">impl</span> <span class="token class-name">Walkable</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">struct</span> <span class="token type-definition class-name">Duck</span><span class="token punctuation">;</span>
+<span class="token keyword">impl</span> <span class="token class-name">Walkable</span> <span class="token keyword">for</span> <span class="token class-name">Duck</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">walk</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"duck walk!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">IntoWalkable</span> <span class="token keyword">for</span> <span class="token operator">&amp;</span><span class="token keyword">str</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">into_walkable</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">impl</span> <span class="token class-name">Walkable</span> <span class="token punctuation">{</span>
+        <span class="token keyword">match</span> <span class="token keyword">self</span> <span class="token punctuation">{</span>
+            <span class="token string">"duck"</span> <span class="token operator">=></span> <span class="token class-name">Duck</span><span class="token punctuation">,</span>
+            _ <span class="token operator">=></span> <span class="token macro property">panic!</span><span class="token punctuation">(</span><span class="token string">"invalid name!"</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">fn</span> <span class="token function-definition function">type_name</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token operator">></span><span class="token punctuation">(</span>_<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">T</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token operator">&amp;</span><span class="token keyword">str</span> <span class="token punctuation">{</span>
+    <span class="token namespace">std<span class="token punctuation">::</span>any<span class="token punctuation">::</span></span><span class="token function">type_name</span><span class="token punctuation">::</span><span class="token operator">&lt;</span><span class="token class-name">T</span><span class="token operator">></span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">fn</span> <span class="token function-definition function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> walkable <span class="token operator">=</span> <span class="token string">"duck"</span><span class="token punctuation">.</span><span class="token function">into_walkable</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"type name: {}"</span><span class="token punctuation">,</span> <span class="token function">type_name</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>walkable<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><a href="https://play.rust-lang.org/?version=nightly&amp;mode=debug&amp;edition=2021&amp;gist=11c17fba39e4564ee55e2bb583cb2689">Run it!</a></p>
+<p>An AFIT stands for Async Fn In Trait, so an AFIT’s return type would be an RPIT inside a trait, so an RPITIT.</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">trait</span> <span class="token type-definition class-name">Service</span> <span class="token punctuation">{</span>
+    <span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">request</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> key<span class="token punctuation">:</span> <span class="token keyword">i32</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Response</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+<span class="token comment">// =></span>
+<span class="token keyword">trait</span> <span class="token type-definition class-name">Service</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">request</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> key<span class="token punctuation">:</span> <span class="token keyword">i32</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">impl</span> <span class="token class-name">Future</span><span class="token operator">&lt;</span><span class="token class-name">Output</span><span class="token operator">=</span><span class="token class-name">Response</span><span class="token operator">></span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
 <h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://santiagopastorino.com/2022/10/20/what-rpits-rpitits-and-afits-and-their-relationship/">RPITs, RPITITs and AFITs and their relationship</a></li>
