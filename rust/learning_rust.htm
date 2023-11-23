@@ -165,6 +165,59 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p><a href="https://play.rust-lang.org/?version=stable&amp;mode=debug&amp;edition=2021&amp;gist=a7243281d07f53bc0fb4b6df13511b1c">Play it!</a></p>
+<h3 id="virtual-table" tabindex="-1"><a href="#virtual-table">Virtual Table</a></h3>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>any<span class="token punctuation">::</span></span><span class="token class-name">Any</span><span class="token punctuation">;</span>
+
+<span class="token keyword">struct</span> <span class="token type-definition class-name">Dog</span><span class="token punctuation">;</span>
+<span class="token keyword">struct</span> <span class="token type-definition class-name">Cat</span><span class="token punctuation">;</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">Dog</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">talk</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"Dog: Woof!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">Cat</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">talk</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"Cat: Meow!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">struct</span> <span class="token type-definition class-name">AnimalVTable</span> <span class="token punctuation">{</span>
+    talk<span class="token punctuation">:</span> <span class="token keyword">fn</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">dyn</span> <span class="token class-name">Any</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">struct</span> <span class="token type-definition class-name">Animal</span> <span class="token punctuation">{</span>
+    object<span class="token punctuation">:</span> <span class="token class-name">Box</span><span class="token operator">&lt;</span><span class="token keyword">dyn</span> <span class="token class-name">Any</span><span class="token operator">></span><span class="token punctuation">,</span>
+    vtable<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token lifetime-annotation symbol">'static</span> <span class="token class-name">AnimalVTable</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">static</span> <span class="token constant">DOG_VTABLE</span><span class="token punctuation">:</span> <span class="token class-name">AnimalVTable</span> <span class="token operator">=</span> <span class="token class-name">AnimalVTable</span> <span class="token punctuation">{</span>
+    talk<span class="token punctuation">:</span> <span class="token closure-params"><span class="token closure-punctuation punctuation">|</span>x<span class="token closure-punctuation punctuation">|</span></span> x<span class="token punctuation">.</span><span class="token function">downcast_ref</span><span class="token punctuation">::</span><span class="token operator">&lt;</span><span class="token class-name">Dog</span><span class="token operator">></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">talk</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">static</span> <span class="token constant">CAT_VTABLE</span><span class="token punctuation">:</span> <span class="token class-name">AnimalVTable</span> <span class="token operator">=</span> <span class="token class-name">AnimalVTable</span> <span class="token punctuation">{</span>
+    talk<span class="token punctuation">:</span> <span class="token closure-params"><span class="token closure-punctuation punctuation">|</span>x<span class="token closure-punctuation punctuation">|</span></span> x<span class="token punctuation">.</span><span class="token function">downcast_ref</span><span class="token punctuation">::</span><span class="token operator">&lt;</span><span class="token class-name">Cat</span><span class="token operator">></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">talk</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">fn</span> <span class="token function-definition function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> animals <span class="token operator">=</span> <span class="token macro property">vec!</span><span class="token punctuation">[</span>
+        <span class="token class-name">Animal</span> <span class="token punctuation">{</span>
+            object<span class="token punctuation">:</span> <span class="token class-name">Box</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token class-name">Dog</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            vtable<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token constant">DOG_VTABLE</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">,</span>
+        <span class="token class-name">Animal</span> <span class="token punctuation">{</span>
+            object<span class="token punctuation">:</span> <span class="token class-name">Box</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token class-name">Cat</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            vtable<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token constant">CAT_VTABLE</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">,</span>
+    <span class="token punctuation">]</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">for</span> animal <span class="token keyword">in</span> animals <span class="token punctuation">{</span>
+        <span class="token punctuation">(</span>animal<span class="token punctuation">.</span>vtable<span class="token punctuation">.</span>talk<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token operator">*</span>animal<span class="token punctuation">.</span>object<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><a href="https://play.rust-lang.org/?version=stable&amp;mode=debug&amp;edition=2021&amp;gist=382d51da654b454aa7eb0d573f98cd6d">Play it!</a></p>
 <h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://santiagopastorino.com/2022/10/20/what-rpits-rpitits-and-afits-and-their-relationship/">RPITs, RPITITs and AFITs and their relationship</a></li>
