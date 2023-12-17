@@ -37,6 +37,14 @@ multipass shell
 <h3 id="2.-configure" tabindex="-1"><a href="#2.-configure">2. Configure</a></h3>
 <pre class="language-bash"><code class="language-bash"><span class="token builtin class-name">set</span> <span class="token parameter variable">-e</span>
 
+<span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> /tmp/sources.list</span>
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ mantic main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ mantic-updates main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ mantic-backports main restricted universe multiverse
+deb http://ports.ubuntu.com/ubuntu-ports/ mantic-security main restricted universe multiverse
+EOF</span>
+<span class="token function">sudo</span> <span class="token function">mv</span> /tmp/sources.list /etc/apt/sources.list
+
 <span class="token function">sudo</span> <span class="token function">apt</span> <span class="token function">install</span> <span class="token parameter variable">-y</span> build-essential <span class="token function">git</span> <span class="token function">zsh</span> zsh-antigen
 
 <span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> <span class="token string">"<span class="token environment constant">$HOME</span>/.gitconfig"</span></span>
