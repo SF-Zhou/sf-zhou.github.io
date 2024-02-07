@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>io_uring 网络编程 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> io_uring 网络编程 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2024.02.07 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>最近工作之余，尝试使用 io_uring 进行网络编程。大体计划是先实现一套 Rust 版的 liburing 库，然后在这套库上构建一个 RPC 框架，最后在这个 RPC 框架上写点服务。截止目前，还是非常看好 io_uring 在网络编程上的应用的，相较于 epoll + sync read/write 可以实现更高的性能、更简单的编码、更少的内存复制。本文简单记录一下遇到的一些小问题和解决方案。</p>
+<h3 id="1.-accept" tabindex="-1"><a href="#1.-accept">1. Accept</a></h3>
+<p>对 server 来说，需要监听一个地址，处理所有 incoming 的连接。liburing 中提供了 <code>io_uring_prep_multishot_accept</code> 方法，或者你可以手动给 <code>sqe-&gt;ioprio</code> 增加一个 <code>IORING_ACCEPT_MULTISHOT</code> 标记。这样每当有新的连接进来时，都会产生一个新的 CQE，返回的 flags 中会带有 <code>IORING_CQE_F_MORE</code> 标记。如果希望优雅的退出，可以使用 <code>io_uring_prep_cancel</code> 或者 <code>io_uring_prep_cancel_fd</code> 取消掉监听操作。</p>
+<h3 id="2.-receive" tabindex="-1"><a href="#2.-receive">2. Receive</a></h3>
+<p>一般 server 需要同时保持相当数量的 socket 连接，准备读取所有 client 可能发送过来的数据，给每个 socket 单独分配一段 buffer 是不现实的。io_uring 官方的解决方案是要求用户提供一个 buffer pool，当某个 socket 可读时，从 buffer pool 里获取一个 buffer 完成读操作再返回，当用户使用完该 buffer 后可以将其重新回收至 buffer pool。新版的 buffer pool 也是一个 ring。</p>
+<h3 id="3.-send" tabindex="-1"><a href="#3.-send">3. Send</a></h3>
+<p>io_uring 已经支持了 zero-copy 的 send 操作，<code>io_uring_prep_send_zc</code>。当该操作发送完成时，会返回第一个 CQE，此时的 res 为 send 操作的返回码；当内核不再需要这段内存时，会返回第二个 CQE，此时用户可以安全地回收内存。</p>
+<p>如果提前注册好内存，那么内核可以省去 pin 内存的步骤，可以实现更高的性能。liburing 已经封装了 <code>io_uring_prep_send_zc_fixed</code> 操作。用户可以自己构建一个 buffer pool，提前注册好，在做序列化时从 pool 里取出 buffer，完成序列化，而后交由 io_uring 发送，直到第二次 CQE 返回时将内存回收到 pool 里。这样整个发送过程只有序列化这一步需要复制内存。</p>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://github.com/axboe/liburing/wiki/io_uring-and-networking-in-2023">io_uring and networking in 2023 · axboe/liburing Wiki · GitHub</a></li>
+</ol>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
