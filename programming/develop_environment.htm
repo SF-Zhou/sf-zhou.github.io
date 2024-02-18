@@ -123,7 +123,7 @@ export RUSTUP_UPDATE_ROOT="https://rsproxy.cn/rustup"
 EOF</span>
 
 <span class="token function">mkdir</span> <span class="token parameter variable">-p</span> <span class="token string">"<span class="token environment constant">$HOME</span>/.cargo"</span>
-<span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> <span class="token string">"<span class="token environment constant">$HOME</span>/.cargo/config"</span></span>
+<span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> <span class="token string">"<span class="token environment constant">$HOME</span>/.cargo/config.toml"</span></span>
 [source.crates-io]
 replace-with = 'rsproxy-sparse'
 [source.rsproxy]
