@@ -30,7 +30,7 @@
       </div>
       <div class="markdown">
         <h3 id="1.-create" tabindex="-1"><a href="#1.-create">1. Create</a></h3>
-<pre class="language-bash"><code class="language-bash">multipass launch <span class="token parameter variable">--name</span> primary <span class="token parameter variable">--cpus</span> <span class="token number">8</span> <span class="token parameter variable">--memory</span> 8G <span class="token parameter variable">--disk</span> 40G <span class="token number">23.04</span>
+<pre class="language-bash"><code class="language-bash">multipass launch <span class="token parameter variable">--name</span> primary <span class="token parameter variable">--cpus</span> <span class="token number">8</span> <span class="token parameter variable">--memory</span> 8G <span class="token parameter variable">--disk</span> 40G <span class="token number">22.04</span>
 multipass shell
 <span class="token function">cat</span> ~/Home/.ssh/id_rsa.pub <span class="token operator">>></span> ~/.ssh/authorized_keys
 </code></pre>
@@ -38,14 +38,14 @@ multipass shell
 <pre class="language-bash"><code class="language-bash"><span class="token builtin class-name">set</span> <span class="token parameter variable">-e</span>
 
 <span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> /tmp/sources.list</span>
-deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ mantic main restricted universe multiverse
-deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ mantic-updates main restricted universe multiverse
-deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ mantic-backports main restricted universe multiverse
-deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ mantic-security main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ jammy main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ jammy-updates main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ jammy-backports main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ jammy-security main restricted universe multiverse
 EOF</span>
 <span class="token function">sudo</span> <span class="token function">mv</span> /tmp/sources.list /etc/apt/sources.list
 
-<span class="token function">sudo</span> <span class="token function">apt</span> <span class="token function">install</span> <span class="token parameter variable">-y</span> build-essential <span class="token function">git</span> <span class="token function">zsh</span> zsh-antigen
+<span class="token function">sudo</span> <span class="token function">apt</span> <span class="token function">install</span> <span class="token parameter variable">-y</span> build-essential <span class="token function">git</span> <span class="token function">zsh</span> zsh-antigen linux-generic-hwe-22.04
 
 <span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> <span class="token string">"<span class="token environment constant">$HOME</span>/.gitconfig"</span></span>
 [user]
