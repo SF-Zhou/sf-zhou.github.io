@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>在 CMake C++ 环境中引入 Rust | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> 在 CMake C++ 环境中引入 Rust </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2024.03.23 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>最近一直在写 Rust，并且希望在当前的 C++ 项目中使用 Rust 来实现一些新功能，计划像忒修斯之船一样逐步替换现有的 C++ 模块。折腾了一下，发现 CMake 项目引入 Rust 还是比较简单的。TLDR，<a href="https://github.com/SF-Zhou/cmake-cxx-example">点击此处访问样例</a>，按 CI 步骤编译非常简单。</p>
+<h3 id="1.-生成绑定接口" tabindex="-1"><a href="#1.-%E7%94%9F%E6%88%90%E7%BB%91%E5%AE%9A%E6%8E%A5%E5%8F%A3">1. 生成绑定接口</a></h3>
+<p>这里使用 <a href="https://cxx.rs">cxx</a> 生成绑定接口，<strong>约定</strong>在 crate 的 src 目录下增加一个 <code>cxx.rs</code> 文件声明桥接的代码。目录结构如下：</p>
+<pre class="language-markup"><code class="language-markup">.
+├── build.rs
+├── Cargo.toml
+└── src
+    ├── cxx.rs
+    └── lib.rs
+</code></pre>
+<p><code>lib.rs</code> 的内容：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">mod</span> <span class="token module-declaration namespace">cxx</span><span class="token punctuation">;</span>
+
+<span class="token attribute attr-name">#[derive(Default)]</span>
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">RustType</span> <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> value<span class="token punctuation">:</span> <span class="token keyword">i32</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">RustType</span> <span class="token punctuation">{</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">inc</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span>value <span class="token operator">+=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">show</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"current value is {}"</span><span class="token punctuation">,</span> <span class="token keyword">self</span><span class="token punctuation">.</span>value<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">concat_two_strings</span><span class="token punctuation">(</span>a<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">str</span><span class="token punctuation">,</span> b<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">str</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">String</span> <span class="token punctuation">{</span>
+    a<span class="token punctuation">.</span><span class="token function">to_string</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">+</span> b
+<span class="token punctuation">}</span>
+
+<span class="token keyword">mod</span> <span class="token module-declaration namespace">tests</span> <span class="token punctuation">{</span>
+    <span class="token attribute attr-name">#[test]</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">test_concat_two_strings</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">assert_eq!</span><span class="token punctuation">(</span><span class="token keyword">super</span><span class="token module-declaration namespace"><span class="token punctuation">::</span>concat_two_strings</span><span class="token punctuation">(</span><span class="token string">"1"</span><span class="token punctuation">,</span> <span class="token string">"2"</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token string">"12"</span><span class="token punctuation">.</span><span class="token function">to_string</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>cxx.rs</code> 的内容：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> <span class="token keyword">crate</span><span class="token punctuation">::</span><span class="token operator">*</span><span class="token punctuation">;</span>
+
+<span class="token attribute attr-name">#[::cxx::bridge]</span>
+<span class="token keyword">mod</span> <span class="token module-declaration namespace">ffi</span> <span class="token punctuation">{</span>
+    <span class="token keyword">extern</span> <span class="token string">"Rust"</span> <span class="token punctuation">{</span>
+        <span class="token keyword">type</span> <span class="token type-definition class-name">RustType</span><span class="token punctuation">;</span>
+        <span class="token keyword">fn</span> <span class="token function-definition function">inc</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">self</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">fn</span> <span class="token function-definition function">show</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">fn</span> <span class="token function-definition function">create_a_rust_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Box</span><span class="token operator">&lt;</span><span class="token class-name">RustType</span><span class="token operator">></span><span class="token punctuation">;</span>
+        <span class="token keyword">fn</span> <span class="token function-definition function">concat_two_strings</span><span class="token punctuation">(</span>a<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">str</span><span class="token punctuation">,</span> b<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">str</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">String</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">fn</span> <span class="token function-definition function">create_a_rust_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Box</span><span class="token operator">&lt;</span><span class="token class-name">RustType</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token class-name">Default</span><span class="token punctuation">::</span><span class="token function">default</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>build.rs</code> 的内容：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">fn</span> <span class="token function-definition function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> _ <span class="token operator">=</span> <span class="token namespace">cxx_build<span class="token punctuation">::</span></span><span class="token function">bridge</span><span class="token punctuation">(</span><span class="token string">"src/cxx.rs"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"cargo:rerun-if-changed=src/cxx.rs"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><code>Cargo.toml</code> 的内容：</p>
+<pre class="language-toml"><code class="language-toml">[package]
+name = &quot;demo&quot;
+version = &quot;0.1.0&quot;
+edition = &quot;2021&quot;
+
+[dependencies]
+cxx = &quot;1.0&quot;
+
+[build-dependencies]
+cxx-build = &quot;1.0&quot;
+
+[lib]
+crate-type = [&quot;staticlib&quot;]
+</code></pre>
+<p>执行 <code>cargo build</code> 后，会在 <code>target/cxxbridge</code> 目录下生成对应的桥接代码，这里生成的 C++ 接口如下：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">RustType</span><span class="token punctuation">;</span>
+
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">ifndef</span> <span class="token expression">CXXBRIDGE1_STRUCT_RustType</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name">CXXBRIDGE1_STRUCT_RustType</span></span>
+<span class="token keyword">struct</span> <span class="token class-name">RustType</span> <span class="token keyword">final</span> <span class="token operator">:</span> <span class="token keyword">public</span> <span class="token double-colon punctuation">::</span>rust<span class="token double-colon punctuation">::</span>Opaque <span class="token punctuation">{</span>
+  <span class="token keyword">void</span> <span class="token function">inc</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token keyword">void</span> <span class="token function">show</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">const</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token operator">~</span><span class="token function">RustType</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">delete</span><span class="token punctuation">;</span>
+
+<span class="token keyword">private</span><span class="token operator">:</span>
+  <span class="token keyword">friend</span> <span class="token double-colon punctuation">::</span>rust<span class="token double-colon punctuation">::</span>layout<span class="token punctuation">;</span>
+  <span class="token keyword">struct</span> <span class="token class-name">layout</span> <span class="token punctuation">{</span>
+    <span class="token keyword">static</span> <span class="token double-colon punctuation">::</span>std<span class="token double-colon punctuation">::</span>size_t <span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+    <span class="token keyword">static</span> <span class="token double-colon punctuation">::</span>std<span class="token double-colon punctuation">::</span>size_t <span class="token function">align</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">endif</span> <span class="token comment">// CXXBRIDGE1_STRUCT_RustType</span></span>
+
+<span class="token double-colon punctuation">::</span>rust<span class="token double-colon punctuation">::</span>Box<span class="token operator">&lt;</span><span class="token double-colon punctuation">::</span>RustType<span class="token operator">></span> <span class="token function">create_a_rust_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+
+<span class="token double-colon punctuation">::</span>rust<span class="token double-colon punctuation">::</span>String <span class="token function">concat_two_strings</span><span class="token punctuation">(</span><span class="token double-colon punctuation">::</span>rust<span class="token double-colon punctuation">::</span>Str a<span class="token punctuation">,</span> <span class="token double-colon punctuation">::</span>rust<span class="token double-colon punctuation">::</span>Str b<span class="token punctuation">)</span> <span class="token keyword">noexcept</span><span class="token punctuation">;</span>
+</code></pre>
+<p>还是比较容易理解的。返回 Rust 对象时返回的是指针，不支持访问内部对象，也就不用在乎 Rust 与 C++ 在内存布局上的差异了。</p>
+<h3 id="2.-cmake-引入-rust" tabindex="-1"><a href="#2.-cmake-%E5%BC%95%E5%85%A5-rust">2. CMake 引入 Rust</a></h3>
+<p>为了保持最大的灵活与兼容，这里引入 Cargo 的 Workspace 概念，在整个项目的顶层声明 Workspace。样例的项目文件结构如下：</p>
+<pre class="language-markup"><code class="language-markup">.
+├── Cargo.toml
+├── cmake
+│   └── add_crate.cmake
+├── CMakeLists.txt
+├── LICENSE
+├── README.md
+└── src
+    ├── CMakeLists.txt
+    ├── demo
+    │   ├── build.rs
+    │   ├── Cargo.toml
+    │   └── src
+    │       ├── cxx.rs
+    │       └── lib.rs
+    └── main
+        ├── CMakeLists.txt
+        └── main.cc
+</code></pre>
+<p>顶层的 <code>Cargo.toml</code> 内容如下。使用 Workspace 囊括项目中所有的 Rust 模块，方便直接执行 <code>cargo build/test</code> 等命令，产物也统一生成在顶层的 <code>target</code> 文件夹中。</p>
+<pre class="language-toml"><code class="language-toml">[workspace]
+members = [
+  &quot;src/demo&quot;
+]
+resolver = &quot;2&quot;
+
+[workspace.package]
+authors = [&quot;SF-Zhou &lt;sfzhou.scut@gmail.com&gt;&quot;]
+edition = &quot;2021&quot;
+license = &quot;MIT&quot;
+
+[profile.release-cmake]
+debug = true
+inherits = &quot;release&quot;
+lto = true
+</code></pre>
+<p>增加 <code>add_crate.cmake</code> 用以编译和引入 Rust 项目，其内容如下：</p>
+<pre class="language-cmake"><code class="language-cmake"><span class="token keyword">macro</span><span class="token punctuation">(</span>add_crate <span class="token property">NAME</span><span class="token punctuation">)</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token variable">CMAKE_BUILD_TYPE</span> <span class="token operator">STREQUAL</span> <span class="token string">"Debug"</span><span class="token punctuation">)</span>
+      <span class="token keyword">set</span><span class="token punctuation">(</span>CARGO_CMD cargo build<span class="token punctuation">)</span>
+      <span class="token keyword">set</span><span class="token punctuation">(</span>TARGET_DIR <span class="token string">"debug"</span><span class="token punctuation">)</span>
+  <span class="token keyword">else</span> <span class="token punctuation">(</span><span class="token punctuation">)</span>
+      <span class="token keyword">set</span><span class="token punctuation">(</span>CARGO_CMD cargo build --release<span class="token punctuation">)</span>
+      <span class="token keyword">set</span><span class="token punctuation">(</span>TARGET_DIR <span class="token string">"release"</span><span class="token punctuation">)</span>
+  <span class="token keyword">endif</span> <span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+  <span class="token keyword">set</span><span class="token punctuation">(</span>OUTPUT_DIR <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">PROJECT_SOURCE_DIR</span><span class="token punctuation">}</span></span>/target"</span><span class="token punctuation">)</span>
+  <span class="token keyword">set</span><span class="token punctuation">(</span>LIB_HEADER <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">OUTPUT_DIR</span><span class="token punctuation">}</span></span>/cxxbridge/<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">NAME</span><span class="token punctuation">}</span></span>/src/cxx.rs.h"</span><span class="token punctuation">)</span>
+  <span class="token keyword">set</span><span class="token punctuation">(</span>LIB_SOURCE <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">OUTPUT_DIR</span><span class="token punctuation">}</span></span>/cxxbridge/<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">NAME</span><span class="token punctuation">}</span></span>/src/cxx.rs.cc"</span><span class="token punctuation">)</span>
+  <span class="token keyword">set</span><span class="token punctuation">(</span>LIB_STATIC <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">OUTPUT_DIR</span><span class="token punctuation">}</span></span>/<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">TARGET_DIR</span><span class="token punctuation">}</span></span>/lib<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">NAME</span><span class="token punctuation">}</span></span>.a"</span><span class="token punctuation">)</span>
+
+  <span class="token keyword">add_custom_command</span><span class="token punctuation">(</span>
+      OUTPUT <span class="token punctuation">${</span>LIB_SOURCE<span class="token punctuation">}</span> <span class="token punctuation">${</span>LIB_HEADER<span class="token punctuation">}</span> <span class="token punctuation">${</span>LIB_STATIC<span class="token punctuation">}</span>
+      COMMAND <span class="token punctuation">${</span>CARGO_CMD<span class="token punctuation">}</span>
+      <span class="token property">WORKING_DIRECTORY</span> <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">CMAKE_CURRENT_SOURCE_DIR</span><span class="token punctuation">}</span></span>/<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">NAME</span><span class="token punctuation">}</span></span>"</span>
+  <span class="token punctuation">)</span>
+
+  <span class="token keyword">add_custom_target</span><span class="token punctuation">(</span>
+      cargo_build ALL
+      COMMAND <span class="token punctuation">${</span>CARGO_CMD<span class="token punctuation">}</span>
+      <span class="token property">WORKING_DIRECTORY</span> <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">CMAKE_CURRENT_SOURCE_DIR</span><span class="token punctuation">}</span></span>/<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">NAME</span><span class="token punctuation">}</span></span>"</span>
+  <span class="token punctuation">)</span>
+
+  <span class="token keyword">add_library</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> <span class="token namespace">STATIC</span> <span class="token punctuation">${</span>LIB_SOURCE<span class="token punctuation">}</span> <span class="token punctuation">${</span>LIB_HEADER<span class="token punctuation">}</span> <span class="token punctuation">${</span>LIB_STATIC<span class="token punctuation">}</span><span class="token punctuation">)</span>
+  <span class="token keyword">target_link_libraries</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> pthread dl <span class="token punctuation">${</span>LIB_STATIC<span class="token punctuation">}</span><span class="token punctuation">)</span>
+  <span class="token keyword">target_include_directories</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> <span class="token namespace">PUBLIC</span> <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">OUTPUT_DIR</span><span class="token punctuation">}</span></span>/cxxbridge"</span><span class="token punctuation">)</span>
+  <span class="token keyword">target_compile_options</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> <span class="token namespace">PRIVATE</span> -Wno-dollar-in-identifier-extension<span class="token punctuation">)</span>  <span class="token comment"># 生成的代码中有特殊字符 $，注意取消该 warning 的报错</span>
+  <span class="token keyword">add_dependencies</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> cargo_build<span class="token punctuation">)</span>
+<span class="token keyword">endmacro</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+</code></pre>
+<p><code>src/CMakeLists.txt</code> 的内容：</p>
+<pre class="language-cmake"><code class="language-cmake"><span class="token function">add_crate</span><span class="token punctuation">(</span>demo<span class="token punctuation">)</span>  <span class="token comment"># 引入 demo 目录下的 Rust 项目，生成同名的 library</span>
+<span class="token keyword">add_subdirectory</span><span class="token punctuation">(</span>main<span class="token punctuation">)</span>
+</code></pre>
+<p><code>src/main/CMakeLists.txt</code> 的内容：</p>
+<pre class="language-cmake"><code class="language-cmake"><span class="token keyword">add_executable</span><span class="token punctuation">(</span>main main.cc<span class="token punctuation">)</span>
+<span class="token keyword">target_link_libraries</span><span class="token punctuation">(</span>main demo<span class="token punctuation">)</span>  <span class="token comment"># 增加 Rust 生成的 library 依赖</span>
+</code></pre>
+<p><code>src/main/main.cc</code> 的内容：</p>
+<pre class="language-cpp"><code class="language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">"demo/src/cxx.rs.h"</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;iostream></span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;string_view></span></span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">auto</span> result <span class="token operator">=</span> <span class="token function">concat_two_strings</span><span class="token punctuation">(</span><span class="token string">"hello"</span><span class="token punctuation">,</span> <span class="token string">" world!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  std<span class="token double-colon punctuation">::</span>cout <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span><span class="token function">string_view</span><span class="token punctuation">(</span>result<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> result<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">&lt;&lt;</span> std<span class="token double-colon punctuation">::</span>endl<span class="token punctuation">;</span>
+
+  <span class="token keyword">auto</span> a <span class="token operator">=</span> <span class="token function">create_a_rust_object</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  a<span class="token operator">-></span><span class="token function">show</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  a<span class="token operator">-></span><span class="token function">inc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  a<span class="token operator">-></span><span class="token function">show</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="3.-优化性能" tabindex="-1"><a href="#3.-%E4%BC%98%E5%8C%96%E6%80%A7%E8%83%BD">3. 优化性能</a></h3>
+<p>使用全套的 LLVM 工具链，引入 LTO 优化。在顶层目录增加 <code>.cargo/config.toml</code> 文件：</p>
+<pre class="language-toml"><code class="language-toml">[build]
+rustflags = [&quot;-Clinker=clang++-16&quot;, &quot;-Clink-arg=-fuse-ld=lld&quot;]
+</code></pre>
+<p>注意改成你使用的编译器版本，另外安装对应的 <code>lld</code> 工具。然后在 CMake 中增加一行 <code>add_link_options(-fuse-ld=lld)</code>。</p>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://cxx.rs">cxx</a></li>
+<li><a href="https://github.com/XiangpengHao/cxx-cmake-example">XiangpengHao/cxx-cmake-example</a></li>
+</ol>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

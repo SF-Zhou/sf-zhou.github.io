@@ -1,5 +1,17 @@
 [
   {
+    "title": "在 CMake C++ 环境中引入 Rust",
+    "date": "2024.03.23",
+    "author": "SF-Zhou",
+    "tags": [
+      "Rust",
+      "C++",
+      "CMake"
+    ],
+    "filename": "link_rust_in_cmake_cpp_env",
+    "url_path": "/rust/link_rust_in_cmake_cpp_env.html"
+  },
+  {
     "title": "io_uring 网络编程",
     "date": "2024.02.07",
     "author": "SF-Zhou",
