@@ -93,19 +93,19 @@
 <span class="token punctuation">}</span>
 </code></pre>
 <p><code>Cargo.toml</code> 的内容：</p>
-<pre class="language-toml"><code class="language-toml">[package]
-name = &quot;demo&quot;
-version = &quot;0.1.0&quot;
-edition = &quot;2021&quot;
+<pre class="language-toml"><code class="language-toml"><span class="token punctuation">[</span><span class="token table class-name">package</span><span class="token punctuation">]</span>
+<span class="token key property">name</span> <span class="token punctuation">=</span> <span class="token string">"demo"</span>
+<span class="token key property">version</span> <span class="token punctuation">=</span> <span class="token string">"0.1.0"</span>
+<span class="token key property">edition</span> <span class="token punctuation">=</span> <span class="token string">"2021"</span>
 
-[dependencies]
-cxx = &quot;1.0&quot;
+<span class="token punctuation">[</span><span class="token table class-name">dependencies</span><span class="token punctuation">]</span>
+<span class="token key property">cxx</span> <span class="token punctuation">=</span> <span class="token string">"1.0"</span>
 
-[build-dependencies]
-cxx-build = &quot;1.0&quot;
+<span class="token punctuation">[</span><span class="token table class-name">build-dependencies</span><span class="token punctuation">]</span>
+<span class="token key property">cxx-build</span> <span class="token punctuation">=</span> <span class="token string">"1.0"</span>
 
-[lib]
-crate-type = [&quot;staticlib&quot;]
+<span class="token punctuation">[</span><span class="token table class-name">lib</span><span class="token punctuation">]</span>
+<span class="token key property">crate-type</span> <span class="token punctuation">=</span> <span class="token punctuation">[</span><span class="token string">"staticlib"</span><span class="token punctuation">]</span>
 </code></pre>
 <p>执行 <code>cargo build</code> 后，会在 <code>target/cxxbridge</code> 目录下生成对应的桥接代码，这里生成的 C++ 接口如下：</p>
 <pre class="language-cpp"><code class="language-cpp"><span class="token keyword">struct</span> <span class="token class-name">RustType</span><span class="token punctuation">;</span>
@@ -153,21 +153,21 @@ crate-type = [&quot;staticlib&quot;]
         └── main.cc
 </code></pre>
 <p>顶层的 <code>Cargo.toml</code> 内容如下。使用 Workspace 囊括项目中所有的 Rust 模块，方便直接执行 <code>cargo build/test</code> 等命令，产物也统一生成在顶层的 <code>target</code> 文件夹中。</p>
-<pre class="language-toml"><code class="language-toml">[workspace]
-members = [
-  &quot;src/demo&quot;
-]
-resolver = &quot;2&quot;
+<pre class="language-toml"><code class="language-toml"><span class="token punctuation">[</span><span class="token table class-name">workspace</span><span class="token punctuation">]</span>
+<span class="token key property">members</span> <span class="token punctuation">=</span> <span class="token punctuation">[</span>
+  <span class="token string">"src/demo"</span>
+<span class="token punctuation">]</span>
+<span class="token key property">resolver</span> <span class="token punctuation">=</span> <span class="token string">"2"</span>
 
-[workspace.package]
-authors = [&quot;SF-Zhou &lt;sfzhou.scut@gmail.com&gt;&quot;]
-edition = &quot;2021&quot;
-license = &quot;MIT&quot;
+<span class="token punctuation">[</span><span class="token table class-name">workspace.package</span><span class="token punctuation">]</span>
+<span class="token key property">authors</span> <span class="token punctuation">=</span> <span class="token punctuation">[</span><span class="token string">"SF-Zhou &lt;sfzhou.scut@gmail.com>"</span><span class="token punctuation">]</span>
+<span class="token key property">edition</span> <span class="token punctuation">=</span> <span class="token string">"2021"</span>
+<span class="token key property">license</span> <span class="token punctuation">=</span> <span class="token string">"MIT"</span>
 
-[profile.release-cmake]
-debug = true
-inherits = &quot;release&quot;
-lto = true
+<span class="token punctuation">[</span><span class="token table class-name">profile.release-cmake</span><span class="token punctuation">]</span>
+<span class="token key property">debug</span> <span class="token punctuation">=</span> <span class="token boolean">true</span>
+<span class="token key property">inherits</span> <span class="token punctuation">=</span> <span class="token string">"release"</span>
+<span class="token key property">lto</span> <span class="token punctuation">=</span> <span class="token boolean">true</span>
 </code></pre>
 <p>增加 <code>add_crate.cmake</code> 用以编译和引入 Rust 项目，其内容如下：</p>
 <pre class="language-cmake"><code class="language-cmake"><span class="token keyword">macro</span><span class="token punctuation">(</span>add_crate <span class="token property">NAME</span><span class="token punctuation">)</span>
@@ -228,8 +228,8 @@ lto = true
 </code></pre>
 <h3 id="3.-优化性能" tabindex="-1"><a href="#3.-%E4%BC%98%E5%8C%96%E6%80%A7%E8%83%BD">3. 优化性能</a></h3>
 <p>使用全套的 LLVM 工具链，引入 LTO 优化。在顶层目录增加 <code>.cargo/config.toml</code> 文件：</p>
-<pre class="language-toml"><code class="language-toml">[build]
-rustflags = [&quot;-Clinker=clang++-16&quot;, &quot;-Clink-arg=-fuse-ld=lld&quot;]
+<pre class="language-toml"><code class="language-toml"><span class="token punctuation">[</span><span class="token table class-name">build</span><span class="token punctuation">]</span>
+<span class="token key property">rustflags</span> <span class="token punctuation">=</span> <span class="token punctuation">[</span><span class="token string">"-Clinker=clang++-16"</span><span class="token punctuation">,</span> <span class="token string">"-Clink-arg=-fuse-ld=lld"</span><span class="token punctuation">]</span>
 </code></pre>
 <p>注意改成你使用的编译器版本，另外安装对应的 <code>lld</code> 工具。然后在 CMake 中增加一行 <code>add_link_options(-fuse-ld=lld)</code>。</p>
 <h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
