@@ -8,7 +8,7 @@ import markdown_it from 'markdown-it';
 import toc from 'markdown-it-table-of-contents';
 
 import load_languages from 'prismjs/components/index.js';
-load_languages(['bash', 'cmake', 'cpp', 'json', 'lua', 'nasm', 'protobuf', 'python', 'rust', 'yaml']);
+load_languages(['bash', 'cmake', 'cpp', 'json', 'lua', 'nasm', 'protobuf', 'python', 'rust', 'toml', 'yaml']);
 
 const md = markdown_it({
   linkify: true,
