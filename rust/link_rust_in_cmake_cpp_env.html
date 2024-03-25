@@ -170,15 +170,21 @@
 <span class="token key property">lto</span> <span class="token punctuation">=</span> <span class="token boolean">true</span>
 </code></pre>
 <p>增加 <code>add_crate.cmake</code> 用以编译和引入 Rust 项目，其内容如下：</p>
-<pre class="language-cmake"><code class="language-cmake"><span class="token keyword">macro</span><span class="token punctuation">(</span>add_crate <span class="token property">NAME</span><span class="token punctuation">)</span>
-    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token variable">CMAKE_BUILD_TYPE</span> <span class="token operator">STREQUAL</span> <span class="token string">"Debug"</span><span class="token punctuation">)</span>
-        <span class="token keyword">set</span><span class="token punctuation">(</span>CARGO_CMD cargo build<span class="token punctuation">)</span>
-        <span class="token keyword">set</span><span class="token punctuation">(</span>TARGET_DIR <span class="token string">"debug"</span><span class="token punctuation">)</span>
-    <span class="token keyword">else</span> <span class="token punctuation">(</span><span class="token punctuation">)</span>
-        <span class="token keyword">set</span><span class="token punctuation">(</span>CARGO_CMD cargo build --release<span class="token punctuation">)</span>
-        <span class="token keyword">set</span><span class="token punctuation">(</span>TARGET_DIR <span class="token string">"release"</span><span class="token punctuation">)</span>
-    <span class="token keyword">endif</span> <span class="token punctuation">(</span><span class="token punctuation">)</span>
+<pre class="language-cmake"><code class="language-cmake"><span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token variable">CMAKE_BUILD_TYPE</span> <span class="token operator">STREQUAL</span> <span class="token string">"Debug"</span><span class="token punctuation">)</span>
+    <span class="token keyword">set</span><span class="token punctuation">(</span>CARGO_CMD cargo build<span class="token punctuation">)</span>
+    <span class="token keyword">set</span><span class="token punctuation">(</span>TARGET_DIR <span class="token string">"debug"</span><span class="token punctuation">)</span>
+<span class="token keyword">else</span> <span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token keyword">set</span><span class="token punctuation">(</span>CARGO_CMD cargo build --release<span class="token punctuation">)</span>
+    <span class="token keyword">set</span><span class="token punctuation">(</span>TARGET_DIR <span class="token string">"release"</span><span class="token punctuation">)</span>
+<span class="token keyword">endif</span> <span class="token punctuation">(</span><span class="token punctuation">)</span>
 
+<span class="token keyword">add_custom_target</span><span class="token punctuation">(</span>
+    cargo_build_all ALL
+    COMMAND <span class="token punctuation">${</span>CARGO_CMD<span class="token punctuation">}</span>
+    <span class="token property">WORKING_DIRECTORY</span> <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">PROJECT_SOURCE_DIR</span><span class="token punctuation">}</span></span>"</span>
+<span class="token punctuation">)</span>
+
+<span class="token keyword">macro</span><span class="token punctuation">(</span>add_crate <span class="token property">NAME</span><span class="token punctuation">)</span>
     <span class="token keyword">set</span><span class="token punctuation">(</span>LIBRARY <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">PROJECT_SOURCE_DIR</span><span class="token punctuation">}</span></span>/target/<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">TARGET_DIR</span><span class="token punctuation">}</span></span>/lib<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">NAME</span><span class="token punctuation">}</span></span>.a"</span><span class="token punctuation">)</span>
     <span class="token keyword">set</span><span class="token punctuation">(</span><span class="token property">SOURCES</span>
         <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">PROJECT_SOURCE_DIR</span><span class="token punctuation">}</span></span>/target/cxxbridge/<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">NAME</span><span class="token punctuation">}</span></span>/src/cxx.rs.h"</span>
@@ -191,17 +197,11 @@
         <span class="token property">WORKING_DIRECTORY</span> <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">CMAKE_CURRENT_SOURCE_DIR</span><span class="token punctuation">}</span></span>/<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">NAME</span><span class="token punctuation">}</span></span>"</span>
     <span class="token punctuation">)</span>
 
-    <span class="token keyword">add_custom_target</span><span class="token punctuation">(</span>
-        cargo_build_<span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> ALL
-        COMMAND <span class="token punctuation">${</span>CARGO_CMD<span class="token punctuation">}</span>
-        <span class="token property">WORKING_DIRECTORY</span> <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">CMAKE_CURRENT_SOURCE_DIR</span><span class="token punctuation">}</span></span>/<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">NAME</span><span class="token punctuation">}</span></span>"</span>
-    <span class="token punctuation">)</span>
-
     <span class="token keyword">add_library</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> <span class="token namespace">STATIC</span> <span class="token punctuation">${</span><span class="token property">SOURCES</span><span class="token punctuation">}</span> <span class="token punctuation">${</span>LIBRARY<span class="token punctuation">}</span><span class="token punctuation">)</span>
     <span class="token keyword">target_link_libraries</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> pthread dl <span class="token punctuation">${</span>LIBRARY<span class="token punctuation">}</span><span class="token punctuation">)</span>
     <span class="token keyword">target_include_directories</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> <span class="token namespace">PUBLIC</span> <span class="token string">"<span class="token interpolation"><span class="token punctuation">${</span><span class="token variable">PROJECT_SOURCE_DIR</span><span class="token punctuation">}</span></span>/target/cxxbridge"</span><span class="token punctuation">)</span>
     <span class="token keyword">target_compile_options</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> <span class="token namespace">PRIVATE</span> -Wno-dollar-in-identifier-extension<span class="token punctuation">)</span>
-    <span class="token keyword">add_dependencies</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> cargo_build_<span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span><span class="token punctuation">)</span>
+    <span class="token keyword">add_dependencies</span><span class="token punctuation">(</span><span class="token punctuation">${</span><span class="token property">NAME</span><span class="token punctuation">}</span> cargo_build_all<span class="token punctuation">)</span>
 <span class="token keyword">endmacro</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
 </code></pre>
 <p><code>src/CMakeLists.txt</code> 的内容：</p>
