@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Debian Develop Environment | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Debian Develop Environment </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2024.03.26 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-let's-sudo!" tabindex="-1"><a href="#1.-let's-sudo!">1. Let's sudo!</a></h3>
+<pre class="language-bash"><code class="language-bash"><span class="token comment"># login as root</span>
+<span class="token function">apt</span> <span class="token function">install</span> <span class="token function">sudo</span>
+<span class="token function">usermod</span> <span class="token parameter variable">-aG</span> <span class="token function">sudo</span> sf
+</code></pre>
+<h3 id="2.-ssh-sf@192.168.65.3" tabindex="-1"><a href="#2.-ssh-sf%40192.168.65.3">2. ssh <a href="mailto:sf@192.168.65.3">sf@192.168.65.3</a></a></h3>
+<pre class="language-bash"><code class="language-bash"><span class="token comment"># 1. change apt source</span>
+<span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> /tmp/sources.list</span>
+deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main contrib non-free non-free-firmware
+deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware
+deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-backports main contrib non-free non-free-firmware
+deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware
+EOF</span>
+<span class="token function">sudo</span> <span class="token function">mv</span> /tmp/sources.list /etc/apt/sources.list
+
+<span class="token comment"># 2. install</span>
+<span class="token function">sudo</span> <span class="token function">apt</span> <span class="token function">install</span> <span class="token parameter variable">-y</span> build-essential <span class="token function">curl</span> <span class="token function">git</span> tmux <span class="token function">vim</span> <span class="token function">zsh</span> zsh-antigen
+
+<span class="token comment"># 3. configure git</span>
+<span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> <span class="token string">"<span class="token environment constant">$HOME</span>/.gitconfig"</span></span>
+[user]
+    name = SF-Zhou
+    email = sfzhou.scut@gmail.com
+[credential]
+    helper = store
+[core]
+    editor = vim
+    excludesfile = ~/.gitignore
+EOF</span>
+
+<span class="token comment"># 4. configure zsh</span>
+<span class="token assign-left variable">ALL_PROXY</span><span class="token operator">=</span>http://192.168.65.1:7890
+<span class="token function">rm</span> <span class="token parameter variable">-rf</span> <span class="token string">"<span class="token environment constant">$HOME</span>/.antigen/bundles"</span>
+
+<span class="token function-name function">clone_repo</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token builtin class-name">local</span> <span class="token assign-left variable">repo</span><span class="token operator">=</span><span class="token variable">$1</span>
+    <span class="token function">mkdir</span> <span class="token parameter variable">-p</span> <span class="token string">"<span class="token environment constant">$HOME</span>/.antigen/bundles/<span class="token variable">$repo</span>"</span>
+    <span class="token assign-left variable">max_attempts</span><span class="token operator">=</span><span class="token number">3</span>
+    <span class="token assign-left variable">attempt_num</span><span class="token operator">=</span><span class="token number">0</span>
+    <span class="token keyword">while</span> <span class="token punctuation">[</span> <span class="token variable">$attempt_num</span> <span class="token parameter variable">-lt</span> <span class="token variable">$max_attempts</span> <span class="token punctuation">]</span>
+    <span class="token keyword">do</span>
+      <span class="token keyword">if</span> <span class="token function">git</span> clone https://github.com/<span class="token variable">$repo</span>.git <span class="token string">"<span class="token environment constant">$HOME</span>/.antigen/bundles/<span class="token variable">$repo</span>"</span> <span class="token parameter variable">--depth</span> <span class="token number">1</span><span class="token punctuation">;</span> <span class="token keyword">then</span>
+        <span class="token builtin class-name">return</span> <span class="token number">0</span>
+      <span class="token keyword">else</span>
+        <span class="token assign-left variable">attempt_num</span><span class="token operator">=</span><span class="token variable"><span class="token variable">$((</span>$attempt_num <span class="token operator">+</span> <span class="token number">1</span><span class="token variable">))</span></span>
+        <span class="token keyword">if</span> <span class="token punctuation">[</span> <span class="token variable">$attempt_num</span> <span class="token parameter variable">-eq</span> <span class="token variable">$max_attempts</span> <span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token keyword">then</span>
+          <span class="token builtin class-name">echo</span> <span class="token string">"Exceeded max attempts for cloning the repo, exiting with error."</span>
+          <span class="token builtin class-name">return</span> <span class="token number">1</span>
+        <span class="token keyword">fi</span>
+      <span class="token keyword">fi</span>
+    <span class="token keyword">done</span>
+<span class="token punctuation">}</span>
+
+clone_repo <span class="token string">"robbyrussell/oh-my-zsh"</span>
+clone_repo <span class="token string">"clvv/fasd"</span>
+clone_repo <span class="token string">"packruler/zsh-git-scripts"</span>
+clone_repo <span class="token string">"zsh-users/zsh-autosuggestions"</span>
+clone_repo <span class="token string">"zsh-users/zsh-completions"</span>
+clone_repo <span class="token string">"zsh-users/zsh-syntax-highlighting"</span>
+clone_repo <span class="token string">"mafredri/zsh-async"</span>
+clone_repo <span class="token string">"sindresorhus/pure"</span>
+
+<span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> <span class="token string">"<span class="token environment constant">$HOME</span>/.zshrc"</span></span>
+if [ -z "\<span class="token variable">$ORIGINAL_PATH</span>" ]; then
+  export ORIGINAL_PATH="\<span class="token environment constant">$PATH</span>"
+else
+  export PATH="\<span class="token variable">$ORIGINAL_PATH</span>"
+fi
+
+source /usr/share/zsh-antigen/antigen.zsh
+antigen use oh-my-zsh
+antigen bundle git
+antigen bundle clvv/fasd fasd
+antigen bundle packruler/zsh-git-scripts
+antigen bundle zsh-users/zsh-autosuggestions
+antigen bundle zsh-users/zsh-completions
+antigen bundle zsh-users/zsh-syntax-highlighting
+antigen bundle mafredri/zsh-async
+antigen bundle sindresorhus/pure
+antigen apply
+
+FASD_CACHE="\<span class="token environment constant">$HOME</span>/.fasd-init-bash"
+if [ "\<span class="token variable"><span class="token variable">$(</span><span class="token builtin class-name">command</span> <span class="token parameter variable">-v</span> fasd<span class="token variable">)</span></span>" -nt "\<span class="token variable">$FASD_CACHE</span>" -o ! -s "\<span class="token variable">$fasd_cache</span>" ]; then
+  fasd --init posix-alias zsh-hook zsh-ccomp zsh-ccomp-install zsh-wcomp zsh-wcomp-install >| "\<span class="token variable">$FASD_CACHE</span>"
+fi
+source "\<span class="token variable">$FASD_CACHE</span>"
+unset FASD_CACHE
+
+alias c="cd \<span class="token environment constant">$HOME</span>"
+alias d="cd .. &amp;&amp; ll"
+[ -f "\<span class="token environment constant">$HOME</span>/.secret.sh" ] &amp;&amp; source "\<span class="token environment constant">$HOME</span>/.secret.sh"
+
+export RUSTUP_DIST_SERVER="https://rsproxy.cn"
+export RUSTUP_UPDATE_ROOT="https://rsproxy.cn/rustup"
+[ -f "\<span class="token environment constant">$HOME</span>/.cargo/env" ] &amp;&amp; source "\<span class="token environment constant">$HOME</span>/.cargo/env"
+EOF</span>
+
+<span class="token function">mkdir</span> <span class="token parameter variable">-p</span> <span class="token string">"<span class="token environment constant">$HOME</span>/.cargo"</span>
+<span class="token function">cat</span> <span class="token operator">&lt;&lt;</span> <span class="token string">EOF<span class="token bash punctuation"> <span class="token operator">></span> <span class="token string">"<span class="token environment constant">$HOME</span>/.cargo/config.toml"</span></span>
+[source.crates-io]
+replace-with = 'rsproxy-sparse'
+[source.rsproxy]
+registry = "https://rsproxy.cn/crates.io-index"
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+[registries.rsproxy]
+index = "https://rsproxy.cn/crates.io-index"
+[net]
+git-fetch-with-cli = true
+EOF</span>
+
+<span class="token comment"># 5. install rust</span>
+<span class="token builtin class-name">export</span> <span class="token assign-left variable">RUSTUP_DIST_SERVER</span><span class="token operator">=</span><span class="token string">"https://rsproxy.cn"</span>
+<span class="token builtin class-name">export</span> <span class="token assign-left variable">RUSTUP_UPDATE_ROOT</span><span class="token operator">=</span><span class="token string">"https://rsproxy.cn/rustup"</span>
+<span class="token function">curl</span> <span class="token parameter variable">--proto</span> <span class="token string">'=https'</span> <span class="token parameter variable">--tlsv1.2</span> <span class="token parameter variable">-sSf</span> https://rsproxy.cn/rustup-init.sh <span class="token operator">|</span> <span class="token function">sh</span>
+<span class="token builtin class-name">source</span> <span class="token string">"<span class="token environment constant">$HOME</span>/.cargo/env"</span>
+rustup component <span class="token function">add</span> rust-src
+
+<span class="token comment"># 6. change shell</span>
+chsh <span class="token parameter variable">-s</span> /bin/zsh
+
+<span class="token comment"># 7. upgrade kernel</span>
+<span class="token function">sudo</span> <span class="token function">apt-cache</span> search linux-image <span class="token operator">|</span> <span class="token function">grep</span> <span class="token parameter variable">-v</span> <span class="token number">6.1</span>.0 <span class="token operator">|</span> <span class="token function">grep</span> <span class="token parameter variable">-v</span> cloud
+<span class="token function">sudo</span> <span class="token function">apt</span> <span class="token function">install</span> linux-image-6.5.0-0.deb12.1-arm64
+dpkg <span class="token parameter variable">--list</span> <span class="token operator">|</span> <span class="token function">grep</span> linux-image
+<span class="token function">sudo</span> grub-set-default <span class="token number">6.5</span>.0-0.deb12.1-arm64
+</code></pre>
+
+      </div>
+      
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
