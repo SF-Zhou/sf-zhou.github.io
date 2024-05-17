@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Rust RDMA 编程「一、基础概览」 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Rust RDMA 编程「一、基础概览」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> Rust,RDMA </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>最近计划深入学习下 RDMA 编程，并且使用 Rust 构建一套 RDMA 通信库和 RPC 框架，同时将学习和编程的过程持久化到博客中。本篇是第一篇，也将作为系列的概览。</p>
+<h3 id="1.-基础知识" tabindex="-1"><a href="#1.-%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86">1. 基础知识</a></h3>
+<p>推荐以下个人认为写得很好的 RDMA 博客：</p>
+<ol>
+<li><a href="https://zhuanlan.zhihu.com/p/164908617">RDMA 杂谈</a></li>
+<li><a href="https://www.rdmamojo.com">RDMAmojo</a></li>
+</ol>
+<p>先把 RDMA 杂谈的文章过一遍，对 RDMA 就会有一个相对明确的概念。本文就不再赘述了。</p>
+<h3 id="2.-rust-rdma-现状" tabindex="-1"><a href="#2.-rust-rdma-%E7%8E%B0%E7%8A%B6">2. Rust RDMA 现状</a></h3>
+<p>目前 Rust RDMA 编程生态并不活跃，相对易上手的项目是达坦科技开源的 <a href="https://github.com/datenlord/async-rdma">async-rdma</a>，它封装好了 RDMA 异步操作，非常易用。其他一些项目主要是针对 libibverbs 的封装，比如 <a href="https://github.com/datenlord/rdma-sys">rdma-sys</a> 和 <a href="https://github.com/jonhoo/rust-ibverbs">rust-ibverbs</a>。</p>
+<h3 id="3.-环境搭建" tabindex="-1"><a href="#3.-%E7%8E%AF%E5%A2%83%E6%90%AD%E5%BB%BA">3. 环境搭建</a></h3>
+<p>学习 RDMA 编程并不需要 RDMA 物理网络环境。Soft-RoCE 是 Remote Direct Memory Access (RDMA) over Converged Ethernet (RoCE) 的软件实现，可以模拟 RoCE 网卡搭建 RDMA 环境。Linux 内核中实现 Soft-RoCE 的模块名为 RXE，可以非常方便地配置一张 Soft-RoCE 网卡。</p>
+<p>假定你使用的是 Debian 系操作系统：</p>
+<pre class="language-bash"><code class="language-bash"><span class="token comment"># 1. 检查当前内核是否配置了 RXE 内核模块。如果是 m 或者 y 则已配置。</span>
+<span class="token function">cat</span> /boot/config-<span class="token variable"><span class="token variable">$(</span><span class="token function">uname</span> <span class="token parameter variable">-r</span><span class="token variable">)</span></span> <span class="token operator">|</span> <span class="token function">grep</span> RXE
+<span class="token comment">#> CONFIG_RDMA_RXE=m</span>
+
+<span class="token comment"># 2. 加载 RXE 内核模块</span>
+<span class="token function">sudo</span> modprobe ib_core
+<span class="token function">sudo</span> modprobe rdma_ucm
+<span class="token function">sudo</span> modprobe rdma_rxe
+
+<span class="token comment"># 3. 查看当前网络设备。下方的以太网设备为 enp0s1，记住该名字</span>
+<span class="token function">ip</span> <span class="token function">link</span>
+<span class="token comment">#> 1: lo: &lt;LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000</span>
+<span class="token comment">#>     link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</span>
+<span class="token comment">#> 2: enp0s1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP mode DEFAULT group default qlen 1000</span>
+<span class="token comment">#>     link/ether 0a:57:a9:60:fb:79 brd ff:ff:ff:ff:ff:ff</span>
+
+<span class="token comment"># 4. 创建 RXE 网络设备</span>
+<span class="token function">sudo</span> rdma <span class="token function">link</span> <span class="token function">add</span> rxe_0 <span class="token builtin class-name">type</span> rxe netdev enp0s1
+
+<span class="token comment"># 5. 查看 RDMA 设备，大功告成</span>
+rdma <span class="token function">link</span>
+<span class="token comment">#> link rxe_0/1 state ACTIVE physical_state LINK_UP netdev enp0s1</span>
+</code></pre>
+<blockquote>
+<p>如果你的内核没有配置 RXE 模块，你可能需要自行编译 RXE 模块并装载。目前已知的 Ubuntu Cloud Image 是不装载 RXE 的，所以使用 Multipass 的 Mac 用户会麻烦点，可以考虑切换到 <a href="https://mac.getutm.app/gallery/debian-12">UTM + Debian 12</a>。对于 GitHub CI 环境，笔者构建了一份<a href="https://github.com/SF-Zhou/setup-soft-roce-action">配置 Soft-RoCE 的 action 代码</a>，可以直接复制到你自己的 Workflow 中使用。</p>
+</blockquote>
+<p>配置好 RXE 设备后，还可以使用 <code>ib_send_bw</code> 工具简单压测下：</p>
+<pre class="language-bash"><code class="language-bash"><span class="token comment"># 1. 安装 perftest，包含 ib_send_bw 工具</span>
+<span class="token function">sudo</span> <span class="token function">apt</span> <span class="token function">install</span> <span class="token parameter variable">-y</span> perftest
+
+<span class="token comment"># 2. 启动 ib_send_bw server 端</span>
+ib_send_bw <span class="token parameter variable">-d</span> rxe_0
+<span class="token comment">#> ************************************</span>
+<span class="token comment">#> * Waiting for client to connect... *</span>
+<span class="token comment">#> ************************************</span>
+
+<span class="token comment"># 3. 启动 ib_send_bw client 端，开始测试</span>
+ib_send_bw <span class="token parameter variable">-d</span> rxe_0 localhost
+<span class="token comment">#> ---------------------------------------------------------------------------------------</span>
+<span class="token comment">#>                     Send BW Test</span>
+<span class="token comment">#>  Dual-port       : OFF          Device         : rxe_0</span>
+<span class="token comment">#>  Number of qps   : 1            Transport type : IB</span>
+<span class="token comment">#>  Connection type : RC           Using SRQ      : OFF</span>
+<span class="token comment">#>  PCIe relax order: ON</span>
+<span class="token comment">#>  ibv_wr* API     : OFF</span>
+<span class="token comment">#>  TX depth        : 128</span>
+<span class="token comment">#>  CQ Moderation   : 1</span>
+<span class="token comment">#>  Mtu             : 1024[B]</span>
+<span class="token comment">#>  Link type       : Ethernet</span>
+<span class="token comment">#>  GID index       : 1</span>
+<span class="token comment">#>  Max inline data : 0[B]</span>
+<span class="token comment">#>  rdma_cm QPs     : OFF</span>
+<span class="token comment">#>  Data ex. method : Ethernet</span>
+<span class="token comment">#> ---------------------------------------------------------------------------------------</span>
+<span class="token comment">#>  local address: LID 0000 QPN 0x0015 PSN 0x542d8e</span>
+<span class="token comment">#>  GID: 00:00:00:00:00:00:00:00:00:00:255:255:192:168:65:03</span>
+<span class="token comment">#>  remote address: LID 0000 QPN 0x0016 PSN 0xa2a3de</span>
+<span class="token comment">#>  GID: 00:00:00:00:00:00:00:00:00:00:255:255:192:168:65:03</span>
+<span class="token comment">#> ---------------------------------------------------------------------------------------</span>
+<span class="token comment">#>  #bytes     #iterations    BW peak[MB/sec]    BW average[MB/sec]   MsgRate[Mpps]</span>
+<span class="token comment">#>  65536      1000             1408.61            1036.98            0.016592</span>
+<span class="token comment">#> ---------------------------------------------------------------------------------------</span>
+</code></pre>
+<h3 id="4.-开始编程" tabindex="-1"><a href="#4.-%E5%BC%80%E5%A7%8B%E7%BC%96%E7%A8%8B">4. 开始编程</a></h3>
+<p>万事开头难，当前已经进度斐然了。下面简单写一个 RDMA demo：</p>
+<pre class="language-bash"><code class="language-bash"><span class="token comment"># 1. 创建 rdma-demo 项目</span>
+<span class="token function">cargo</span> new rdma-demo <span class="token operator">&amp;&amp;</span> <span class="token builtin class-name">cd</span> rdma-demo
+
+<span class="token comment"># 2. 增加 rdma-sys 依赖</span>
+<span class="token function">cargo</span> <span class="token function">add</span> rdma-sys
+
+<span class="token comment"># 3. 安装 rdma-sys 所需的依赖包</span>
+<span class="token function">sudo</span> <span class="token function">apt</span> <span class="token function">install</span> <span class="token parameter variable">-y</span> libibverbs-dev librdmacm-dev
+
+<span class="token comment"># 4. 尝试编译</span>
+<span class="token function">cargo</span> build
+</code></pre>
+<p>将 <code>main.rs</code> 修改为以下代码：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> <span class="token namespace">rdma_sys<span class="token punctuation">::</span></span><span class="token punctuation">{</span>ibv_free_device_list<span class="token punctuation">,</span> ibv_get_device_list<span class="token punctuation">,</span> ibv_get_device_name<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">fn</span> <span class="token function-definition function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> <span class="token keyword">mut</span> num_devices <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token keyword">let</span> list <span class="token operator">=</span> <span class="token keyword">unsafe</span> <span class="token punctuation">{</span> <span class="token function">ibv_get_device_list</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> num_devices<span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token macro property">assert!</span><span class="token punctuation">(</span>num_devices <span class="token operator">!=</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token string">"IB device not found!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> devices <span class="token operator">=</span> <span class="token keyword">unsafe</span> <span class="token punctuation">{</span> <span class="token namespace">std<span class="token punctuation">::</span>slice<span class="token punctuation">::</span></span><span class="token function">from_raw_parts</span><span class="token punctuation">(</span>list<span class="token punctuation">,</span> num_devices <span class="token keyword">as</span> <span class="token keyword">usize</span><span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token keyword">for</span> device <span class="token keyword">in</span> devices <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> name <span class="token operator">=</span> <span class="token keyword">unsafe</span> <span class="token punctuation">{</span> <span class="token namespace">std<span class="token punctuation">::</span>ffi<span class="token punctuation">::</span></span><span class="token class-name">CStr</span><span class="token punctuation">::</span><span class="token function">from_ptr</span><span class="token punctuation">(</span><span class="token function">ibv_get_device_name</span><span class="token punctuation">(</span><span class="token operator">*</span>device<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+        <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"device name: {}"</span><span class="token punctuation">,</span> name<span class="token punctuation">.</span><span class="token function">to_string_lossy</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">unsafe</span> <span class="token punctuation">{</span> <span class="token function">ibv_free_device_list</span><span class="token punctuation">(</span>list<span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>执行，预期会打印：<code>device name: rxe_0</code>。完整代码参考 <a href="https://github.com/SF-Zhou/rdma-demo%E3%80%82">https://github.com/SF-Zhou/rdma-demo。</a></p>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

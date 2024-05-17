@@ -1,5 +1,13 @@
 [
   {
+    "title": "Rust RDMA 编程「一、基础概览」",
+    "date": "Rust,RDMA",
+    "author": "SF-Zhou",
+    "tags": [],
+    "filename": "rust_rdma_programming_01",
+    "url_path": "/rdma/rust_rdma_programming_01.html"
+  },
+  {
     "title": "在 CMake C++ 环境中引入 Rust",
     "date": "2024.03.23",
     "author": "SF-Zhou",
