@@ -1,9 +1,12 @@
 [
   {
     "title": "Rust RDMA 编程「一、基础概览」",
-    "date": "Rust,RDMA",
+    "date": "2024.05.17",
     "author": "SF-Zhou",
-    "tags": [],
+    "tags": [
+      "Rust",
+      "RDMA"
+    ],
     "filename": "rust_rdma_programming_01",
     "url_path": "/rdma/rust_rdma_programming_01.html"
   },
