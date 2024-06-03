@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>RDMA Queue Pair | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> RDMA Queue Pair </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2024.06.03 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-state-transitions" tabindex="-1"><a href="#1.-state-transitions">1. State transitions</a></h3>
+<p>In a QP lifetime, the possible states can be:</p>
+<ul>
+<li>Reset - Default</li>
+<li>Initialize (Init)</li>
+<li>Ready To Receive (RTR)</li>
+<li>Ready To Send (RTS)</li>
+<li>Send Queue Drained (SQD)</li>
+<li>Send Queue Error (SQE, for Non-RC QPs)</li>
+<li>Error</li>
+</ul>
+<p>A QP can be transitioned from one state to another state by two possible ways:</p>
+<ol>
+<li>Explicit call to ibv_modify_qp()</li>
+<li>Automatic transition by the device in case of a processing error</li>
+</ol>
+<p>Any QP can be transitioned to Reset or Error state by calling ibv_modify_qp() from any state.</p>
+<p>For error state, work Requests can be posted in both send and receive queues. If the QP was transitioned to this state automatically, the first  Work Request that completed with error will indicate the reason for the  error. All subsequent Work Requests in that queue and all Work Request  in the other queue and new Work Requests posted to both of the queues  will be flushed with error. If the QP was transitioned to this state using ibv_modify_qp() all  outstanding Work Request in both send and receive requests will be  flushed with error.</p>
+<h3 id="2.-ibv_post_send" tabindex="-1"><a href="#2.-ibv_post_send">2. ibv_post_send</a></h3>
+<pre class="language-cpp"><code class="language-cpp"><span class="token keyword">int</span> <span class="token function">ibv_post_send</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">ibv_qp</span> <span class="token operator">*</span>qp<span class="token punctuation">,</span> <span class="token keyword">struct</span> <span class="token class-name">ibv_send_wr</span> <span class="token operator">*</span>wr<span class="token punctuation">,</span>
+                  <span class="token keyword">struct</span> <span class="token class-name">ibv_send_wr</span> <span class="token operator">*</span><span class="token operator">*</span>bad_wr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>QP State:</p>
+<ol>
+<li>RESET, INIT, RTR: immediate error</li>
+<li>RTS: will be processed</li>
+<li>ERROR: can be posted, completed with error</li>
+</ol>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://www.rdmamojo.com/2013/01/26/ibv_post_send/">RDMAmojo - ibv_post_send</a></li>
+<li><a href="https://www.rdmamojo.com/2012/05/05/qp-state-machine/">RDMAmojo - QP state machine</a></li>
+</ol>
+
+      </div>
+      
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
