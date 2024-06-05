@@ -57,10 +57,27 @@
 <li>RTS: will be processed</li>
 <li>ERROR: can be posted, completed with error</li>
 </ol>
+<h3 id="3.-which-operations-will-consume-rrs?" tabindex="-1"><a href="#3.-which-operations-will-consume-rrs%3F">3. Which operations will consume RRs?</a></h3>
+<p>If the remote side post a Send Request with one of the following opcodes, a RR will be consumed:</p>
+<ul>
+<li>Send</li>
+<li>Send with Immediate</li>
+<li>RDMA Write with immediate</li>
+</ul>
+<h3 id="4.-zero-byte-messages" tabindex="-1"><a href="#4.-zero-byte-messages">4. Zero byte messages</a></h3>
+<ul>
+<li>Send</li>
+<li>Send with immediate</li>
+<li>RDMA Write</li>
+<li>RDMA Write with Immediate</li>
+<li>RDMA Read</li>
+</ul>
 <h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://www.rdmamojo.com/2013/01/26/ibv_post_send/">RDMAmojo - ibv_post_send</a></li>
+<li><a href="https://www.rdmamojo.com/2013/02/02/ibv_post_recv/">RDMAmojo - ibv_post_recv</a></li>
 <li><a href="https://www.rdmamojo.com/2012/05/05/qp-state-machine/">RDMAmojo - QP state machine</a></li>
+<li><a href="https://www.rdmamojo.com/2013/09/20/zero-byte-messages/">RDMAmojo - Zero byte messages</a></li>
 </ol>
 
       </div>
