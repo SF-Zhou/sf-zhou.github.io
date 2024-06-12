@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Rust RDMA 编程「二、接口绑定」 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Rust RDMA 编程「二、接口绑定」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2024.05.24 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-libibverbs" tabindex="-1"><a href="#1.-libibverbs">1. libibverbs</a></h3>
+<p><code>libibverbs</code> 是一个 API 库，使应用程序可以在用户态访问 InfiniBand 硬件。它的源码可以在 <a href="https://github.com/linux-rdma/rdma-core/tree/master/libibverbs">rdma-core</a> 里找到，对外提供的是 C 接口。Linux 系统一般不需要下载源码自行编译，例如 Debian 系可以通过 <code>sudo apt install libibverbs-dev</code> 直接安装，安装完成后头文件默认在 <code>/usr/include/infiniband/verbs.h</code>。</p>
+<p>Rust 无法直接使用 C 的头文件，所以需要对 C 暴露出来的结构体和函数进行绑定，一般可以使用 <a href="https://github.com/rust-lang/rust-bindgen">bindgen</a> 帮助生成绑定接口。目前已经有 <a href="https://github.com/datenlord/rdma-sys">rdma-sys</a> 和 <a href="https://github.com/jonhoo/rust-ibverbs">rust-ibverbs</a> 做了类似的工作，但为了更好的实现我们的需求，这里仍然自行封装一个库实现绑定。</p>
+<h3 id="2.-绑定" tabindex="-1"><a href="#2.-%E7%BB%91%E5%AE%9A">2. 绑定</a></h3>
+<p>生成绑定的 <code>build.rs</code> 内容如下：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>collections<span class="token punctuation">::</span></span><span class="token class-name">HashSet</span><span class="token punctuation">;</span>
+<span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span></span>env<span class="token punctuation">;</span>
+<span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>path<span class="token punctuation">::</span></span><span class="token class-name">PathBuf</span><span class="token punctuation">;</span>
+
+<span class="token keyword">fn</span> <span class="token function-definition function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// 0. 查找 libibverbs，定位头文件的位置</span>
+    <span class="token keyword">let</span> lib <span class="token operator">=</span> <span class="token namespace">pkg_config<span class="token punctuation">::</span></span><span class="token class-name">Config</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">statik</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">probe</span><span class="token punctuation">(</span><span class="token string">"libibverbs"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">unwrap_or_else</span><span class="token punctuation">(</span><span class="token closure-params"><span class="token closure-punctuation punctuation">|</span>_<span class="token closure-punctuation punctuation">|</span></span> <span class="token macro property">panic!</span><span class="token punctuation">(</span><span class="token string">"please install libibverbs-dev"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> <span class="token keyword">mut</span> include_paths <span class="token operator">=</span> lib<span class="token punctuation">.</span>include_paths<span class="token punctuation">.</span><span class="token function">into_iter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">collect</span><span class="token punctuation">::</span><span class="token operator">&lt;</span><span class="token class-name">HashSet</span><span class="token operator">&lt;</span>_<span class="token operator">>></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    include_paths<span class="token punctuation">.</span><span class="token function">insert</span><span class="token punctuation">(</span><span class="token class-name">PathBuf</span><span class="token punctuation">::</span><span class="token function">from</span><span class="token punctuation">(</span><span class="token string">"/usr/include"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> out_path <span class="token operator">=</span> <span class="token class-name">PathBuf</span><span class="token punctuation">::</span><span class="token function">from</span><span class="token punctuation">(</span><span class="token namespace">env<span class="token punctuation">::</span></span><span class="token function">var</span><span class="token punctuation">(</span><span class="token string">"OUT_DIR"</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">let</span> gen_path <span class="token operator">=</span> out_path<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token string">"verbs_inline.c"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">let</span> obj_path <span class="token operator">=</span> out_path<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token string">"verbs_inline.o"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">let</span> lib_path <span class="token operator">=</span> out_path<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token string">"libverbs_inline.a"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 1. 根据头文件生成绑定代码</span>
+    <span class="token keyword">let</span> <span class="token keyword">mut</span> builder <span class="token operator">=</span> <span class="token namespace">bindgen<span class="token punctuation">::</span></span><span class="token class-name">Builder</span><span class="token punctuation">::</span><span class="token function">default</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">clang_args</span><span class="token punctuation">(</span>include_paths<span class="token punctuation">.</span><span class="token function">iter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">map</span><span class="token punctuation">(</span><span class="token closure-params"><span class="token closure-punctuation punctuation">|</span>p<span class="token closure-punctuation punctuation">|</span></span> <span class="token macro property">format!</span><span class="token punctuation">(</span><span class="token string">"-I{:?}"</span><span class="token punctuation">,</span> p<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">header_contents</span><span class="token punctuation">(</span><span class="token string">"header.h"</span><span class="token punctuation">,</span> <span class="token string">"#include &lt;infiniband/verbs.h>"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">derive_copy</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">derive_debug</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">derive_default</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">generate_comments</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">generate_inline_functions</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">wrap_static_fns</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span> <span class="token comment">// 生成 static 函数的绑定</span>
+        <span class="token punctuation">.</span><span class="token function">wrap_static_fns_path</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>gen_path<span class="token punctuation">)</span> <span class="token comment">// 修改生成的位置</span>
+        <span class="token punctuation">.</span><span class="token function">prepend_enum_name</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">formatter</span><span class="token punctuation">(</span><span class="token namespace">bindgen<span class="token punctuation">::</span></span><span class="token class-name">Formatter</span><span class="token punctuation">::</span><span class="token class-name">Rustfmt</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">size_t_is_usize</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">translate_enum_integer_types</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">layout_tests</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">default_enum_style</span><span class="token punctuation">(</span><span class="token namespace">bindgen<span class="token punctuation">::</span></span><span class="token class-name">EnumVariation</span><span class="token punctuation">::</span><span class="token class-name">Rust</span> <span class="token punctuation">{</span>
+            non_exhaustive<span class="token punctuation">:</span> <span class="token boolean">false</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">opaque_type</span><span class="token punctuation">(</span><span class="token string">"pthread_.*"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">blocklist_type</span><span class="token punctuation">(</span><span class="token string">"timespec"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">allowlist_function</span><span class="token punctuation">(</span><span class="token string">"ibv_.*"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">allowlist_type</span><span class="token punctuation">(</span><span class="token string">"ibv_.*"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">allowlist_type</span><span class="token punctuation">(</span><span class="token string">"ib_uverbs_access_flags"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">bitfield_enum</span><span class="token punctuation">(</span><span class="token string">"ib_uverbs_access_flags"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">bitfield_enum</span><span class="token punctuation">(</span><span class="token string">"ibv_.*_bits"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">bitfield_enum</span><span class="token punctuation">(</span><span class="token string">"ibv_.*_caps"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">bitfield_enum</span><span class="token punctuation">(</span><span class="token string">"ibv_.*_flags"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">bitfield_enum</span><span class="token punctuation">(</span><span class="token string">"ibv_.*_mask"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">bitfield_enum</span><span class="token punctuation">(</span><span class="token string">"ibv_pci_atomic_op_size"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">bitfield_enum</span><span class="token punctuation">(</span><span class="token string">"ibv_port_cap_flags2"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">bitfield_enum</span><span class="token punctuation">(</span><span class="token string">"ibv_rx_hash_fields"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 这几个 struct 中有 mutex，无法启用 copy 和 debug</span>
+    <span class="token keyword">for</span> name <span class="token keyword">in</span> <span class="token punctuation">[</span>
+        <span class="token string">"ibv_srq"</span><span class="token punctuation">,</span>
+        <span class="token string">"ibv_wq"</span><span class="token punctuation">,</span>
+        <span class="token string">"ibv_qp"</span><span class="token punctuation">,</span>
+        <span class="token string">"ibv_cq"</span><span class="token punctuation">,</span>
+        <span class="token string">"ibv_cq_ex"</span><span class="token punctuation">,</span>
+        <span class="token string">"ibv_context"</span><span class="token punctuation">,</span>
+    <span class="token punctuation">]</span> <span class="token punctuation">{</span>
+        builder <span class="token operator">=</span> builder<span class="token punctuation">.</span><span class="token function">no_copy</span><span class="token punctuation">(</span>name<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">no_debug</span><span class="token punctuation">(</span>name<span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">let</span> bindings <span class="token operator">=</span> builder<span class="token punctuation">.</span><span class="token function">generate</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">expect</span><span class="token punctuation">(</span><span class="token string">"Unable to generate bindings"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">// 2. 使用 clang 编译 static 函数生成的 C wrapper 文件</span>
+    <span class="token keyword">let</span> clang_output <span class="token operator">=</span> <span class="token namespace">std<span class="token punctuation">::</span>process<span class="token punctuation">::</span></span><span class="token class-name">Command</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token string">"clang"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">arg</span><span class="token punctuation">(</span><span class="token string">"-O2"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">arg</span><span class="token punctuation">(</span><span class="token string">"-c"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">arg</span><span class="token punctuation">(</span><span class="token string">"-o"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">arg</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>obj_path<span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">arg</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>gen_path<span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">args</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token string">"-include"</span><span class="token punctuation">,</span> <span class="token string">"infiniband/verbs.h"</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">output</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token operator">!</span>clang_output<span class="token punctuation">.</span>status<span class="token punctuation">.</span><span class="token function">success</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">panic!</span><span class="token punctuation">(</span>
+            <span class="token string">"Could not compile object file: {}"</span><span class="token punctuation">,</span>
+            <span class="token class-name">String</span><span class="token punctuation">::</span><span class="token function">from_utf8_lossy</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>clang_output<span class="token punctuation">.</span>stderr<span class="token punctuation">)</span>
+        <span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// 3. 打包 .o 文件成 .a</span>
+    <span class="token keyword">let</span> lib_output <span class="token operator">=</span> <span class="token namespace">std<span class="token punctuation">::</span>process<span class="token punctuation">::</span></span><span class="token class-name">Command</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token string">"ar"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">arg</span><span class="token punctuation">(</span><span class="token string">"rcs"</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">arg</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>lib_path<span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">arg</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>obj_path<span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">output</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">unwrap</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span> <span class="token operator">!</span>lib_output<span class="token punctuation">.</span>status<span class="token punctuation">.</span><span class="token function">success</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">panic!</span><span class="token punctuation">(</span>
+            <span class="token string">"Could not emit library file: {}"</span><span class="token punctuation">,</span>
+            <span class="token class-name">String</span><span class="token punctuation">::</span><span class="token function">from_utf8_lossy</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>lib_output<span class="token punctuation">.</span>stderr<span class="token punctuation">)</span>
+        <span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"cargo:rustc-link-lib=static=verbs_inline"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"cargo:rustc-link-search=native={}"</span><span class="token punctuation">,</span> out_path<span class="token punctuation">.</span><span class="token function">display</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    bindings
+        <span class="token punctuation">.</span><span class="token function">write_to_file</span><span class="token punctuation">(</span>out_path<span class="token punctuation">.</span><span class="token function">join</span><span class="token punctuation">(</span><span class="token string">"bindings.rs"</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">expect</span><span class="token punctuation">(</span><span class="token string">"Couldn't write bindings!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>上方代码有很大一部分是为了处理头文件中的 static 函数。在启用 bindgen experimental feature 的情况下，可以生成 static 函数 wrapper 的 C 文件，内容大概如下：</p>
+<pre class="language-c"><code class="language-c"><span class="token comment">// Static wrappers</span>
+
+<span class="token keyword">void</span> <span class="token function">ibv_wr_atomic_cmp_swp__extern</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">ibv_qp_ex</span> <span class="token operator">*</span>qp<span class="token punctuation">,</span> <span class="token class-name">uint32_t</span> rkey<span class="token punctuation">,</span> <span class="token class-name">uint64_t</span> remote_addr<span class="token punctuation">,</span> <span class="token class-name">uint64_t</span> compare<span class="token punctuation">,</span> <span class="token class-name">uint64_t</span> swap<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">ibv_wr_atomic_cmp_swp</span><span class="token punctuation">(</span>qp<span class="token punctuation">,</span> rkey<span class="token punctuation">,</span> remote_addr<span class="token punctuation">,</span> compare<span class="token punctuation">,</span> swap<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">void</span> <span class="token function">ibv_wr_atomic_fetch_add__extern</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">ibv_qp_ex</span> <span class="token operator">*</span>qp<span class="token punctuation">,</span> <span class="token class-name">uint32_t</span> rkey<span class="token punctuation">,</span> <span class="token class-name">uint64_t</span> remote_addr<span class="token punctuation">,</span> <span class="token class-name">uint64_t</span> add<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">ibv_wr_atomic_fetch_add</span><span class="token punctuation">(</span>qp<span class="token punctuation">,</span> rkey<span class="token punctuation">,</span> remote_addr<span class="token punctuation">,</span> add<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">void</span> <span class="token function">ibv_wr_bind_mw__extern</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">ibv_qp_ex</span> <span class="token operator">*</span>qp<span class="token punctuation">,</span> <span class="token keyword">struct</span> <span class="token class-name">ibv_mw</span> <span class="token operator">*</span>mw<span class="token punctuation">,</span> <span class="token class-name">uint32_t</span> rkey<span class="token punctuation">,</span> <span class="token keyword">const</span> <span class="token keyword">struct</span> <span class="token class-name">ibv_mw_bind_info</span> <span class="token operator">*</span>bind_info<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">ibv_wr_bind_mw</span><span class="token punctuation">(</span>qp<span class="token punctuation">,</span> mw<span class="token punctuation">,</span> rkey<span class="token punctuation">,</span> bind_info<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">void</span> <span class="token function">ibv_wr_local_inv__extern</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">ibv_qp_ex</span> <span class="token operator">*</span>qp<span class="token punctuation">,</span> <span class="token class-name">uint32_t</span> invalidate_rkey<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">ibv_wr_local_inv</span><span class="token punctuation">(</span>qp<span class="token punctuation">,</span> invalidate_rkey<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">void</span> <span class="token function">ibv_wr_rdma_read__extern</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">ibv_qp_ex</span> <span class="token operator">*</span>qp<span class="token punctuation">,</span> <span class="token class-name">uint32_t</span> rkey<span class="token punctuation">,</span> <span class="token class-name">uint64_t</span> remote_addr<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">ibv_wr_rdma_read</span><span class="token punctuation">(</span>qp<span class="token punctuation">,</span> rkey<span class="token punctuation">,</span> remote_addr<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">void</span> <span class="token function">ibv_wr_rdma_write__extern</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">ibv_qp_ex</span> <span class="token operator">*</span>qp<span class="token punctuation">,</span> <span class="token class-name">uint32_t</span> rkey<span class="token punctuation">,</span> <span class="token class-name">uint64_t</span> remote_addr<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">ibv_wr_rdma_write</span><span class="token punctuation">(</span>qp<span class="token punctuation">,</span> rkey<span class="token punctuation">,</span> remote_addr<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">void</span> <span class="token function">ibv_wr_flush__extern</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">ibv_qp_ex</span> <span class="token operator">*</span>qp<span class="token punctuation">,</span> <span class="token class-name">uint32_t</span> rkey<span class="token punctuation">,</span> <span class="token class-name">uint64_t</span> remote_addr<span class="token punctuation">,</span> <span class="token class-name">size_t</span> len<span class="token punctuation">,</span> <span class="token class-name">uint8_t</span> type<span class="token punctuation">,</span> <span class="token class-name">uint8_t</span> level<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">ibv_wr_flush</span><span class="token punctuation">(</span>qp<span class="token punctuation">,</span> rkey<span class="token punctuation">,</span> remote_addr<span class="token punctuation">,</span> len<span class="token punctuation">,</span> type<span class="token punctuation">,</span> level<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token keyword">void</span> <span class="token function">ibv_wr_rdma_write_imm__extern</span><span class="token punctuation">(</span><span class="token keyword">struct</span> <span class="token class-name">ibv_qp_ex</span> <span class="token operator">*</span>qp<span class="token punctuation">,</span> <span class="token class-name">uint32_t</span> rkey<span class="token punctuation">,</span> <span class="token class-name">uint64_t</span> remote_addr<span class="token punctuation">,</span> __be32 imm_data<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">ibv_wr_rdma_write_imm</span><span class="token punctuation">(</span>qp<span class="token punctuation">,</span> rkey<span class="token punctuation">,</span> remote_addr<span class="token punctuation">,</span> imm_data<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">}</span>
+<span class="token comment">// ...</span>
+</code></pre>
+<p>实际上就是生成一批新的函数，内部调用这些 static 的函数，绑定到原先的函数名。生成的 <code>bindings.rs</code> 中大概是这样的：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">extern</span> <span class="token string">"C"</span> <span class="token punctuation">{</span>
+    <span class="token attribute attr-name">#[link_name = <span class="token string">"ibv_wr_atomic_cmp_swp__extern"</span>]</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">ibv_wr_atomic_cmp_swp</span><span class="token punctuation">(</span>
+        qp<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">mut</span> ibv_qp_ex<span class="token punctuation">,</span>
+        rkey<span class="token punctuation">:</span> <span class="token keyword">u32</span><span class="token punctuation">,</span>
+        remote_addr<span class="token punctuation">:</span> <span class="token keyword">u64</span><span class="token punctuation">,</span>
+        compare<span class="token punctuation">:</span> <span class="token keyword">u64</span><span class="token punctuation">,</span>
+        swap<span class="token punctuation">:</span> <span class="token keyword">u64</span><span class="token punctuation">,</span>
+    <span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>显然，static 函数这样处理后性能肯定会下降，毕竟多一次函数调用。rdma-sys 中对 static 函数和宏通过手工重写成 Rust 代码的方式实现替换，是更好的解决方案。计划以后有时间的时候将所有使用到的 static 函数重写为 Rust 代码。</p>
+<p>本文中提到的代码可以在 <a href="https://crates.io/crates/r2dma-sys/">r2dma-sys</a> 中找到。</p>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

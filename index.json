@@ -1,5 +1,16 @@
 [
   {
+    "title": "Rust RDMA 编程「二、接口绑定」",
+    "date": "2024.05.24",
+    "author": "SF-Zhou",
+    "tags": [
+      "Rust",
+      "RDMA"
+    ],
+    "filename": "rust_rdma_programming_02",
+    "url_path": "/rdma/rust_rdma_programming_02.html"
+  },
+  {
     "title": "Rust RDMA 编程「一、基础概览」",
     "date": "2024.05.17",
     "author": "SF-Zhou",
