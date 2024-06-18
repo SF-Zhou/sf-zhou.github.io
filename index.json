@@ -1,5 +1,16 @@
 [
   {
+    "title": "Rust RPC Async 接口探索",
+    "date": "2024.06.17",
+    "author": "SF-Zhou",
+    "tags": [
+      "Rust",
+      "Async"
+    ],
+    "filename": "rust_rpc_async",
+    "url_path": "/rust/rust_rpc_async.html"
+  },
+  {
     "title": "Rust RDMA 编程「二、接口绑定」",
     "date": "2024.05.24",
     "author": "SF-Zhou",
