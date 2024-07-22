@@ -1,5 +1,16 @@
 [
   {
+    "title": "Rust 二进制序列化",
+    "date": "2024.07.19",
+    "author": "SF-Zhou",
+    "tags": [
+      "Rust",
+      "Serialization"
+    ],
+    "filename": "rust_binary_serialization",
+    "url_path": "/rust/rust_binary_serialization.html"
+  },
+  {
     "title": "Rust RPC Async 接口探索",
     "date": "2024.06.17",
     "author": "SF-Zhou",
