@@ -1,5 +1,16 @@
 [
   {
+    "title": "Rust RDMA 编程「三、对象封装」",
+    "date": "2024.07.30",
+    "author": "SF-Zhou",
+    "tags": [
+      "Rust",
+      "RDMA"
+    ],
+    "filename": "rust_rdma_programming_03",
+    "url_path": "/rdma/rust_rdma_programming_03.html"
+  },
+  {
     "title": "Rust 二进制序列化",
     "date": "2024.07.19",
     "author": "SF-Zhou",
