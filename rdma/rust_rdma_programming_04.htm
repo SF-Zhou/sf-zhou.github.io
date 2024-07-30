@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Rust RDMA 编程「四、收发控制」 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Rust RDMA 编程「四、收发控制」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2024.07.31 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-背景" tabindex="-1"><a href="#1.-%E8%83%8C%E6%99%AF">1. 背景</a></h3>
+<p>RDMA 编程中，常用的通信操作有 Read/Write 和 Send/Recv。前者是单向操作，即发起端可以直接读写远端的内存，不需要远端的 CPU 参与；后者是双向操作，发起端 Send 需要搭配远端 Recv，类似 TCP 通信。Read/Write 使用上会更简单，但在发起操作前需要知道远端内存的地址，所以正常情况下无法单独使用，一般需要搭配 Send/Recv 实现的控制流，才能完成 Read/Write 实现的数据流。</p>
+<p>所以实现高性能的 RDMA 通信仍需要先实现高性能的 Send/Recv。但与 TCP 通信不同的是，RDMA Send 一定需要远端已经发起了 Recv 操作，否则 Send 操作会直接失败。这就需要我们实现一套良好的收发控制策略，使得 Send 操作可以高效且安全地被提交。</p>
+<p>整理 Send 相关的限制条件：</p>
+<ol>
+<li>本地 Send Queue 的 <code>max_send_wr</code>，限制提交到该发送队列的 WR 的最大数量，WR 的类型包含 Send/Read/Write 操作</li>
+<li>远端 Recv Queue 中提交的未完成的 Recv 操作数量</li>
+<li>本地 Completion Queue 的大小，如果完成的 WR 累积在完成队列中没有被消费也会引发错误</li>
+</ol>
+
+      </div>
+      
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
