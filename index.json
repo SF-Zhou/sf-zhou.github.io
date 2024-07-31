@@ -1,5 +1,16 @@
 [
   {
+    "title": "Rust RDMA 编程「四、收发控制」",
+    "date": "2024.07.31",
+    "author": "SF-Zhou",
+    "tags": [
+      "Rust",
+      "RDMA"
+    ],
+    "filename": "rust_rdma_programming_04",
+    "url_path": "/rdma/rust_rdma_programming_04.html"
+  },
+  {
     "title": "Rust RDMA 编程「三、对象封装」",
     "date": "2024.07.30",
     "author": "SF-Zhou",

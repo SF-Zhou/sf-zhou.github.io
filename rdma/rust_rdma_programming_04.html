@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Rust RDMA 编程「四、收发控制」 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Rust RDMA 编程「四、收发控制」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2024.07.31 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-背景" tabindex="-1"><a href="#1.-%E8%83%8C%E6%99%AF">1. 背景</a></h3>
+<p>RDMA 编程中，常用的通信操作有 Read/Write 和 Send/Recv。前者是单向操作，即发起端可以直接读写远端的内存，不需要远端的 CPU 参与；后者是双向操作，发起端 Send 需要搭配远端 Recv，类似 TCP 通信。Read/Write 使用上会更简单，但在发起操作前需要知道远端内存的地址，所以正常情况下无法单独使用，一般需要搭配 Send/Recv 实现的控制流，才能完成 Read/Write 实现的数据流。</p>
+<p>所以实现高性能的 RDMA 通信仍需要先实现高性能的 Send/Recv。但与 TCP 通信不同的是，RDMA Send 一定需要远端已经发起了 Recv 操作，否则 Send 操作会直接失败。这就需要实现一套良好的收发控制策略，使得 Send 操作可以高效且安全地被提交。</p>
+<h3 id="2.-策略" tabindex="-1"><a href="#2.-%E7%AD%96%E7%95%A5">2. 策略</a></h3>
+<p>整理 Send 相关的限制条件：</p>
+<ol>
+<li>本地 Send Queue 的 <code>max_send_wr</code>，限制提交到该发送队列的 WR 的最大数量，WR 的类型包含 Send/Read/Write 操作</li>
+<li>远端 Recv Queue 的 <code>max_recv_wr</code>，以及提交的未完成的 Recv 操作数量</li>
+<li>本地 Completion Queue 的大小 <code>max_cqe</code>，如果完成的 WR 累积在完成队列中没有被消费也会引发错误</li>
+</ol>
+<p>限制条件简化：</p>
+<ol>
+<li>约定本地 Completion Queue 的 <code>max_cqe</code> = <code>max_send_wr</code> + <code>max_recv_wr</code>，这样即使当前所有提交的任务都完成了，也不会使得完成队列溢出</li>
+<li>对 Send Queue 的 <code>max_send_wr</code> 进行容量上的拆分，分为 <code>max_send_data_wr</code>、<code>max_send_imm_wr</code>、<code>max_read_wr</code> 和 <code>max_write_wr</code>，<code>max_send_data_wr</code> 用于发送数据，<code>max_send_imm_wr</code> 用于发送立即数，并且 <code>max_recv_wr</code> = <code>max_send_data_wr</code> + <code>max_send_imm_wr</code>，这样即使提交所有 Send 操作，也不会使得远端的接收队列溢出</li>
+<li>远端的一个 Recv 操作完成时，立即重新提交一个新的 Recv 操作，使得正在接收的任务数重新回到 <code>max_recv_wr</code></li>
+</ol>
+<p>分析一下本地 Send、远端 Recv 的场景：</p>
+<ol>
+<li>QP 建立之初，可以假定远端已经提交了 N 个 Recv，并且本地知道该信息</li>
+<li>因为远端有 N 个 Recv 操作，所以本地可以直接提交 N 个 Send 操作而不会失败</li>
+<li>但本地无法获悉远端何时完成一个 Recv 操作并重新提交一个 Recv 操作，所以本地提交完 N 个 Send 操作后，是不敢贸然再次提交的</li>
+<li>所以远端需要在重新提交了 Recv 操作后，通过某种方式通知本地，“你可以再次安全地提交 Send 操作”</li>
+<li>最简单的通知方式是远端提交一个发送立即数（Send Imm）操作给本地，立即数的值设定为重新提交的 Recv 的数量。本地收到这条立即数消息后，可以再次安全地提交 n 个 Send 操作。定义该操作为 Send(ack)，而发送正常数据定义为 Send(data) 操作，这两种都是 Send 行为</li>
+<li>复杂的地方在于，远端提交 Send(ack) 也是一个 Send 操作，同样需要考虑是否可以直接发送；并不能完成一个 Recv 就发送一个 Send(ack)，否则对方的 Recv 收到 Send(ack) 后也得继续发送一个 Send(ack)，就无限循环了</li>
+</ol>
+<p>设计策略如下：</p>
+<ol>
+<li>定义 <code>send_data_local_remain</code> 和 <code>send_imm_local_remain</code>，即本地限制下还可以提交多少个 Send(data) 和 Send(ack) 操作，初始值分别为 <code>max_send_data_wr</code> 和 <code>max_send_imm_wr</code>，提交 WR 前消耗计数，对应的 WR 完成时恢复计数</li>
+<li>定义 <code>send_data_remote_remain</code> 和 <code>send_imm_remote_remain</code>，即远端限制下还可以提交多少个 Send(data) 和 Send(ack) 操作，初始值同样分别为 <code>max_send_data_wr</code> 和 <code>max_send_imm_wr</code>，提交 WR 前消耗计数，直到收到 Ack 后恢复计数</li>
+<li>准备提交 Send 操作时，检查对应的 <code>local_remain</code> 和 <code>remote_remain</code> 是否还有余量，如果没有余量则暂存到队列中等待，直到 WR 完成或者收到 Ack 更新计数后再进行发送</li>
+<li>将 Send(ack) 附带的 32 位立即数的值划分为两个 u16，分别用户发送收到的 Send(data) 和 Send(ack) 的 Ack。当收到的 Send(data) 数量 a 大于阈值，或者收到的 Send(ack) 数量 b 大于阈值时，尝试向对端发送一次 Ack(a, b)，对端收到该消息后，将 <code>send_data_remote_remain += a</code>，<code>send_imm_remote_remain += b</code>。阈值可以设定为初试容量的一半</li>
+</ol>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
