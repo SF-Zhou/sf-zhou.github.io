@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Rust RDMA RPC 框架设计 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Rust RDMA RPC 框架设计 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2024.08.02 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-defination" tabindex="-1"><a href="#1.-defination">1. Defination</a></h3>
+<ol>
+<li>消息 Message：有类型、有边界的字节流</li>
+<li>连接 Transport：传递消息的载体，支持主动发或被动收消息</li>
+<li>服务 Service：对连接上被动收到的消息作出响应的实体</li>
+<li>请求 Request：Service 根据 Message 的类型和字节流，反序列化后得到的结果</li>
+</ol>
+<h3 id="2.-vision" tabindex="-1"><a href="#2.-vision">2. Vision</a></h3>
+<ol>
+<li>支持多种<strong>连接方式</strong>，包括但不限于：
+<ol>
+<li>TCP Socket</li>
+<li>RDMA (IB / RoCE)</li>
+<li>HTTP</li>
+</ol>
+</li>
+<li>支持多种<strong>数据协议</strong>，包括但不限于：
+<ol>
+<li>binary (derse)</li>
+<li>JSON</li>
+</ol>
+</li>
+<li>支持多种 Service 自由搭配
+<ol>
+<li>rdma_service：提供 RDMA 信息查询、建立连接的能力</li>
+<li>info_service：查询 Server 自身相关信息</li>
+<li>webui_service：基于 HTTP，提供 WebUI 界面</li>
+<li>user_service：用户自定义服务</li>
+</ol>
+</li>
+<li>提供良好的可观测性
+<ol>
+<li>QPS、Latency、Inflight、Fails 等指标在线查询和上报</li>
+<li>支持在线查询当前日志</li>
+<li>CPU profiler / Mem profiler</li>
+</ol>
+</li>
+</ol>
+
+      </div>
+      
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
