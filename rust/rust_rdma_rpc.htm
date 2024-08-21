@@ -31,10 +31,14 @@
       <div class="markdown">
         <h3 id="1.-defination" tabindex="-1"><a href="#1.-defination">1. Defination</a></h3>
 <ol>
-<li>消息 Message：有类型、有边界的字节流</li>
-<li>连接 Transport：传递消息的载体，支持主动发或被动收消息</li>
-<li>服务 Service：对连接上被动收到的消息作出响应的实体</li>
-<li>请求 Request：Service 根据 Message 的类型和字节流，反序列化后得到的结果</li>
+<li>元信息 MsgMeta：需要调用的服务的名称、方法名、UUID、字节流的类型等</li>
+<li>消息 Message：元信息 + 有边界的字节流组成的实体</li>
+<li>连接 Transport：传递消息的载体 trait，支持主动发或被动收消息</li>
+<li>连接管理器 TransportMgr：创建、管理连接的 trait，不同类型的连接使用不同类型的管理器</li>
+<li>调度 Dispatcher：根据消息的元信息，将消息派发给对应的 Service</li>
+<li>服务 Service：对连接上被动收到的消息作出响应的实体，对外暴露统一接口</li>
+<li>请求 Request：Service 根据元信息和字节流，反序列化后得到的结果</li>
+<li>回复 Response：Service 处理请求后得到的返回值，序列化后与元信息一同丢给 Transport</li>
 </ol>
 <h3 id="2.-vision" tabindex="-1"><a href="#2.-vision">2. Vision</a></h3>
 <ol>
@@ -47,7 +51,8 @@
 </li>
 <li>支持多种<strong>数据协议</strong>，包括但不限于：
 <ol>
-<li>binary (derse)</li>
+<li>derse</li>
+<li>protobuf</li>
 <li>JSON</li>
 </ol>
 </li>
@@ -66,6 +71,19 @@
 <li>CPU profiler / Mem profiler</li>
 </ol>
 </li>
+</ol>
+<h3 id="3.-details" tabindex="-1"><a href="#3.-details">3. Details</a></h3>
+<ol>
+<li>Transport 收到的消息是一段有边界的字节流 Bytes，我需要从中解析出 MsgMeta 和 Payload</li>
+<li>同步调用 dispatcher.call(transport, meta, payload)，无需返回值
+<ol>
+<li>payload 是需要被 meta 描述的，至少它是有类型的（二进制、JSON、protobuf）</li>
+<li>meta 是由消息头解析得到的，无论是二进制消息头还是 JSON 消息头</li>
+</ol>
+</li>
+<li>一个 Service 支持的序列化方式是由 Service 自己决定的，它可以支持 protobuf，也可以支持 JSON / derse，只需要它能够将 payload 与自身的数据结构无缝转换</li>
+<li>一个 Service 最终暴露出来的接口类似于 service.call(transport, meta, payload)，无需返回值</li>
+<li>Service 的返回值是可以自定义的，为 <code>Result&lt;T, E&gt;</code>，但要求实现 <code>RpcError</code> 到 <code>ServiceError</code> 的转换</li>
 </ol>
 
       </div>
