@@ -80,8 +80,8 @@
 <h3 id="3.-方案" tabindex="-1"><a href="#3.-%E6%96%B9%E6%A1%88">3. 方案</a></h3>
 <p>对于上述问题，Rust 2024 的解决方案是这样的：</p>
 <ol>
-<li>在默认情况下，RPIT 使用所有声明周期</li>
-<li>新增 <code>+ use&lt;'x, T&gt;</code> 语法，精确指定使用到的声明周期</li>
+<li>在默认情况下，RPIT 使用所有生命周期</li>
+<li>新增 <code>+ use&lt;'x, T&gt;</code> 语法，精确指定使用到的生命周期</li>
 </ol>
 <p>新特性下，之前报错的代码可以顺利编译了（<a href="https://play.rust-lang.org/?version=nightly&amp;mode=debug&amp;edition=2024&amp;gist=5e4d40e79a81f561d5b64e50f27f7341">在线执行</a>）：</p>
 <pre class="language-rust"><code class="language-rust"><span class="token keyword">fn</span> <span class="token function-definition function">process</span><span class="token punctuation">(</span>data<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">Vec</span><span class="token operator">&lt;</span><span class="token keyword">u8</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">impl</span> <span class="token class-name">Iterator</span><span class="token operator">&lt;</span><span class="token class-name">Item</span> <span class="token operator">=</span> <span class="token keyword">u8</span><span class="token operator">></span> <span class="token punctuation">{</span>
