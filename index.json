@@ -1,5 +1,17 @@
 [
   {
+    "title": "Rust Future & Pin",
+    "date": "2024.10.17",
+    "author": "SF-Zhou",
+    "tags": [
+      "Rust",
+      "Async",
+      "Pin"
+    ],
+    "filename": "rust_future_and_pin",
+    "url_path": "/rust/rust_future_and_pin.html"
+  },
+  {
     "title": "Rust 2024 Return Position Impl Trait 的变化",
     "date": "2024.10.11",
     "author": "SF-Zhou",

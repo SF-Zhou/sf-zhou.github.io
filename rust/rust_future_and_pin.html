@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Rust Future & Pin | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Rust Future & Pin </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2024.10.17 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>Rust 异步编程中，Future 和 Pin 及其相关的概念是比较让人困惑的。本文试图阐述为什么需要这些设计。</p>
+<h3 id="1.-为什么需要-pin？" tabindex="-1"><a href="#1.-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81-pin%EF%BC%9F">1. 为什么需要 Pin？</a></h3>
+<p>因为存在<a href="https://doc.rust-lang.org/std/pin/index.html#examples-of-address-sensitive-types">自引用数据结构和侵入式数据结构</a>。异步函数返回的 Future 是典型的自引用数据结构。为了保证在 Future 执行过程中自引用的指针的合法性，最简单的办法就是在它的生命周期内将它的地址死死地固定在一个确定的位置上。</p>
+<h3 id="2.-pin-是如何实现的？" tabindex="-1"><a href="#2.-pin-%E6%98%AF%E5%A6%82%E4%BD%95%E5%AE%9E%E7%8E%B0%E7%9A%84%EF%BC%9F">2. Pin 是如何实现的？</a></h3>
+<p>本质上就是限制 T 类型的对象使其无法移动。以 <code>Pin&lt;Box&lt;T&gt;&gt;</code> 为例，只要它不暴露 <code>&amp;mut T</code> 以及 <code>Box&lt;T&gt;</code> 出来，那么该对象就不可能被移动。限制 <code>&amp;mut T</code> 是因为 <code>std::mem::swap</code> 等函数可以通过 <code>&amp;mut T</code> 移动对象的位置。Pin 如禁字法一般，不杀敌，只克己。</p>
+<h3 id="3.-什么是-future？" tabindex="-1"><a href="#3.-%E4%BB%80%E4%B9%88%E6%98%AF-future%EF%BC%9F">3. 什么是 Future？</a></h3>
+<p>Future 表示一个可能尚未完成计算的值。Rust 中 Future 的定义如下：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token type-definition class-name">Future</span> <span class="token punctuation">{</span>
+    <span class="token keyword">type</span> <span class="token type-definition class-name">Output</span><span class="token punctuation">;</span>
+    <span class="token keyword">fn</span> <span class="token function-definition function">poll</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">:</span> <span class="token class-name">Pin</span><span class="token operator">&lt;</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">,</span> cx<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token class-name">Context</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'_</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Poll</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token punctuation">::</span><span class="token class-name">Output</span><span class="token operator">></span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>Future 是异步编程的核心。所有的异步函数的返回值都是一个实现 Future trait 的对象，通过运行时不断地执行 <code>poll</code> 来推进 Future 的计算。除了异步函数的返回值外，用户也可以为自定义的数据结构实现 Future trait。</p>
+<h3 id="4.-为什么需要-unpin？" tabindex="-1"><a href="#4.-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81-unpin%EF%BC%9F">4. 为什么需要 Unpin？</a></h3>
+<p>如上一节所述，用户可以为自己的数据结构实现 Future trait，而用户自己的数据结构绝大部分是不存在自引用数据结构的，如果全部按照 Pin 的要求无法返回 <code>&amp;mut T</code>，那么它将会非常不易使用。而 Future trait 肯定是固定的，传入的参数始终是 <code>Pin&lt;&amp;mut T&gt;</code>。所以 Pin 的设计保留了方便之门，它仅保证在 <code>T: !Unpin</code> 时将对象固定住，而 <code>T: Unpin</code> 时可以返回 <code>&amp;mut T</code> 方便修改和使用。</p>
+<blockquote>
+<p>可能的类似问题：为什么我的 <code>Pin&lt;P&lt;T&gt;&gt;</code> 没有将对象 Pin 住？</p>
+</blockquote>
+<h3 id="5.-为什么需要-pin!？" tabindex="-1"><a href="#5.-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81-pin!%EF%BC%9F">5. 为什么需要 <code>pin!</code>？</a></h3>
+<p>有些时候我们希望直接将栈上的变量 Pin 住，而不希望将其移动到堆上再操作。对于 <code>!Unpin</code> 的类型，如果希望对栈上的对象直接构造一个 Pin 指针就得保证该指针 drop 时栈上的对象也同时完成 drop。所以官方提供了这个宏，帮助创建 Pin 指针的同时，将原对象的生命周期绑定到这个 Pin 指针上：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token attribute attr-name">#[allow_internal_unstable(unsafe_pin_internals)]</span>
+<span class="token keyword">pub</span> <span class="token keyword">macro</span> <span class="token function">pin</span><span class="token punctuation">(</span><span class="token variable">$value</span><span class="token punctuation">:</span><span class="token fragment-specifier punctuation">expr</span> $<span class="token punctuation">(</span><span class="token punctuation">,</span><span class="token punctuation">)</span><span class="token operator">?</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token variable">$crate</span><span class="token punctuation">::</span><span class="token namespace">pin<span class="token punctuation">::</span></span><span class="token class-name">Pin</span><span class="token punctuation">::</span><span class="token operator">&lt;</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> _<span class="token operator">></span> <span class="token punctuation">{</span> __pointer<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token punctuation">{</span> <span class="token variable">$value</span> <span class="token punctuation">}</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>这里有一个小技巧，<code>{ $value }</code> 会吃掉传入的参数，将其变成一个临时变量；但同时构造 Pin 的时候传入了临时变量的引用，延长了它的生命周期，这就保证了该对象拥有和 Pin 指针一致的生命周期。为了实现这样的小技巧，PR 的作者将 Pin 内的 <code>__pointer</code> 设为 <code>pub</code> 属性，并且增加了 unstable feature 约束用户无法直接访问该字段。有兴趣可以看看这个修改 <a href="https://github.com/rust-lang/rust/pull/93176">rust-lang/rust#93176</a>。</p>
+<h3 id="6.-为什么异步函数返回的-future-存在自引用数据结构？" tabindex="-1"><a href="#6.-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%BC%82%E6%AD%A5%E5%87%BD%E6%95%B0%E8%BF%94%E5%9B%9E%E7%9A%84-future-%E5%AD%98%E5%9C%A8%E8%87%AA%E5%BC%95%E7%94%A8%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%EF%BC%9F">6. 为什么异步函数返回的 Future 存在自引用数据结构？</a></h3>
+<p>可以参考如下代码，我自定义了一个 <code>Breakpoint</code> 结构，它引用了异步函数“栈”上的一个变量，在执行 <code>await</code> 操作后，此时的 future 对象就是一个自引用的状态（<code>point.t</code> 引用 <code>x</code>）。代码如下（<a href="https://play.rust-lang.org/?version=stable&amp;mode=debug&amp;edition=2021&amp;gist=20b3ec4502d9518de0413fcae5880998">在线执行</a>）：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span></span><span class="token punctuation">{</span>
+    <span class="token namespace">future<span class="token punctuation">::</span></span><span class="token class-name">Future</span><span class="token punctuation">,</span>
+    <span class="token namespace">pin<span class="token punctuation">::</span></span><span class="token punctuation">{</span>pin<span class="token punctuation">,</span> <span class="token class-name">Pin</span><span class="token punctuation">}</span><span class="token punctuation">,</span>
+    <span class="token namespace">task<span class="token punctuation">::</span></span><span class="token punctuation">{</span><span class="token class-name">Context</span><span class="token punctuation">,</span> <span class="token class-name">Poll</span><span class="token punctuation">,</span> <span class="token class-name">RawWaker</span><span class="token punctuation">,</span> <span class="token class-name">RawWakerVTable</span><span class="token punctuation">,</span> <span class="token class-name">Waker</span><span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Breakpoint</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'a</span><span class="token punctuation">,</span> <span class="token class-name">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    t<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token lifetime-annotation symbol">'a</span> <span class="token class-name">T</span><span class="token punctuation">,</span>
+    ready<span class="token punctuation">:</span> <span class="token keyword">bool</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'a</span><span class="token punctuation">,</span> <span class="token class-name">T</span><span class="token operator">></span> <span class="token class-name">Breakpoint</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'a</span><span class="token punctuation">,</span> <span class="token class-name">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">new</span><span class="token punctuation">(</span>t<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token lifetime-annotation symbol">'a</span> <span class="token class-name">T</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">Self</span> <span class="token punctuation">{</span>
+        <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"construct breakpoint, t: {:p}"</span><span class="token punctuation">,</span> t <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">const</span> _<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">Self</span> <span class="token punctuation">{</span> t<span class="token punctuation">,</span> ready<span class="token punctuation">:</span> <span class="token boolean">false</span> <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'a</span><span class="token punctuation">,</span> <span class="token class-name">T</span><span class="token operator">></span> <span class="token class-name">Future</span> <span class="token keyword">for</span> <span class="token class-name">Breakpoint</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'a</span><span class="token punctuation">,</span> <span class="token class-name">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token keyword">type</span> <span class="token type-definition class-name">Output</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">fn</span> <span class="token function-definition function">poll</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">:</span> <span class="token class-name">Pin</span><span class="token operator">&lt;</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">,</span> _cx<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">mut</span> <span class="token class-name">Context</span><span class="token operator">&lt;</span><span class="token lifetime-annotation symbol">'_</span><span class="token operator">></span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Poll</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token punctuation">::</span><span class="token class-name">Output</span><span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> this <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">get_mut</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">match</span> this<span class="token punctuation">.</span>ready <span class="token punctuation">{</span>
+            <span class="token boolean">true</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+                <span class="token macro property">println!</span><span class="token punctuation">(</span>
+                    <span class="token string">"breakpoint@{:p} ready, t: {:p}"</span><span class="token punctuation">,</span>
+                    this <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">const</span> _<span class="token punctuation">,</span> this<span class="token punctuation">.</span>t <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">const</span> _
+                <span class="token punctuation">)</span><span class="token punctuation">;</span>
+                <span class="token class-name">Poll</span><span class="token punctuation">::</span><span class="token class-name">Ready</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+            <span class="token punctuation">}</span>
+            <span class="token boolean">false</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+                <span class="token macro property">println!</span><span class="token punctuation">(</span>
+                    <span class="token string">"breakpoint@{:p} not ready, t: {:p}"</span><span class="token punctuation">,</span>
+                    this <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">const</span> _<span class="token punctuation">,</span> this<span class="token punctuation">.</span>t <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">const</span> _
+                <span class="token punctuation">)</span><span class="token punctuation">;</span>
+                this<span class="token punctuation">.</span>ready <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
+                <span class="token class-name">Poll</span><span class="token punctuation">::</span><span class="token class-name">Pending</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">run</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> x <span class="token operator">=</span> <span class="token number">0u32</span><span class="token punctuation">;</span>
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"x: {:p}"</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>x <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">const</span> _<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">let</span> point <span class="token operator">=</span> <span class="token class-name">Breakpoint</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>x<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    point<span class="token punctuation">.</span><span class="token keyword">await</span><span class="token punctuation">;</span>
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"x: {:p}"</span><span class="token punctuation">,</span> <span class="token operator">&amp;</span>x <span class="token keyword">as</span> <span class="token operator">*</span><span class="token keyword">const</span> _<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">fn</span> <span class="token function-definition function">dummy_raw_waker</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">RawWaker</span> <span class="token punctuation">{</span>
+    <span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">no_op</span><span class="token punctuation">(</span>_data<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+    <span class="token keyword">unsafe</span> <span class="token keyword">fn</span> <span class="token function-definition function">clone</span><span class="token punctuation">(</span>_data<span class="token punctuation">:</span> <span class="token operator">*</span><span class="token keyword">const</span> <span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">RawWaker</span> <span class="token punctuation">{</span>
+        <span class="token function">dummy_raw_waker</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">let</span> vtable <span class="token operator">=</span> <span class="token operator">&amp;</span><span class="token class-name">RawWakerVTable</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span>clone<span class="token punctuation">,</span> no_op<span class="token punctuation">,</span> no_op<span class="token punctuation">,</span> no_op<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token class-name">RawWaker</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token namespace">std<span class="token punctuation">::</span>ptr<span class="token punctuation">::</span></span><span class="token function">null</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> vtable<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">fn</span> <span class="token function-definition function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> waker <span class="token operator">=</span> <span class="token keyword">unsafe</span> <span class="token punctuation">{</span> <span class="token class-name">Waker</span><span class="token punctuation">::</span><span class="token function">from_raw</span><span class="token punctuation">(</span><span class="token function">dummy_raw_waker</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token keyword">let</span> <span class="token keyword">mut</span> cx <span class="token operator">=</span> <span class="token class-name">Context</span><span class="token punctuation">::</span><span class="token function">from_waker</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>waker<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> <span class="token keyword">mut</span> f <span class="token operator">=</span> <span class="token macro property">pin!</span><span class="token punctuation">(</span><span class="token function">run</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"start!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">while</span> <span class="token keyword">let</span> <span class="token class-name">Poll</span><span class="token punctuation">::</span><span class="token class-name">Pending</span> <span class="token operator">=</span> <span class="token class-name">Pin</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> f<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">poll</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> cx<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"pending, try again"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"finish!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">/*
+start!
+x: 0x7ffe8527be38
+construct breakpoint, t: 0x7ffe8527be38
+breakpoint@0x7ffe8527be28 not ready, t: 0x7ffe8527be38
+pending, try again
+breakpoint@0x7ffe8527be28 ready, t: 0x7ffe8527be38
+x: 0x7ffe8527be38
+finish!
+*/</span>
+</code></pre>
+<h3 id="7.-为什么-pin::new_unchecked-是-unsafe-的？" tabindex="-1"><a href="#7.-%E4%B8%BA%E4%BB%80%E4%B9%88-pin%3A%3Anew_unchecked-%E6%98%AF-unsafe-%E7%9A%84%EF%BC%9F">7. 为什么 <code>Pin::new_unchecked</code> 是 unsafe 的？</a></h3>
+<p>如果我不遵守 Pin 的规则，那么该自引用的状态可以被破坏（<a href="https://play.rust-lang.org/?version=stable&amp;mode=release&amp;edition=2021&amp;gist=c7fb1438062a0d8f1f2bbd91fca873dd">在线执行</a>）：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">fn</span> <span class="token function-definition function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> waker <span class="token operator">=</span> <span class="token keyword">unsafe</span> <span class="token punctuation">{</span> <span class="token class-name">Waker</span><span class="token punctuation">::</span><span class="token function">from_raw</span><span class="token punctuation">(</span><span class="token function">dummy_raw_waker</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+    <span class="token keyword">let</span> <span class="token keyword">mut</span> cx <span class="token operator">=</span> <span class="token class-name">Context</span><span class="token punctuation">::</span><span class="token function">from_waker</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>waker<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">let</span> <span class="token keyword">mut</span> f <span class="token operator">=</span> <span class="token function">run</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"sizeof future: {}"</span><span class="token punctuation">,</span> <span class="token namespace">std<span class="token punctuation">::</span>mem<span class="token punctuation">::</span></span><span class="token function">size_of_val</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>f<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"start!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> p <span class="token operator">=</span> <span class="token keyword">unsafe</span> <span class="token punctuation">{</span> <span class="token class-name">Pin</span><span class="token punctuation">::</span><span class="token function">new_unchecked</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> f<span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+        <span class="token keyword">if</span> p<span class="token punctuation">.</span><span class="token function">poll</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> cx<span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token class-name">Poll</span><span class="token punctuation">::</span><span class="token class-name">Pending</span> <span class="token punctuation">{</span>
+            <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"pending, try again"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> p <span class="token operator">=</span> <span class="token class-name">Box</span><span class="token punctuation">::</span><span class="token function">pin</span><span class="token punctuation">(</span>f<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token comment">// move from stack to heap.</span>
+        <span class="token keyword">if</span> p<span class="token punctuation">.</span><span class="token function">as_mut</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">poll</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">mut</span> cx<span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token class-name">Poll</span><span class="token punctuation">::</span><span class="token class-name">Pending</span> <span class="token punctuation">{</span>
+            <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"pending, try again"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token macro property">println!</span><span class="token punctuation">(</span><span class="token string">"finish!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">/*
+sizeof future: 24
+start!
+x: 0x7ffe1590ed80
+construct breakpoint, t: 0x7ffe1590ed80
+breakpoint@0x7ffe1590ed70 not ready, t: 0x7ffe1590ed80
+pending, try again
+breakpoint@0x61c1df7a3b80 ready, t: 0x7ffe1590ed80
+x: 0x61c1df7a3b90
+finish!
+*/</span>
+</code></pre>
+<p>从输出中，我们可以得出以下结论：</p>
+<ol>
+<li>异步函数中获取引用/地址的操作是实时计算的</li>
+<li>注意 <code>x</code> 和 <code>t</code> 地址的变化，异常的移动会破坏自引用结构。这间接要求了构造 Pin 时需要严格限制</li>
+<li>future 结构在首次执行 <code>poll</code> 前，是不会构造自引用数据的，此时它是可以合法移动的</li>
+</ol>
+<h3 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h3>
+<p>可以查看参考中列出的 Issue 和文章，Pin 和 Future 的设计是经过社区讨论不断演进的，理解了它的底层需求会发现这些设计还是自然、合理的。</p>
+<h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
+<ol>
+<li><a href="https://doc.rust-lang.org/std/pin/">Rust std::pin</a></li>
+<li><a href="https://github.com/rust-lang/rfcs/pull/2349">rust-lang/rust#2349 Standard library API for immovable types</a></li>
+<li><a href="https://rust-lang.github.io/rfcs/2394-async_await.html">Rust RFC 2394 async_await</a></li>
+<li><a href="https://without.boats/blog/pin/">Pin, withoutboats</a></li>
+<li><a href="https://github.com/rust-lang/rust/pull/93176">rust-lang/rust#93176 Add a stack-<code>pin!</code>-ning macro to <code>core::pin</code></a></li>
+</ol>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
