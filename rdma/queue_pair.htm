@@ -72,6 +72,22 @@
 <li>RDMA Write with Immediate</li>
 <li>RDMA Read</li>
 </ul>
+<h3 id="5.-create-a-socket" tabindex="-1"><a href="#5.-create-a-socket">5. Create a socket</a></h3>
+<ol>
+<li>a context</li>
+<li>a comp channel</li>
+<li>a comp queue</li>
+<li>a protection domain</li>
+<li>a queue pair</li>
+<li>an endpoint
+<ol>
+<li>LID: Local Identifier, 16bit, one per port, just for IB.</li>
+<li>GID: Global Identifier, 128bit, multiple per port, IB/RoCE.</li>
+<li>Port Num</li>
+<li>QP Num</li>
+</ol>
+</li>
+</ol>
 <h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://www.rdmamojo.com/2013/01/26/ibv_post_send/">RDMAmojo - ibv_post_send</a></li>
