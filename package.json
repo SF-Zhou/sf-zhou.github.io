@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "download": "^8.0.0",
-    "file-type": "^19.0.0",
+    "file-type": "^20.0.0",
     "katex": "^0.16.0",
     "less": "^4.0.0",
     "markdown-it": "^14.1.0",
