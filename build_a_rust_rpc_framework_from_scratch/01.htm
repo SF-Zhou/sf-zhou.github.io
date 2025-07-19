@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>从零开始构建 Rust RPC 框架「一、基本框架」 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> 从零开始构建 Rust RPC 框架「一、基本框架」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2025.07.19 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-星辰大海" tabindex="-1"><a href="#1.-%E6%98%9F%E8%BE%B0%E5%A4%A7%E6%B5%B7">1. 星辰大海</a></h3>
+<p>Rust 生态里，RPC 框架的关注度似乎不高，Web 框架倒是有不少。近来笔者愈发觉得还是需要一个稳定可靠高性能的 RPC 框架的。考虑到之前在 <a href="https://github.com/deepseek-ai/3FS/tree/main/src/common/net">3FS RPC</a> 框架中获得的经验和所犯的错误，我还是决定从零开始构建一套 Rust RPC 框架。这套 RPC 框架有如下目标：</p>
+<ol>
+<li>无 proto 文件，通过纯 Rust 定义接口和数据类型；</li>
+<li>序列化协议使用 JSON 和 <a href="https://msgpack.org/">MessagePack</a>，数据包含 schema 能自解释；</li>
+<li>传输层协议支持 TCP、WebSocket 和 RDMA，支持前端页面调用 RPC；</li>
+<li>高性能、低延迟，优先优化 RDMA 网络场景；</li>
+<li>支持 RPC 回调，server 可以调用 client 提供的方法；</li>
+<li>完善的可观测性，提供充足的 metrics 和 logs，支持分布式 tracing；</li>
+<li>丰富的预定义 service，例如查询 server stats，开箱可用；</li>
+<li>[可选] 支持网页 API 文档和接口调试工具，支持 JSON Schema；</li>
+<li>[可选] 支持 Python 接口绑定。</li>
+</ol>
+<p>以上这些目标我不确定能否都实现。我会在这个系列的博文里详细介绍我的想法和设计。为了避免烂尾，这个系列的博文我会设置为隐藏，等主要目标都实现了我再一次性公开。</p>
+<p>至于项目的名字，我将其命名为 <a href="https://github.com/SF-Zhou/ruapc">RuaPC</a>。（我猜可能是 Rust Unified Access Procedure Call）</p>
+<figure tabindex="1"><a href="../images/9b771e4d3ee9b4d72f951e86b21a19ba.png"><img src="../images/9b771e4d3ee9b4d72f951e86b21a19ba.png" alt=""></a><figcaption>寓意强大且亲和的喵星人，可 Rua！</figcaption></figure>
+<h3 id="2.-基本框架" tabindex="-1"><a href="#2.-%E5%9F%BA%E6%9C%AC%E6%A1%86%E6%9E%B6">2. 基本框架</a></h3>
+<blockquote>
+<p>写 RPC 框架，说实话，分分钟写出来，不用一星期，三天！RPC 框架好写，太好写了。 —— Rua 頔</p>
+</blockquote>
+<p>一个最简单的 RPC 框架只需要包含以下部分：</p>
+<ol>
+<li>接口定义；</li>
+<li>序列化；</li>
+<li>连接管理。</li>
+</ol>
+<p>思考一下，普通的函数调用（Procedure Call）是怎样的？</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">fn</span> <span class="token function-definition function">echo</span><span class="token punctuation">(</span>name<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token keyword">str</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">String</span> <span class="token punctuation">{</span>
+  name<span class="token punctuation">.</span><span class="token function">to_string</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">let</span> value <span class="token operator">=</span> <span class="token function">echo</span><span class="token punctuation">(</span><span class="token string">"Rua!"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>在同一个编译单元里，调用方指定函数名以及约定的参数，就可以调用该函数、获得返回值。RPC（Remote Procedure Call）的步骤也是类似的，只是调用方 caller 和被调用方 callee 可能不在同一个位置，同样是按照约定的接口发起请求，被调用方执行返回结果，caller 获得结果。一次完整的 RPC 的流程如下：</p>
+<ol>
+<li>[caller] 按照约定的接口定义，指定函数名和参数，发起调用；</li>
+<li>[caller] 将调用信息和参数序列化为某种格式的载荷（payload），大概率是字节流；</li>
+<li>[caller] 将载荷通过载体发送给被调用方，载体可以是 TCP 连接；</li>
+<li>[callee] 接收到载体传递来的载荷；</li>
+<li>[callee] 将载荷反序列化为调用信息和参数；</li>
+<li>[callee] 按照请求的调用信息，找到接口定义对应的函数，传入请求的参数并调用；</li>
+<li>[callee] 获得函数调用的结果，将调用信息和结果序列化为载荷；</li>
+<li>[callee] 将载荷通过载体发送给调用方；</li>
+<li>[caller] 接收到载体传递来的载荷；</li>
+<li>[caller] 将载荷反序列化为约定的结果类型，调用完成。</li>
+</ol>
+<p>可以发现，调用方和被调用方的步骤是高度对称的。</p>
+<h3 id="3.-接口定义" tabindex="-1"><a href="#3.-%E6%8E%A5%E5%8F%A3%E5%AE%9A%E4%B9%89">3. 接口定义</a></h3>
+<p>Rust 的 trait 类型非常适合定义接口，例如：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token type-definition class-name">EchoService</span> <span class="token punctuation">{</span>
+    <span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">echo</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> r<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">String</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token class-name">String</span><span class="token operator">></span><span class="token punctuation">;</span>
+    <span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">foo</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> val<span class="token punctuation">:</span> <span class="token keyword">u32</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token keyword">u32</span><span class="token operator">></span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>在 Server 端，我们实现对应的接口：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">struct</span> <span class="token type-definition class-name">DemoImpl</span><span class="token punctuation">;</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">EchoService</span> <span class="token keyword">for</span> <span class="token class-name">DemoImpl</span> <span class="token punctuation">{</span>
+    <span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">echo</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> r<span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">String</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token class-name">String</span><span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token class-name">Ok</span><span class="token punctuation">(</span>r<span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">foo</span><span class="token punctuation">(</span><span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span> val<span class="token punctuation">:</span> <span class="token keyword">u32</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token keyword">u32</span><span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token class-name">Ok</span><span class="token punctuation">(</span>val <span class="token operator">*</span> <span class="token number">2</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>在 Client 端，我们希望可以直接调用 <code>EchoService::echo</code> 方法触发 RPC 请求。也就是说 <code>Client</code> 端需要有一个默认的 <code>EchoService</code> 实现，它实际上会完成序列化、发送、接收、反序列化的步骤。我们使用 Rust 的宏实现这一目的，见<a href="https://github.com/SF-Zhou/ruapc/blob/b64248314de3eacfcbf2d6ab1f3ec5f7ad6a3edf/ruapc-macro/src/lib.rs">代码</a>。</p>
+<h3 id="4.-序列化" tabindex="-1"><a href="#4.-%E5%BA%8F%E5%88%97%E5%8C%96">4. 序列化</a></h3>
+<p>Rust 里实现序列化/反序列化还是容易的，直接用 serde 和 serde_json，例如：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> <span class="token namespace">serde<span class="token punctuation">::</span></span><span class="token punctuation">{</span><span class="token class-name">Deserialize</span><span class="token punctuation">,</span> <span class="token class-name">Serialize</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token attribute attr-name">#[derive(Serialize, Deserialize)]</span>
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">Request</span> <span class="token punctuation">{</span>
+  <span class="token keyword">pub</span> name<span class="token punctuation">:</span> <span class="token class-name">String</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>如此参数 <code>Request</code> 类型就有了序列化/反序列化的能力。但除了参数，我们还需要一个数据结构来定义调用本身的信息，例如要包含调用的函数名。定义 <code>MsgMeta</code>：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token attribute attr-name">#[derive(Deserialize, Serialize, Debug, Default, PartialEq, Eq, Clone)]</span>
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">MsgMeta</span> <span class="token punctuation">{</span>
+    <span class="token keyword">pub</span> method<span class="token punctuation">:</span> <span class="token class-name">String</span><span class="token punctuation">,</span>
+    <span class="token keyword">pub</span> flags<span class="token punctuation">:</span> <span class="token class-name">MsgFlags</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>其中 <code>method</code> 定义请求的方法名；<code>flags</code> 定义调用信息的一些标志位，可以暂时忽略。一个完整的请求序列化需要包含 <code>MsgMeta</code> 和参数两者的序列化结果，我们可以将这两个值放到同一个结构体一起序列化，也可以将两个其分开序列化，这里选择后者。为了在字节流中分隔开这两个值，我们还需要增加一个长度定义；为了定义序列化后消息的边界，还需要增加一个总长度的定义；为了防御一些非法请求，我们还在每个请求前增加一个 magic number。完整的消息定义如下：</p>
+<ol>
+<li>4 位 magic number，固定为 &quot;RUA!&quot;；</li>
+<li>序列化消息总长度 <code>total_len</code>，大端 <code>u32</code></li>
+<li><code>MsgMeta</code> 总长度 <code>meta_len</code>，大端 <code>u32</code></li>
+<li><code>MsgMeta</code> 序列化结果，长度为 <code>meta_len</code></li>
+<li>参数序列化结果，长度为 <code>total_len</code> - <code>meta_len</code> - 4，4 为大端 <code>u32</code> 的长度</li>
+</ol>
+<p>按照上述规则实现序列化的逻辑，代码参考<a href="https://github.com/SF-Zhou/ruapc/blob/b64248314de3eacfcbf2d6ab1f3ec5f7ad6a3edf/ruapc/src/socket.rs#L26-L105"> socket.rs 文件</a>和 <a href="https://github.com/SF-Zhou/ruapc/blob/b64248314de3eacfcbf2d6ab1f3ec5f7ad6a3edf/ruapc/src/msg.rs#L40-L69">msg.rs 文件</a>。</p>
+<h3 id="5.-连接管理" tabindex="-1"><a href="#5.-%E8%BF%9E%E6%8E%A5%E7%AE%A1%E7%90%86">5. 连接管理</a></h3>
+<p>做一个简单的 Tcp 连接池，核心数据结构 <code>Mutex&lt;HashMap&lt;SocketAddr, Vec&lt;TcpStream&gt;&gt;&gt;</code>，尝试获取连接时如果没有则新建并尝试连接；Server 端则尝试持续从连接中解析新消息。完整代码如下：</p>
+<pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>collections<span class="token punctuation">::</span></span><span class="token class-name">HashMap</span><span class="token punctuation">;</span>
+<span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>net<span class="token punctuation">::</span></span><span class="token class-name">SocketAddr</span><span class="token punctuation">;</span>
+<span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>sync<span class="token punctuation">::</span></span><span class="token class-name">Arc</span><span class="token punctuation">;</span>
+<span class="token keyword">use</span> <span class="token namespace">tokio<span class="token punctuation">::</span>net<span class="token punctuation">::</span></span><span class="token class-name">TcpStream</span><span class="token punctuation">;</span>
+<span class="token keyword">use</span> <span class="token namespace">tokio<span class="token punctuation">::</span>sync<span class="token punctuation">::</span></span><span class="token class-name">Mutex</span><span class="token punctuation">;</span>
+
+<span class="token keyword">use</span> <span class="token keyword">crate</span><span class="token punctuation">::</span><span class="token punctuation">{</span>
+    <span class="token class-name">Router</span><span class="token punctuation">,</span> <span class="token class-name">Socket</span><span class="token punctuation">,</span>
+    <span class="token namespace">context<span class="token punctuation">::</span></span><span class="token punctuation">{</span><span class="token class-name">Context</span><span class="token punctuation">,</span> <span class="token class-name">SocketEndpoint</span><span class="token punctuation">}</span><span class="token punctuation">,</span>
+    <span class="token namespace">error<span class="token punctuation">::</span></span><span class="token punctuation">{</span><span class="token class-name">Error</span><span class="token punctuation">,</span> <span class="token class-name">ErrorKind</span><span class="token punctuation">,</span> <span class="token class-name">Result</span><span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token attribute attr-name">#[derive(Default)]</span>
+<span class="token keyword">pub</span> <span class="token keyword">struct</span> <span class="token type-definition class-name">SocketPool</span> <span class="token punctuation">{</span>
+    map<span class="token punctuation">:</span> <span class="token class-name">Mutex</span><span class="token operator">&lt;</span><span class="token class-name">HashMap</span><span class="token operator">&lt;</span><span class="token class-name">SocketAddr</span><span class="token punctuation">,</span> <span class="token class-name">Vec</span><span class="token operator">&lt;</span><span class="token class-name">TcpStream</span><span class="token operator">>></span><span class="token operator">></span><span class="token punctuation">,</span>
+    router<span class="token punctuation">:</span> <span class="token class-name">Router</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">impl</span> <span class="token class-name">SocketPool</span> <span class="token punctuation">{</span>
+    <span class="token attribute attr-name">#[must_use]</span>
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">create_for_server</span><span class="token punctuation">(</span>router<span class="token punctuation">:</span> <span class="token class-name">Router</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token keyword">Self</span> <span class="token punctuation">{</span>
+        <span class="token keyword">Self</span> <span class="token punctuation">{</span>
+            map<span class="token punctuation">:</span> <span class="token class-name">Mutex</span><span class="token punctuation">::</span><span class="token function">default</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            router<span class="token punctuation">,</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">pub</span> <span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">acquire_socket</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">Arc</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">,</span> addr<span class="token punctuation">:</span> <span class="token class-name">SocketAddr</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token class-name">Socket</span><span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> <span class="token keyword">mut</span> map <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span>map<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token keyword">await</span><span class="token punctuation">;</span>
+        <span class="token keyword">let</span> stream <span class="token operator">=</span> <span class="token keyword">if</span> <span class="token keyword">let</span> <span class="token class-name">Some</span><span class="token punctuation">(</span>stream<span class="token punctuation">)</span> <span class="token operator">=</span> map<span class="token punctuation">.</span><span class="token function">get_mut</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>addr<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">and_then</span><span class="token punctuation">(</span><span class="token namespace">std<span class="token punctuation">::</span>vec<span class="token punctuation">::</span></span><span class="token class-name">Vec</span><span class="token punctuation">::</span>pop<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            stream
+        <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+            <span class="token function">drop</span><span class="token punctuation">(</span>map<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token class-name">TcpStream</span><span class="token punctuation">::</span><span class="token function">connect</span><span class="token punctuation">(</span>addr<span class="token punctuation">)</span>
+                <span class="token punctuation">.</span><span class="token keyword">await</span>
+                <span class="token punctuation">.</span><span class="token function">map_err</span><span class="token punctuation">(</span><span class="token closure-params"><span class="token closure-punctuation punctuation">|</span>e<span class="token closure-punctuation punctuation">|</span></span> <span class="token class-name">Error</span><span class="token punctuation">::</span><span class="token function">new</span><span class="token punctuation">(</span><span class="token class-name">ErrorKind</span><span class="token punctuation">::</span><span class="token class-name">TcpConnectFailed</span><span class="token punctuation">,</span> e<span class="token punctuation">.</span><span class="token function">to_string</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token operator">?</span>
+        <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+        <span class="token class-name">Ok</span><span class="token punctuation">(</span><span class="token class-name">Socket</span> <span class="token punctuation">{</span>
+            socket_pool<span class="token punctuation">:</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            tcp_stream<span class="token punctuation">:</span> <span class="token class-name">Some</span><span class="token punctuation">(</span>stream<span class="token punctuation">)</span><span class="token punctuation">,</span>
+            for_send<span class="token punctuation">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">add_socket_for_send</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">Arc</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">,</span> stream<span class="token punctuation">:</span> <span class="token class-name">TcpStream</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> this <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">if</span> <span class="token keyword">let</span> <span class="token class-name">Ok</span><span class="token punctuation">(</span>peer_addr<span class="token punctuation">)</span> <span class="token operator">=</span> stream<span class="token punctuation">.</span><span class="token function">peer_addr</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token namespace">tokio<span class="token punctuation">::</span></span><span class="token function">spawn</span><span class="token punctuation">(</span><span class="token keyword">async</span> <span class="token keyword">move</span> <span class="token punctuation">{</span>
+                <span class="token keyword">let</span> <span class="token keyword">mut</span> map <span class="token operator">=</span> this<span class="token punctuation">.</span>map<span class="token punctuation">.</span><span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token keyword">await</span><span class="token punctuation">;</span>
+                map<span class="token punctuation">.</span><span class="token function">entry</span><span class="token punctuation">(</span>peer_addr<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">or_default</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>stream<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">pub</span> <span class="token keyword">fn</span> <span class="token function-definition function">add_socket_for_recv</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">Arc</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">,</span> stream<span class="token punctuation">:</span> <span class="token class-name">TcpStream</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> socket <span class="token operator">=</span> <span class="token class-name">Socket</span> <span class="token punctuation">{</span>
+            socket_pool<span class="token punctuation">:</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            tcp_stream<span class="token punctuation">:</span> <span class="token class-name">Some</span><span class="token punctuation">(</span>stream<span class="token punctuation">)</span><span class="token punctuation">,</span>
+            for_send<span class="token punctuation">:</span> <span class="token boolean">false</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">;</span>
+        <span class="token keyword">let</span> this <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token namespace">tokio<span class="token punctuation">::</span></span><span class="token function">spawn</span><span class="token punctuation">(</span><span class="token keyword">async</span> <span class="token keyword">move</span> <span class="token punctuation">{</span>
+            <span class="token keyword">let</span> _ <span class="token operator">=</span> this<span class="token punctuation">.</span><span class="token function">handle_request</span><span class="token punctuation">(</span>socket<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token keyword">await</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">handle_request</span><span class="token punctuation">(</span><span class="token keyword">self</span><span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token class-name">Arc</span><span class="token operator">&lt;</span><span class="token keyword">Self</span><span class="token operator">></span><span class="token punctuation">,</span> <span class="token keyword">mut</span> socket<span class="token punctuation">:</span> <span class="token class-name">Socket</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> msg <span class="token operator">=</span> socket<span class="token punctuation">.</span><span class="token function">recv</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token keyword">await</span><span class="token operator">?</span><span class="token punctuation">;</span>
+        <span class="token keyword">let</span> ctx <span class="token operator">=</span> <span class="token class-name">Context</span> <span class="token punctuation">{</span>
+            socket_pool<span class="token punctuation">:</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            endpoint<span class="token punctuation">:</span> <span class="token class-name">SocketEndpoint</span><span class="token punctuation">::</span><span class="token class-name">Connected</span><span class="token punctuation">(</span>socket<span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token punctuation">}</span><span class="token punctuation">;</span>
+        <span class="token keyword">self</span><span class="token punctuation">.</span>router<span class="token punctuation">.</span><span class="token function">dispatch</span><span class="token punctuation">(</span>ctx<span class="token punctuation">,</span> msg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token class-name">Ok</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="6.-组装一下" tabindex="-1"><a href="#6.-%E7%BB%84%E8%A3%85%E4%B8%80%E4%B8%8B">6. 组装一下</a></h3>
+<p>完整代码参见<a href="https://github.com/SF-Zhou/ruapc/blob/b64248314de3eacfcbf2d6ab1f3ec5f7ad6a3edf">该链接</a>。</p>
+
+      </div>
+      
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
