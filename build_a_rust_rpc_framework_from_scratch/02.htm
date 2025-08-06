@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>从零开始构建 Rust RPC 框架「二、渐入佳境」 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> 从零开始构建 Rust RPC 框架「二、渐入佳境」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2025.07.26 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="1.-重构" tabindex="-1"><a href="#1.-%E9%87%8D%E6%9E%84">1. 重构</a></h3>
+<p>上一篇博文中，阐述了如何打造一个最简化的 RPC 框架，但这离设想的星辰大海还很远。所以我对目前的代码进行了重构，使其基础结构能够支撑未来的开发需求。</p>
+<p>回顾一下重点目标，基于这些目标需要完成如下的工作：</p>
+<ol>
+<li>传输协议支持 TCP、WebSocket 和 RDMA，那么：
+<ol>
+<li>要抽象出一层连接 Socket 和连接管理器 SocketPool，以支持不同的连接类型；</li>
+<li>为了高性能地处理不同连接类型异步函数的动态派发，决定使用 <code>enum</code> 手动处理派发。</li>
+</ol>
+</li>
+<li>支持反向 RPC，server 可以调用 client 提供的方法，那么：
+<ol>
+<li>连接本身要支持全双工，server 端可以通过请求所在的连接发送对应的回包或者另一个新请求；</li>
+<li>client 端也可以注册方法，目前来看只能在 context 中管理注册方法的 router 了。</li>
+</ol>
+</li>
+<li>支持反射，server 能否向 client 暴露和描述自身所提供的服务和方法，那么：
+<ol>
+<li>context 中可以获取到所有的方法及其类型定义，包含 router 的话可以解决该问题；</li>
+<li>所有的请求参数和返回值均要求使用 <a href="https://crates.io/crates/schemars">schemars</a> 修饰，暴露 JSON Schema。</li>
+</ol>
+</li>
+</ol>
+<p>基于上述的想法，进一步地明确 <code>Context</code> 的定义。客户端请求传入的 context 与服务端处理请求接收到的 context 的类型是完全一致的，我们既希望在获取到 context 的时候有能力处理请求、发起新请求，又希望在客户端可以支持注册方法，那么 context 实际上就需要包含了以下几部分：</p>
+<p>首先是明确 <code>Context</code> 的定义。RuaPC 为了追求对称，客户端请求传入的 context 与服务端处理请求接收到的 context 的类型是完全一致的，并且希望在获取到 context 的时候有能力发起请求，那么 context 实际上就需要包含了以下几部分：</p>
+<ol>
+<li>连接管理器，client/server 发送请求时需要从 context 里获取连接；</li>
+<li>方法路由，管理所有注册的服务和方法，并且有反射的能力；</li>
+<li>请求自身相关信息，包括请求来源的 socket、附带的 meta 信息。</li>
+</ol>
+<p>这些部分可以进一步地抽象为两部分：全局状态 <code>State</code> 和请求元信息 <code>ReqMeta</code>。</p>
+<h3 id="2.-全双工通信" tabindex="-1"><a href="#2.-%E5%85%A8%E5%8F%8C%E5%B7%A5%E9%80%9A%E4%BF%A1">2. 全双工通信</a></h3>
+<p>为了提高通信性能以及实现反向 RPC，需要在 TCP 上实现收发消息的全双工通信，做到发送与接收互不干扰。实现的策略也很简单，客户端在每一条请求中增加一个全局唯一的 msg id，服务端回包中附带请求的 msg id，客户端收到一致的 msg id 后唤醒对应的请求。</p>
+
+      </div>
+      
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

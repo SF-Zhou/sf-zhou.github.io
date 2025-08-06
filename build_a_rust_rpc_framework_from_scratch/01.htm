@@ -8,7 +8,7 @@
     <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
     <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
     <link rel="stylesheet" type="text/css" href="/dist/main.css">
-    <title>从零开始构建 Rust RPC 框架「一、基本框架」 | SF-Zhou's Blog</title>
+    <title>从零开始构建 Rust RPC 框架「一、星辰大海」 | SF-Zhou's Blog</title>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
@@ -20,7 +20,7 @@
   <body>
     <div class="app">
       <div class="title">
-        <h1> 从零开始构建 Rust RPC 框架「一、基本框架」 </h1>
+        <h1> 从零开始构建 Rust RPC 框架「一、星辰大海」 </h1>
       </div>
       <div class="info">
         <div class="date"> 2025.07.19 </div>
@@ -36,7 +36,8 @@
 <li>序列化协议使用 JSON 和 <a href="https://msgpack.org/">MessagePack</a>，数据包含 schema 能自解释；</li>
 <li>传输层协议支持 TCP、WebSocket 和 RDMA，支持前端页面调用 RPC；</li>
 <li>高性能、低延迟，优先优化 RDMA 网络场景；</li>
-<li>支持 RPC 回调，server 可以调用 client 提供的方法；</li>
+<li>支持反向 RPC，server 可以调用 client 提供的方法；</li>
+<li>支持反射，server 能否向 client 暴露和描述自身所提供的服务和方法；</li>
 <li>完善的可观测性，提供充足的 metrics 和 logs，支持分布式 tracing；</li>
 <li>丰富的预定义 service，例如查询 server stats，开箱可用；</li>
 <li>[可选] 支持网页 API 文档和接口调试工具，支持 JSON Schema；</li>
@@ -96,7 +97,7 @@
     <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<p>当 Server 端收到一条包含调用信息和参数序列化结果的请求时，如何调用对应的方法呢？这里还需要生成一个方法名到调用函数的映射。ruapc 中基于 tokio 和 <a href="https://rust-lang.github.io/rfcs/3654-return-type-notation.html">return type notation</a>，使用宏为 <code>trait</code> 生成 <code>ruapc_export</code> 方法：</p>
+<p>当 Server 端收到一条包含调用信息和参数序列化结果的请求时，如何调用对应的方法呢？这里还需要生成一个方法名到调用函数的映射。ruapc 中基于 tokio 和 <a href="https://rust-lang.github.io/rfcs/3654-return-type-notation.html">return type notation</a>，使用宏为 <code>trait</code> 生成 <code>ruapc_export</code> 方法来实现 dispatch：</p>
 <pre class="language-rust"><code class="language-rust"><span class="token keyword">pub</span> <span class="token keyword">type</span> <span class="token type-definition class-name">Method</span> <span class="token operator">=</span> <span class="token class-name">Box</span><span class="token operator">&lt;</span><span class="token keyword">dyn</span> <span class="token class-name">Fn</span><span class="token punctuation">(</span><span class="token class-name">Context</span><span class="token punctuation">,</span> <span class="token class-name">RecvMsg</span><span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token class-name">Result</span><span class="token operator">&lt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">></span> <span class="token operator">+</span> <span class="token class-name">Send</span> <span class="token operator">+</span> <span class="token class-name">Sync</span><span class="token operator">></span><span class="token punctuation">;</span>
 
 <span class="token keyword">pub</span> <span class="token keyword">trait</span> <span class="token type-definition class-name">EchoService</span> <span class="token punctuation">{</span>
@@ -107,7 +108,7 @@
     <span class="token punctuation">)</span> <span class="token punctuation">-></span> <span class="token punctuation">::</span><span class="token namespace">std<span class="token punctuation">::</span>collections<span class="token punctuation">::</span></span><span class="token class-name">HashMap</span><span class="token operator">&lt;</span><span class="token class-name">String</span><span class="token punctuation">,</span> <span class="token namespace">ruapc<span class="token punctuation">::</span></span><span class="token class-name">Method</span><span class="token operator">></span>
     <span class="token keyword">where</span>
         <span class="token keyword">Self</span><span class="token punctuation">:</span> <span class="token lifetime-annotation symbol">'static</span> <span class="token operator">+</span> <span class="token class-name">Send</span> <span class="token operator">+</span> <span class="token class-name">Sync</span><span class="token punctuation">,</span>
-        <span class="token keyword">Self</span><span class="token punctuation">(</span><span class="token punctuation">..</span><span class="token punctuation">)</span><span class="token punctuation">:</span> <span class="token class-name">Send</span><span class="token punctuation">,</span>
+        <span class="token keyword">Self</span><span class="token punctuation">::</span><span class="token function">echo</span><span class="token punctuation">(</span><span class="token punctuation">..</span><span class="token punctuation">)</span><span class="token punctuation">:</span> <span class="token class-name">Send</span><span class="token punctuation">,</span>
     <span class="token punctuation">{</span>
         <span class="token keyword">let</span> <span class="token keyword">mut</span> map <span class="token operator">=</span> <span class="token punctuation">::</span><span class="token namespace">std<span class="token punctuation">::</span>collections<span class="token punctuation">::</span></span><span class="token class-name">HashMap</span><span class="token punctuation">::</span><span class="token operator">&lt;</span><span class="token class-name">String</span><span class="token punctuation">,</span> <span class="token namespace">ruapc<span class="token punctuation">::</span></span><span class="token class-name">Method</span><span class="token operator">></span><span class="token punctuation">::</span><span class="token function">default</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
         <span class="token keyword">let</span> this <span class="token operator">=</span> <span class="token keyword">self</span><span class="token punctuation">.</span><span class="token function">clone</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
@@ -139,11 +140,10 @@
 <ol>
 <li>我并不希望宏生成任何新的 <code>struct</code> 类型；</li>
 <li>我喜欢所见即所得，我并不希望宏生成的函数篡改了函数声明；</li>
-<li>我希望在 client 调用时，保持完全一致函数签名，所有要求返回值一定是一个 <code>Result&lt;T, E&gt;</code>，并且要求 <code>ruapc::Error</code> 可以转为用户声明的 <code>Error</code> 类型；</li>
-<li>Rust 目前（2024 edition，1.88）对 async trait dynamic dispatch 的支持依然不够好。可以依赖 <a href="https://crates.io/crates/dynosaur">dynosaur</a> 实现，但我觉得还不够好用；</li>
-<li>最终使用 <code>ruapc_export</code> 将所有异步方法导出为同步方法 + <code>tokio::spawn</code>，是我能想到的可行且能接受的唯一方案了。与 tokio 强绑定对我来说并不是一个问题，毕竟它基本也是事实标准；</li>
-<li>使用 return type notation 是为了满足 <code>tokio::spawn</code> 的需求。该特性目前还不是稳定的状态，所以整个项目都必须依赖 nightly 版本的 Rust。这对我来说不是一个问题，不过还是希望在 ruapc 完成前这个特性可以 Stable；</li>
-<li>只有确定了具体的方法，才能对参数进行对应类型的反序列化。</li>
+<li>我希望在 client 调用时，保持完全一致函数签名。因为 RPC 一定是有概率失败的，所有要求返回值一定是一个 <code>Result&lt;T, E&gt;</code>，并且要求 <code>ruapc::Error</code> 可以转为用户声明的 <code>Error</code> 类型；</li>
+<li>我希望拿到 context 时，client 就可以发起调用，在 server 端处理请求时获得的 context 亦可发起调用，也就能实现非常直觉的反向 RPC；</li>
+<li>Rust 目前（2024 edition，1.88）对 async trait dynamic dispatch 的支持依然不够好。可以依赖 <a href="https://crates.io/crates/dynosaur">dynosaur</a> 实现，但我觉得还不够好用。最终使用 <code>ruapc_export</code> 将所有异步方法导出为同步方法 + <code>tokio::spawn</code>，是我能想到的可行且能接受的方案了。与 tokio 强绑定对我来说并不是一个问题，毕竟它基本也是事实标准；</li>
+<li>使用 return type notation 是为了满足 <code>tokio::spawn</code> 的需求。该特性目前还不是稳定的状态，所以整个项目都必须依赖 nightly 版本的 Rust。这对我来说不是一个问题，不过还是希望在 ruapc 完成前这个特性可以稳定下来。</li>
 </ol>
 <p>在 Client 端，我们希望可以直接调用 <code>EchoService::echo</code> 方法触发 RPC 请求。也就是说 <code>Client</code> 端需要有一个默认的 <code>EchoService</code> 实现，它实际上会完成序列化、发送、接收、反序列化的步骤。我们使用 Rust 的宏实现这一目的，详情见<a href="https://github.com/SF-Zhou/ruapc/blob/b64248314de3eacfcbf2d6ab1f3ec5f7ad6a3edf/ruapc-macro/src/lib.rs">代码</a>，宏会帮我生成如下的代码：</p>
 <pre class="language-rust"><code class="language-rust"><span class="token keyword">impl</span> <span class="token class-name">EchoService</span> <span class="token keyword">for</span> <span class="token namespace">ruapc<span class="token punctuation">::</span></span><span class="token class-name">Client</span> <span class="token punctuation">{</span>
@@ -152,7 +152,7 @@
     <span class="token punctuation">}</span>
 <span class="token punctuation">}</span>
 </code></pre>
-<p>生成的代码将方法名、请求类型和返回类型（依赖推导）传递给 <code>ruapc_request</code> 方法，在该方法中完成 RPC 请求：</p>
+<p>生成的代码将方法名、请求类型和返回类型（依赖类型推导）传递给 <code>ruapc_request</code> 方法，在该方法中完成 RPC 请求：</p>
 <pre class="language-rust"><code class="language-rust"><span class="token keyword">impl</span> <span class="token class-name">Client</span> <span class="token punctuation">{</span>
     <span class="token keyword">pub</span> <span class="token keyword">async</span> <span class="token keyword">fn</span> <span class="token function-definition function">ruapc_request</span><span class="token operator">&lt;</span><span class="token class-name">Req</span><span class="token punctuation">,</span> <span class="token class-name">Rsp</span><span class="token punctuation">,</span> <span class="token class-name">E</span><span class="token operator">></span><span class="token punctuation">(</span>
         <span class="token operator">&amp;</span><span class="token keyword">self</span><span class="token punctuation">,</span>
@@ -214,7 +214,7 @@
 <li><code>MsgMeta</code> 序列化结果，长度为 <code>meta_len</code></li>
 <li>参数序列化结果，长度为 <code>total_len</code> - <code>meta_len</code> - 4，4 为大端 <code>u32</code> 的长度</li>
 </ol>
-<p>按照上述规则实现序列化的逻辑，代码参考<a href="https://github.com/SF-Zhou/ruapc/blob/b64248314de3eacfcbf2d6ab1f3ec5f7ad6a3edf/ruapc/src/socket.rs#L26-L105"> socket.rs 文件</a>和 <a href="https://github.com/SF-Zhou/ruapc/blob/b64248314de3eacfcbf2d6ab1f3ec5f7ad6a3edf/ruapc/src/msg.rs#L40-L69">msg.rs 文件</a>。</p>
+<p>按照上述规则实现序列化的逻辑，代码参考<a href="https://github.com/SF-Zhou/ruapc/blob/b64248314de3eacfcbf2d6ab1f3ec5f7ad6a3edf/ruapc/src/socket.rs#L26-L105"> socket.rs</a> 文件和 <a href="https://github.com/SF-Zhou/ruapc/blob/b64248314de3eacfcbf2d6ab1f3ec5f7ad6a3edf/ruapc/src/msg.rs#L40-L69">msg.rs</a> 文件。</p>
 <h3 id="5.-连接管理" tabindex="-1"><a href="#5.-%E8%BF%9E%E6%8E%A5%E7%AE%A1%E7%90%86">5. 连接管理</a></h3>
 <p>做一个简单的 Tcp 连接池，核心数据结构 <code>Mutex&lt;HashMap&lt;SocketAddr, Vec&lt;TcpStream&gt;&gt;&gt;</code>，尝试获取连接时如果没有则新建并尝试连接；Server 端则尝试持续从连接中解析新消息。完整代码如下：</p>
 <pre class="language-rust"><code class="language-rust"><span class="token keyword">use</span> <span class="token namespace">std<span class="token punctuation">::</span>collections<span class="token punctuation">::</span></span><span class="token class-name">HashMap</span><span class="token punctuation">;</span>
