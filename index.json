@@ -1,5 +1,17 @@
 [
   {
+    "title": "RocksDB Sync Write on HDD 性能优化",
+    "date": "2025.11.11",
+    "author": "SF-Zhou",
+    "tags": [
+      "Linux",
+      "RocksDB",
+      "DirectIO"
+    ],
+    "filename": "rocksdb_direct_io_for_wal",
+    "url_path": "/programming/rocksdb_direct_io_for_wal.html"
+  },
+  {
     "title": "Rust Future & Pin",
     "date": "2024.10.17",
     "author": "SF-Zhou",
