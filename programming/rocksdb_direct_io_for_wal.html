@@ -34,22 +34,21 @@
 <h3 id="2.-分析" tabindex="-1"><a href="#2.-%E5%88%86%E6%9E%90">2. 分析</a></h3>
 <p>RocksDB 的 sync write 性能差，核心原因是使用 buffer IO 模式写完 WAL 文件后，<code>fdatasync</code> 的性能太差了。如果替换成 direct IO，应该可以规避 <code>fdatasync</code>。跟 AI 简单聊了两句，发现 RocksDB 上 SST 文件已经支持了 direct IO 读写了，讲道理让 WAL 支持 direct IO 应该不会太困难。</p>
 <p>此时我又在忙别的活，就让 Copilot 帮我写一版，PR 在<a href="https://github.com/SF-Zhou/rocksdb/pull/1">这里</a>。Copilot 改的非常简单，第一眼我看着以为是瞎改。跟它掰扯了几下，又看了下代码，发现它做的是对的。一来 RocksDB 本身支持使用 direct IO 写文件，会在内存里维护最后一部分非对齐的内容，每次追加时会覆盖写最后的 512B，padding 部分会填充 0；二来 WAL 是支持跳过全 0 的记录的，意外断电恢复也就不是事了。</p>
-<p>简单过了下单元测试，就开始将这个修改集成当我们的系统中，意外地发现性能非常好。启用 direct IO + sync，单次写入平均延迟降低到 4ms，直接变可用了！所以 <code>fdatasync</code> 性能差，推测本质上是小写入时 page cache 的性能太差了。</p>
-<p>我也跑了一下 RocksDB 自带的 db_bench，能看到 direct IO + sync 远超 buffer IO + sync，所以我给官方也提了一个 PR：<a href="https://github.com/facebook/rocksdb/pull/14116">https://github.com/facebook/rocksdb/pull/14116</a></p>
+<p>简单过了下单元测试，就开始将这个修改集成当我们的系统中，意外地发现性能非常好。启用 direct IO + sync，单次写入平均延迟降低到 4ms，直接变可用了！</p>
+<p>本来以为这样就足够了，后面仔细阅读代码发现启用 direct IO 时，Sync 会直接跳过 <code>fdatasync</code> 操作。尝试改代码强制执行 <code>fdatasync</code>，性能直接回退到之前的状态。不得已还是得考虑完全去掉 <code>fdatasync</code> 的方案。</p>
+<p>假定我们使用的企业级硬盘包含 PLDP 能力，即在 direct IO 写完成后，数据部分不会丢失，那么剩下的只需要保证文件元数据不丢失，即文件长度信息和 extent 状态信息。考虑到业务场景，一个巧妙的方法在 WAL 文件末尾预分配一块空间，写入全 0，并且使用 <code>fdatasync</code> 将元数据集中落盘；后续所有在这个区间的 write batch 写入都直接通过 direct IO 完成，因为文件长度和 extent 状态信息都不会发生变化，只要写下去了就可以认为它不会丢失了。预分配的过程可以在后台异步完成，不阻塞正常 write batch 写入。并且在 direct IO 模式下实现对应的 <code>Sync</code> 函数逻辑：即等待预分配的 <code>fdatasync</code> 确认落盘的长度大于 WAL 逻辑数据的长度即可。</p>
+<p>使用该思路实现一版代码。中间还发现 RocksDB 中的一些 bug，给官方提了 PR 一并提交了：<a href="https://github.com/facebook/rocksdb/pull/14116">https://github.com/facebook/rocksdb/pull/14116</a></p>
+<p>我也跑了一下 RocksDB 自带的 db_bench，能看到新的 direct IO + sync 远超 buffer IO + sync：</p>
 <pre class="language-bash"><code class="language-bash"><span class="token comment"># disable use_direct_io_for_wal.</span>
 ./db_bench <span class="token parameter variable">--benchmarks</span><span class="token operator">=</span>fillseq <span class="token parameter variable">--db</span><span class="token operator">=</span>/storage/data1/rocksdb <span class="token parameter variable">--num</span><span class="token operator">=</span><span class="token number">10000</span> <span class="token parameter variable">--value_size</span><span class="token operator">=</span><span class="token number">128</span> <span class="token parameter variable">--sync</span><span class="token operator">=</span>true <span class="token parameter variable">--use_direct_io_for_wal</span><span class="token operator">=</span>false
 <span class="token comment">#> fillseq      :   25555.892 micros/op 39 ops/sec 255.559 seconds 10000 operations;    0.0 MB/s</span>
 
 <span class="token comment"># enable use_direct_io_for_wal.</span>
 ./db_bench <span class="token parameter variable">--benchmarks</span><span class="token operator">=</span>fillseq <span class="token parameter variable">--db</span><span class="token operator">=</span>/storage/data1/rocksdb <span class="token parameter variable">--num</span><span class="token operator">=</span><span class="token number">10000</span> <span class="token parameter variable">--value_size</span><span class="token operator">=</span><span class="token number">128</span> <span class="token parameter variable">--sync</span><span class="token operator">=</span>true <span class="token parameter variable">--use_direct_io_for_wal</span><span class="token operator">=</span>true
-<span class="token comment">#> fillseq      :     519.530 micros/op 1924 ops/sec 5.195 seconds 10000 operations;    0.3 MB/s</span>
+<span class="token comment">#> fillseq      :     147.164 micros/op 6795 ops/sec 1.472 seconds 10000 operations;    0.9 MB/s</span>
 </code></pre>
-<h3 id="3.-其他" tabindex="-1"><a href="#3.-%E5%85%B6%E4%BB%96">3. 其他</a></h3>
-<p>既然已经使用了 direct IO，那么 sync 还是有必要的吗？实际上还是有必要的。文件大小元数据以及文件内部 extent 状态都需要 fdatasync 才能确保落盘，如果不 sync 一下直接断电，还是有丢数据的风险。我也测试了只 direct IO 不 sync 的性能，与 direct IO + sync 性能基本一致，所以就不折腾<a href="https://github.com/SF-Zhou/rocksdb/pull/2">只 direct IO 的方案</a>了。</p>
-<blockquote>
-<p>预期 WAL 使用 direct io 写入后，配合企业级硬盘的 PLDP 能力，就不再需要 fdatasync 强制保证落盘了。但是每次  write 到尾部还是需要修改文件长度元数据，一个可行的优化策略是在数据 write 前，事先在文件尾部写入一块足够大的区域填充全 0，并且使用 fdatasync 将文件长度落盘，后续用户写入的 write batch 都在这个全 0  的区域内，并且也不需要再修改文件长度了。帮我增加一个配置，表示预分配的块大小，使用后台线程进行填充 0 和 fdatasync  操作。当预分配的块大小使用空间超过一半时，则继续触发下一个块的预分配。注意和正常用户写的并发安全，以及文件长度和用户数据长度的安全修改。</p>
-</blockquote>
-<p>另外，AI 真的越来越好用了，真真切切地提高了生产力。</p>
+<h3 id="3.-总结" tabindex="-1"><a href="#3.-%E6%80%BB%E7%BB%93">3. 总结</a></h3>
+<p>AI 确实越来越好用了，它可以成为你额外的并行生产力。但逻辑能力总还是差一点，需要非常耐心的引导，有些精细的活还是得自己动手。</p>
 
       </div>
       <script src="https://giscus.app/client.js"
