@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>一种安全的 RDMA Buffer 复用策略 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> 一种安全的 RDMA Buffer 复用策略 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2025.11.19 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <p>使用 RDMA Read/Write 时，首先需要交换已经注册过的 Buffer 地址，提交 Read/Write 任务，等待完成事件。为了尽可能的提高性能，一般不会每次都申请 Buffer 再去注册，而是一开始就准备好一批注册好的 Buffer，使用时从池子里取出，用完放回。但当意外发生时，例如请求超时了，此时如何处理这个 Buffer 就会成为一个麻烦的问题。</p>
+<p>回顾一下 <a href="https://github.com/deepseek-ai/3fs">3FS</a> 中的处理方式：</p>
+<ol>
+<li>所有 RDMA 操作都是由 Server 端发起，读 chunk 操作会执行 Server 端到 Client 端的 RDMA Write 操作，写 chunk 操作会执行 Server 端向 Client 端的 RDMA Read 操作；</li>
+<li>当 Client 端请求超时时，立即关闭当前通信的 RDMA 连接，也就阻止了这条连接上 Server 端后续可能的 RDMA Write/Read 操作，此时 Client 端的 Buffer 就可以安全的被复用、而不至于被远端的 RDMA 操作默默修改掉了。</li>
+</ol>
+<p>这样做问题也很明显，当出现请求超时时，连接会断掉，下一轮请求会复用其他连接或者建立新连接，更容易触发下一轮的超时。有什么更好的办法吗？</p>
+<p>仔细分析一下 RDMA Write/Read 的流程。首先 RDMA Write 操作，当本地将 Buffer 地址传播给远端后，远端如果准备执行 RDMA Write 操作，那么就有默默改变本地 Buffer 内容的能力，反注册或者断连接都是为了阻止这一步，如果这两种方法都不想使用，可以直接考虑不使用 RDMA Write。</p>
+<p>再来看 RDMA Read，本地将 Buffer 地址传播给远端后，远端如果准备执行 RDMA Read，那么本地就必须保持 Buffer 处于安全、不被修改的状态，如果因为超时回收了 Buffer、后续其他操作修改了 Buffer 内容，远端<strong>不知道</strong>这件事，远端后续的数据正确性可能就出问题。换句话说，让远端知道这件事就行。</p>
+<p>所以这里提出的安全复用策略就是：禁用 RDMA Write，RDMA Read 成功后向远端确认 Buffer 还未修改。下面详细介绍本地读远端的步骤：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:left">本地</th>
+<th style="text-align:left">远端</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left">1. 发起 RPC</td>
+<td style="text-align:left"></td>
+</tr>
+<tr>
+<td style="text-align:left"></td>
+<td style="text-align:left">2. 收到 RPC，准备好 Buffer，返回 Buffer 地址</td>
+</tr>
+<tr>
+<td style="text-align:left">3. 发起 RDMA Read，等待完成</td>
+<td style="text-align:left"></td>
+</tr>
+<tr>
+<td style="text-align:left">4. 发起 RPC，确认刚才的 Buffer 没有被修改</td>
+<td style="text-align:left"></td>
+</tr>
+<tr>
+<td style="text-align:left"></td>
+<td style="text-align:left">5. 收到 RPC，检查 Buffer 是否已经被复用，返回结果，同时可以安全的释放 Buffer 了</td>
+</tr>
+<tr>
+<td style="text-align:left">6. 收到检查结果。如果已经被复用，则本轮通信失败，可以重试</td>
+<td style="text-align:left"></td>
+</tr>
+</tbody>
+</table>
+<p>远端读本地的步骤：</p>
+<table>
+<thead>
+<tr>
+<th>本地</th>
+<th>远端</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1. 准备好 Buffer，发起 RPC，附带 Buffer 地址</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>2. 收到 RPC，发起 RDMA Read，等待完成，回包</td>
+</tr>
+<tr>
+<td>3. 收到回包，检查 Buffer 是否已经被复用，发起 RPC 通知远端检查结果</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>4. 收到 RPC，如果一切正常则继续后续步骤并回包，反之则放弃回复失败</td>
+</tr>
+<tr>
+<td>5. 收到远端结果</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>通过每次 RDMA Read 完成后，使用第二次 RPC 向对方确认 Buffer 是否已经被复用，来避免读到脏数据的可能。代价就是会多出一次 RTT。至于处理流程，则可以通过 Server 端给 Client 发反向 RPC 来简化，Server 端的处理步骤可以放到一个协程里顺序执行，<a href="https://github.com/deepseek-ai/3FS/blob/main/src/common/net/RDMAControl.cc">3FS RDMA Control</a> 有类似的案例（实际上它也会增加一次 RTT😉）。</p>
+<p>本质上，这套方案是在 One-sided RDMA + Two-sided RPC 的组合里，用 RPC 来弥补 RDMA 在 buffer 生命周期和错误语义上的不足。</p>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

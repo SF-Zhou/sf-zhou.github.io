@@ -1,5 +1,16 @@
 [
   {
+    "title": "一种安全的 RDMA Buffer 复用策略",
+    "date": "2025.11.19",
+    "author": "SF-Zhou",
+    "tags": [
+      "RDMA",
+      "Memory"
+    ],
+    "filename": "rdma_buffer_safe_reuse",
+    "url_path": "/rdma/rdma_buffer_safe_reuse.html"
+  },
+  {
     "title": "RocksDB Sync Write on HDD 性能优化",
     "date": "2025.11.11",
     "author": "SF-Zhou",
