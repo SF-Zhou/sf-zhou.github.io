@@ -33,27 +33,39 @@ function generateRSS(articles, config) {
   const now = new Date().toUTCString();
   
   const items = articles.slice(0, 20).map(article => {
-    const pubDate = new Date(article.date.replace(/\./g, '-')).toUTCString();
+    // Parse date safely - format is YYYY.MM.DD
+    let pubDate;
+    try {
+      const dateStr = article.date.replace(/\./g, '-');
+      pubDate = new Date(dateStr).toUTCString();
+    } catch (e) {
+      pubDate = now;
+    }
+    
     const link = `${config.site_url}${article.url_path}`;
     const guid = link;
+    const author = article.author || config.default_author || '';
+    const tags = Array.isArray(article.tags) ? article.tags.join(', ') : '';
     
     return `    <item>
       <title>${escapeXml(article.title)}</title>
       <link>${escapeXml(link)}</link>
       <guid isPermaLink="true">${escapeXml(guid)}</guid>
       <pubDate>${pubDate}</pubDate>
-      <author>${escapeXml(article.author)}</author>
-      <category>${escapeXml(article.tags.join(', '))}</category>
+      <author>${escapeXml(author)}</author>
+      <category>${escapeXml(tags)}</category>
     </item>`;
   }).join('\n');
 
+  const language = config.site_language || 'zh-CN';
+  
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>${escapeXml(config.site_name)}</title>
     <link>${escapeXml(config.site_url)}</link>
     <description>${escapeXml(config.site_description)}</description>
-    <language>zh-CN</language>
+    <language>${language}</language>
     <lastBuildDate>${now}</lastBuildDate>
     <atom:link href="${escapeXml(config.site_url)}/rss.xml" rel="self" type="application/rss+xml" />
 ${items}
