@@ -51,6 +51,7 @@ function generateRSS(articles, config) {
     const guid = link;
     const author = article.author || config.default_author || '';
     const tags = Array.isArray(article.tags) ? article.tags.map(t => String(t)).join(', ') : '';
+    const categoryTags = article.tags.map(t => `<category>${escapeXml(String(t))}</category>`).join('\n      ');
     
     return `    <item>
       <title>${escapeXml(article.title)}</title>
@@ -58,7 +59,7 @@ function generateRSS(articles, config) {
       <guid isPermaLink="true">${escapeXml(guid)}</guid>
       <pubDate>${pubDate}</pubDate>
       <dc:creator>${escapeXml(author)}</dc:creator>
-      <category>${escapeXml(tags)}</category>
+      ${categoryTags}
     </item>`;
   }).join('\n');
 
