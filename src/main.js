@@ -37,7 +37,12 @@ function generateRSS(articles, config) {
     let pubDate;
     try {
       const dateStr = article.date.replace(/\./g, '-');
-      pubDate = new Date(dateStr).toUTCString();
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        pubDate = now;
+      } else {
+        pubDate = date.toUTCString();
+      }
     } catch (e) {
       pubDate = now;
     }
@@ -45,14 +50,14 @@ function generateRSS(articles, config) {
     const link = `${config.site_url}${article.url_path}`;
     const guid = link;
     const author = article.author || config.default_author || '';
-    const tags = Array.isArray(article.tags) ? article.tags.join(', ') : '';
+    const tags = Array.isArray(article.tags) ? article.tags.map(t => String(t)).join(', ') : '';
     
     return `    <item>
       <title>${escapeXml(article.title)}</title>
       <link>${escapeXml(link)}</link>
       <guid isPermaLink="true">${escapeXml(guid)}</guid>
       <pubDate>${pubDate}</pubDate>
-      <author>${escapeXml(author)}</author>
+      <dc:creator>${escapeXml(author)}</dc:creator>
       <category>${escapeXml(tags)}</category>
     </item>`;
   }).join('\n');
@@ -60,7 +65,7 @@ function generateRSS(articles, config) {
   const language = config.site_language || 'zh-CN';
   
   return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>${escapeXml(config.site_name)}</title>
     <link>${escapeXml(config.site_url)}</link>
