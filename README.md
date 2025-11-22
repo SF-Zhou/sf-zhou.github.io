@@ -13,3 +13,7 @@ npm install
 # generate site
 npm run build
 ```
+
+## RSS Feed
+
+The build process automatically generates an RSS feed at `public/rss.xml` containing the latest 20 articles. The RSS feed URL is: https://sf-zhou.github.io/rss.xml
