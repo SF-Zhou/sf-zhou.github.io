@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>SF-Zhou&apos;s Blog</title>
+    <link>https://sf-zhou.github.io</link>
+    <description>SF-Zhou&apos;s Blog</description>
+    <language>zh-CN</language>
+    <lastBuildDate>Sat, 22 Nov 2025 06:04:40 GMT</lastBuildDate>
+    <atom:link href="https://sf-zhou.github.io/rss.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>一种安全的 RDMA Buffer 复用策略</title>
+      <link>https://sf-zhou.github.io/rdma/rdma_buffer_safe_reuse.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rdma/rdma_buffer_safe_reuse.html</guid>
+      <pubDate>Wed, 19 Nov 2025 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>RDMA</category>
+      <category>Memory</category>
+    </item>
+    <item>
+      <title>RocksDB Sync Write on HDD 性能优化</title>
+      <link>https://sf-zhou.github.io/programming/rocksdb_direct_io_for_wal.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/programming/rocksdb_direct_io_for_wal.html</guid>
+      <pubDate>Tue, 11 Nov 2025 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Linux</category>
+      <category>RocksDB</category>
+      <category>DirectIO</category>
+    </item>
+    <item>
+      <title>Rust Future &amp; Pin</title>
+      <link>https://sf-zhou.github.io/rust/rust_future_and_pin.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rust/rust_future_and_pin.html</guid>
+      <pubDate>Thu, 17 Oct 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Rust</category>
+      <category>Async</category>
+      <category>Pin</category>
+    </item>
+    <item>
+      <title>Rust 2024 Return Position Impl Trait 的变化</title>
+      <link>https://sf-zhou.github.io/rust/changes_to_rpit_in_rust_2024.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rust/changes_to_rpit_in_rust_2024.html</guid>
+      <pubDate>Fri, 11 Oct 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Rust</category>
+      <category>Async</category>
+    </item>
+    <item>
+      <title>Rust RDMA 编程「四、收发控制」</title>
+      <link>https://sf-zhou.github.io/rdma/rust_rdma_programming_04.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rdma/rust_rdma_programming_04.html</guid>
+      <pubDate>Wed, 31 Jul 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Rust</category>
+      <category>RDMA</category>
+    </item>
+    <item>
+      <title>Rust RDMA 编程「三、对象封装」</title>
+      <link>https://sf-zhou.github.io/rdma/rust_rdma_programming_03.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rdma/rust_rdma_programming_03.html</guid>
+      <pubDate>Tue, 30 Jul 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Rust</category>
+      <category>RDMA</category>
+    </item>
+    <item>
+      <title>Rust 二进制序列化</title>
+      <link>https://sf-zhou.github.io/rust/rust_binary_serialization.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rust/rust_binary_serialization.html</guid>
+      <pubDate>Fri, 19 Jul 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Rust</category>
+      <category>Serialization</category>
+    </item>
+    <item>
+      <title>Rust RPC Async 接口探索</title>
+      <link>https://sf-zhou.github.io/rust/rust_rpc_async.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rust/rust_rpc_async.html</guid>
+      <pubDate>Mon, 17 Jun 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Rust</category>
+      <category>Async</category>
+    </item>
+    <item>
+      <title>Rust RDMA 编程「二、接口绑定」</title>
+      <link>https://sf-zhou.github.io/rdma/rust_rdma_programming_02.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rdma/rust_rdma_programming_02.html</guid>
+      <pubDate>Fri, 24 May 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Rust</category>
+      <category>RDMA</category>
+    </item>
+    <item>
+      <title>Rust RDMA 编程「一、基础概览」</title>
+      <link>https://sf-zhou.github.io/rdma/rust_rdma_programming_01.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rdma/rust_rdma_programming_01.html</guid>
+      <pubDate>Fri, 17 May 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Rust</category>
+      <category>RDMA</category>
+    </item>
+    <item>
+      <title>在 CMake C++ 环境中引入 Rust</title>
+      <link>https://sf-zhou.github.io/rust/link_rust_in_cmake_cpp_env.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/rust/link_rust_in_cmake_cpp_env.html</guid>
+      <pubDate>Sat, 23 Mar 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Rust</category>
+      <category>C++</category>
+      <category>CMake</category>
+    </item>
+    <item>
+      <title>io_uring 网络编程</title>
+      <link>https://sf-zhou.github.io/linux/io_uring_network_programming.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/linux/io_uring_network_programming.html</guid>
+      <pubDate>Wed, 07 Feb 2024 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Linux</category>
+      <category>Socket</category>
+      <category>io_uring</category>
+    </item>
+    <item>
+      <title>Clang 编译隐藏参数：GCC 的版本</title>
+      <link>https://sf-zhou.github.io/programming/clang_select_gcc_toolchain.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/programming/clang_select_gcc_toolchain.html</guid>
+      <pubDate>Thu, 19 Oct 2023 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>C++</category>
+      <category>Ubuntu</category>
+      <category>Develop</category>
+    </item>
+    <item>
+      <title>C++ 静态反射与序列化</title>
+      <link>https://sf-zhou.github.io/programming/cpp_static_reflection.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/programming/cpp_static_reflection.html</guid>
+      <pubDate>Wed, 16 Nov 2022 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>C++</category>
+      <category>Reflection</category>
+      <category>Serialization</category>
+    </item>
+    <item>
+      <title>单 Epoll 多线程 IO 模型</title>
+      <link>https://sf-zhou.github.io/linux/single_epoll_multi_workers.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/linux/single_epoll_multi_workers.html</guid>
+      <pubDate>Sun, 24 Jul 2022 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Linux</category>
+      <category>C++</category>
+      <category>Epoll</category>
+    </item>
+    <item>
+      <title>Folly Coroutines Cancellation 的实现</title>
+      <link>https://sf-zhou.github.io/coroutine/folly_coro_cancellation.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/coroutine/folly_coro_cancellation.html</guid>
+      <pubDate>Mon, 04 Jul 2022 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>C++</category>
+      <category>Coroutine</category>
+      <category>Folly</category>
+    </item>
+    <item>
+      <title>在 Apple M1 平台搭建 Ubuntu 开发环境</title>
+      <link>https://sf-zhou.github.io/productivity/ubuntu_env_on_apple_m1.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/productivity/ubuntu_env_on_apple_m1.html</guid>
+      <pubDate>Wed, 22 Jun 2022 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>MacBook</category>
+      <category>Ubuntu</category>
+      <category>Develop</category>
+    </item>
+    <item>
+      <title>MacBook 键盘效率工具推荐</title>
+      <link>https://sf-zhou.github.io/productivity/macbook_keyboard_tools.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/productivity/macbook_keyboard_tools.html</guid>
+      <pubDate>Sun, 23 Jan 2022 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>MacBook</category>
+      <category>Keyboard</category>
+      <category>Shortcut</category>
+    </item>
+    <item>
+      <title>Kernel Module 内存问题排查</title>
+      <link>https://sf-zhou.github.io/linux/kernel_memory_usage_troubleshooting.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/linux/kernel_memory_usage_troubleshooting.html</guid>
+      <pubDate>Tue, 11 Jan 2022 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Linux</category>
+      <category>Kernel</category>
+      <category>Memory</category>
+    </item>
+    <item>
+      <title>C++ TLS 触发的栈溢出</title>
+      <link>https://sf-zhou.github.io/programming/thread_local_memory.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/programming/thread_local_memory.html</guid>
+      <pubDate>Mon, 21 Jun 2021 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>C++</category>
+      <category>TLS</category>
+    </item>
+  </channel>
+</rss>
