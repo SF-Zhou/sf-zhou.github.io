@@ -20,6 +20,65 @@ async function write_when_change(file_path, new_content) {
   await fs.writeFile(file_path, new_content);
 }
 
+function escapeXml(unsafe) {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function generateRSS(articles, config) {
+  const now = new Date().toUTCString();
+  
+  const items = articles.slice(0, 20).map(article => {
+    // Parse date safely - format is YYYY.MM.DD
+    let pubDate;
+    try {
+      const dateStr = article.date.replace(/\./g, '-');
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        pubDate = now;
+      } else {
+        pubDate = date.toUTCString();
+      }
+    } catch (e) {
+      pubDate = now;
+    }
+    
+    const link = `${config.site_url}${article.url_path}`;
+    const guid = link;
+    const author = article.author || config.default_author || '';
+    const tags = Array.isArray(article.tags) ? article.tags.map(t => String(t)).join(', ') : '';
+    const categoryTags = article.tags.map(t => `<category>${escapeXml(String(t))}</category>`).join('\n      ');
+    
+    return `    <item>
+      <title>${escapeXml(article.title)}</title>
+      <link>${escapeXml(link)}</link>
+      <guid isPermaLink="true">${escapeXml(guid)}</guid>
+      <pubDate>${pubDate}</pubDate>
+      <dc:creator>${escapeXml(author)}</dc:creator>
+      ${categoryTags}
+    </item>`;
+  }).join('\n');
+
+  const language = config.site_language || 'zh-CN';
+  
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>${escapeXml(config.site_name)}</title>
+    <link>${escapeXml(config.site_url)}</link>
+    <description>${escapeXml(config.site_description)}</description>
+    <language>${language}</language>
+    <lastBuildDate>${now}</lastBuildDate>
+    <atom:link href="${escapeXml(config.site_url)}/rss.xml" rel="self" type="application/rss+xml" />
+${items}
+  </channel>
+</rss>`;
+}
+
 async function main() {
   const config = JSON.parse(await fs.readFile('./config.json'));
 
@@ -147,6 +206,11 @@ async function main() {
 
   const json_path = join(config.output_path, 'index.json');
   await write_when_change(json_path, JSON.stringify(articles_info, null, 2));
+
+  // Generate RSS feed
+  const rss_content = generateRSS(articles_info, config);
+  const rss_path = join(config.output_path, 'rss.xml');
+  await write_when_change(rss_path, rss_content);
 
   const profile_template_name = './src/profile.md';
   const profile_template = (await fs.readFile(profile_template_name)).toString();

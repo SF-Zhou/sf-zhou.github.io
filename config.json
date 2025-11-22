@@ -1,5 +1,8 @@
 {
   "site_name": "SF-Zhou's Blog",
+  "site_url": "https://sf-zhou.github.io",
+  "site_description": "SF-Zhou's Blog",
+  "site_language": "zh-CN",
   "posts_path": "posts",
   "output_path": "public",
   "profile_path": "profile",
