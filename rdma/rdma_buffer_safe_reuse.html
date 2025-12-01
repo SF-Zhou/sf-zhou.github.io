@@ -42,34 +42,34 @@
 <table>
 <thead>
 <tr>
-<th style="text-align:left">本地</th>
-<th style="text-align:left">远端</th>
+<th>本地</th>
+<th>远端</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align:left">1. 发起 RPC</td>
-<td style="text-align:left"></td>
+<td>1. 发起 RPC</td>
+<td></td>
 </tr>
 <tr>
-<td style="text-align:left"></td>
-<td style="text-align:left">2. 收到 RPC，准备好 Buffer，返回 Buffer 地址</td>
+<td></td>
+<td>2. 收到 RPC，准备好 Buffer，返回 Buffer 地址</td>
 </tr>
 <tr>
-<td style="text-align:left">3. 发起 RDMA Read，等待完成</td>
-<td style="text-align:left"></td>
+<td>3. 发起 RDMA Read，等待完成</td>
+<td></td>
 </tr>
 <tr>
-<td style="text-align:left">4. 发起 RPC，确认刚才的 Buffer 没有被修改</td>
-<td style="text-align:left"></td>
+<td>4. 发起 RPC，确认刚才的 Buffer 没有被修改</td>
+<td></td>
 </tr>
 <tr>
-<td style="text-align:left"></td>
-<td style="text-align:left">5. 收到 RPC，检查 Buffer 是否已经被复用，返回结果，同时可以安全的释放 Buffer 了</td>
+<td></td>
+<td>5. 收到 RPC，检查 Buffer 是否已经被复用，返回结果，同时可以安全的释放 Buffer 了</td>
 </tr>
 <tr>
-<td style="text-align:left">6. 收到检查结果。如果已经被复用，则本轮通信失败，可以重试</td>
-<td style="text-align:left"></td>
+<td>6. 收到检查结果。如果已经被复用，则本轮通信失败，可以重试</td>
+<td></td>
 </tr>
 </tbody>
 </table>
