@@ -52,9 +52,11 @@
 <p>那么类似于 3FS 中 chunk engine 的场景，可以直接使用这个优化吗？答案是否定的。chunk engine 中使用 fallocate 预先分配一批 chunk 的空间，而后使用 direct IO 写 chunk data 数据，最后写 RocksDB 时默认开启 sync，在 XFS 系统上后者可以顺带将前者产生的元信息修改一起落盘。如果使用文中的优化策略，那么写 chunk data 产生的 extent 状态信息就没有 fdatasync 来确保它落盘了。简单的策略是在分配一批空间时填充全 0 + fdatasync，但那样会导致写吞吐的显著下降。</p>
 <p>还有一种策略是，放弃使用文件系统，至少是局部地放弃文件系统。RocksDB 仍然可以放在文件系统上，chunk data 数据可以直接使用裸的 block device，使用纯粹的 direct IO 读写，就不需要在意文件 extent 带来的额外开销了。但如果不希望这么激进，那么还剩一条邪道可以走：</p>
 <ol>
-<li>分配一批 chunk 空间时使用 fallocate + fdatasync，该操作非常低频并且是后台任务；</li>
-<li>使用 direct IO 写 chunk data，并且不使用 fdatasync 落盘 extent 元数据；</li>
-<li>读取时获取 chunk data 文件对应位置的 extent 物理地址信息，直接 direct 读对应的 block device，在关闭碎片整理、禁用 CoW 的条件下该操作是安全可靠的。</li>
+<li>分配一批 chunk 空间时使用 fallocate，并且使用 fdatasync 确保分配的 extent 元数据落盘，该操作非常低频并且是后台任务；</li>
+<li>使用 direct IO 写 chunk data，并且不使用 fdatasync 落盘 extent 元数据 written 状态的修改；</li>
+<li>写 RocksDB 时顺便记录一个额外的 prefix，表明 chunk data 被修改，并且 extent 元数据可能没有落盘的情况；</li>
+<li>定期调用 <code>syncfs(fd)</code>（对 XFS 来说，<code>fsync(fd)</code> 就足够了），调用成功后就可以清理掉一批上述 prefix 的 chunk，因为此时可以确保 extent 元数据已经落盘了；</li>
+<li>加载 chunk engine 时检查是否存在上述 prefix 的 chunk。如果有，那么就获取 chunk data 对应位置的 extent 信息，检查 chunk 长度内是否有 unwritten 状态的 extent，如果有则直接读取 block device 对应位置中的数据，并且与 chunk meta 中的 crc32c 对比，校验成功则写回原 chunk 位置，校验失败则认为整块盘数据有问题，直接走恢复流程。</li>
 </ol>
 
       </div>
