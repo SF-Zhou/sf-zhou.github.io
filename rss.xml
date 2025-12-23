@@ -5,8 +5,16 @@
     <link>https://sf-zhou.github.io</link>
     <description>SF-Zhou&apos;s Blog</description>
     <language>zh-CN</language>
-    <lastBuildDate>Tue, 02 Dec 2025 01:21:21 GMT</lastBuildDate>
+    <lastBuildDate>Tue, 23 Dec 2025 09:31:08 GMT</lastBuildDate>
     <atom:link href="https://sf-zhou.github.io/rss.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Study and Learn: Transaction</title>
+      <link>https://sf-zhou.github.io/programming/study_and_learn_transaction.html</link>
+      <guid isPermaLink="true">https://sf-zhou.github.io/programming/study_and_learn_transaction.html</guid>
+      <pubDate>Tue, 23 Dec 2025 00:00:00 GMT</pubDate>
+      <dc:creator>SF-Zhou</dc:creator>
+      <category>Transaction</category>
+    </item>
     <item>
       <title>一种安全的 RDMA Buffer 复用策略</title>
       <link>https://sf-zhou.github.io/rdma/rdma_buffer_safe_reuse.html</link>
@@ -188,15 +196,6 @@
       <category>Linux</category>
       <category>Kernel</category>
       <category>Memory</category>
-    </item>
-    <item>
-      <title>C++ TLS 触发的栈溢出</title>
-      <link>https://sf-zhou.github.io/programming/thread_local_memory.html</link>
-      <guid isPermaLink="true">https://sf-zhou.github.io/programming/thread_local_memory.html</guid>
-      <pubDate>Mon, 21 Jun 2021 00:00:00 GMT</pubDate>
-      <dc:creator>SF-Zhou</dc:creator>
-      <category>C++</category>
-      <category>TLS</category>
     </item>
   </channel>
 </rss>

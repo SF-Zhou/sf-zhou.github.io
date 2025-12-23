@@ -1,0 +1,3108 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>Study and Learn: Transaction | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> Study and Learn: Transaction </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2025.12.23 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <blockquote>
+<p>我想学习数据库的事务相关的知识。</p>
+</blockquote>
+<p>好呀～数据库事务是数据库里非常核心的一块内容，我们可以从简单的地方慢慢展开。</p>
+<p>在开始之前，我想确认一下：
+你目前对数据库的熟悉程度大概在哪个阶段？比如：</p>
+<ul>
+<li>会用 SQL 做一些查询/增删改</li>
+<li>还是已经听说过事务（transaction）、锁（lock）之类的词</li>
+<li>还是从零开始</li>
+</ul>
+<p>这样我就知道应该从什么深度给你讲。</p>
+<p>要不要先跟我说说，你目前的数据库使用经验？</p>
+<blockquote>
+<p>我听说过事务，知道事务和锁的概念。日常工作中大量使用过 RocksDB。</p>
+</blockquote>
+<p>太好了，你已经有实际经验，而且还用过 RocksDB —— 那就说明你对“存储引擎层”的感觉很熟悉。那我们可以从<strong>事务的基本性质</strong>开始，然后逐渐走到<strong>实现层面的机制</strong>，这样你能把已有的 RocksDB 经验和事务理论串起来。</p>
+<p>事务的经典出发点是 <strong>ACID</strong> 四个特性：</p>
+<ul>
+<li><strong>A (Atomicity 原子性)</strong>：要么事务里的操作全部成功，要么全部不生效。</li>
+<li><strong>C (Consistency 一致性)</strong>：事务前后，数据库必须从一个一致状态到另一个一致状态。</li>
+<li><strong>I (Isolation 隔离性)</strong>：多个事务并发执行时，彼此的中间状态不可见。</li>
+<li><strong>D (Durability 持久性)</strong>：事务一旦提交，数据就不会丢失（即使宕机）。</li>
+</ul>
+<p>👉 先小练习：
+你平时用 RocksDB 时，可能更多是 key-value put/get/delete 操作。如果我们把多个 put 合在一起打包成一个事务（比如转账时，一个账户减钱，另一个账户加钱），你能想到这时候 <strong>原子性 (A)</strong> 和 <strong>持久性 (D)</strong> 是如何体现的吗？</p>
+<p>你先随便说说看，我再帮你补充。</p>
+<blockquote>
+<p>原子性：转账这个操作要么两个账户都成功，要么都失败，不会存在一个账户变动了，另一个账户不变的情况。</p>
+<p>持久性：一旦落盘成功了，RocksDB 就在磁盘上持久化了这个变动，不会丢失。</p>
+</blockquote>
+<p>完全正确 👍</p>
+<ul>
+<li><strong>原子性</strong>：你说的转账例子特别经典，事务保证不会出现“钱丢了一半”的情况。</li>
+<li><strong>持久性</strong>：落盘后即使宕机，重启时 RocksDB 会用 WAL (Write Ahead Log) 来恢复事务提交过的数据。</li>
+</ul>
+<p>接下来，我们把目光放到 <strong>I：隔离性</strong>，这通常是事务里最 tricky 的部分。</p>
+<p>在隔离性里，数据库要解决的问题是：当多个事务同时进行时，会不会互相干扰？比如：</p>
+<ul>
+<li>事务 A 正在读取账户余额，事务 B 正在修改它。</li>
+<li>如果隔离性不够，就可能看到一半修改过的数据。</li>
+</ul>
+<p>数据库通常会定义不同的隔离级别：</p>
+<ol>
+<li><strong>读未提交 (Read Uncommitted)</strong></li>
+<li><strong>读已提交 (Read Committed)</strong></li>
+<li><strong>可重复读 (Repeatable Read)</strong></li>
+<li><strong>可串行化 (Serializable)</strong></li>
+</ol>
+<p>👉 问你一个小问题：
+假设事务 A 在读一个值的时候，事务 B 把它改了并提交。</p>
+<ul>
+<li>在 <strong>读已提交</strong> 下，A 再次读的时候会看到新值。</li>
+<li>在 <strong>可重复读</strong> 下，A 再次读的时候会看到旧值。</li>
+</ul>
+<p>你觉得 RocksDB 这种 KV 存储引擎，通常是靠 <strong>锁</strong> 还是 <strong>MVCC（多版本并发控制）</strong> 来实现这种隔离的呢？</p>
+<blockquote>
+<p>RocksDB 有 seq number 的概念，应该是依赖 MVCC 实现这种隔离的。</p>
+</blockquote>
+<p>对，你答得很准确 🎯</p>
+<p>RocksDB 确实是典型的 <strong>MVCC（多版本并发控制）</strong> 思路：</p>
+<ul>
+<li>每次写入数据时，会生成一个新的 <strong>sequence number</strong>（单调递增）。</li>
+<li>一个读事务会记住它开始时的 <strong>snapshot sequence number</strong>。</li>
+<li>读操作只会看到 <code>≤ snapshot_seq</code> 的数据版本，忽略之后写入的新版本。</li>
+</ul>
+<p>这样：</p>
+<ul>
+<li><strong>可重复读</strong> 就天然成立了：因为事务期间你始终读的是快照。</li>
+<li><strong>读已提交</strong> 和 <strong>读未提交</strong> 这种“更宽松”的隔离，反而需要引擎<strong>减少快照保护</strong>，让读能看到更新的最新提交。</li>
+</ul>
+<p>所以 RocksDB 在事务支持上，其实是通过 <strong>MVCC + WAL</strong> 搭配来搞定 ACID 的。</p>
+<hr>
+<p>我们已经把 A、C、I、D 里的 A、I、D 三个都联系到 RocksDB 了。
+那下一个问题：
+**C（一致性）**在传统关系型数据库里，通常指满足各种约束（主键唯一、外键完整性等）。
+但在像 RocksDB 这种 KV 引擎里，没有那么多表约束，你觉得“一致性”该怎么理解呢？</p>
+<blockquote>
+<p>我理解 RocksDB 的一致性是原子性的延伸，它会从一个合法的数据版本转到另一个数据版本，例如转账这件事，一致性可以保证转账前后账户的总额是恒定的。</p>
+</blockquote>
+<p>完全理解到位了 👌</p>
+<p>你说得很对：</p>
+<ul>
+<li>在 <strong>关系型数据库</strong> 里，一致性强调“满足所有约束”。</li>
+<li>在 <strong>RocksDB 这种 KV 引擎</strong> 里，没有复杂约束，更多强调的是：<strong>事务执行前后，系统都在某个合法的版本点上</strong>。</li>
+</ul>
+<p>换句话说：</p>
+<ul>
+<li><strong>一致性</strong>是业务规则（比如“转账前后总额不变”）+ <strong>原子性和隔离性</strong>共同作用的结果。</li>
+<li>RocksDB 本身提供的是“保证版本状态切换是合法的”，而保证“总额恒定”这类业务一致性，需要应用层来定义。</li>
+</ul>
+<hr>
+<p>到这里，你已经把 ACID 的四个角理解得很扎实了，而且能跟 RocksDB 对上号。</p>
+<p>我想接下来可以帮你展开两条深入路径，你可以选：</p>
+<ol>
+<li><strong>理论侧</strong>：不同隔离级别下，会出现哪些并发问题（脏读、不可重复读、幻读），以及 MVCC/锁是怎么解决的。</li>
+<li><strong>实现侧</strong>：RocksDB 事务引擎里的细节，比如 WAL、快照、WriteBatch、两阶段提交等。</li>
+</ol>
+<p>你更想先深入哪一条？</p>
+<blockquote>
+<p>我想先学理论侧。</p>
+</blockquote>
+<p>好，那我们先走理论这条线，把常见的<strong>并发问题</strong>和<strong>隔离级别</strong>捋顺。这样你再看任何数据库实现的时候，都能马上对上号。</p>
+<hr>
+<h3 id="四个典型的并发问题" tabindex="-1"><a href="#%E5%9B%9B%E4%B8%AA%E5%85%B8%E5%9E%8B%E7%9A%84%E5%B9%B6%E5%8F%91%E9%97%AE%E9%A2%98">四个典型的并发问题</a></h3>
+<ol>
+<li><strong>脏读 (Dirty Read)</strong>
+<ul>
+<li>事务 A 读到了事务 B 还没提交的数据。</li>
+<li>如果 B 回滚了，A 就读到了“脏”的数据。</li>
+</ul>
+</li>
+<li><strong>不可重复读 (Non-repeatable Read)</strong>
+<ul>
+<li>事务 A 两次读同一行，结果不一样。</li>
+<li>因为事务 B 在中间更新并提交了这行。</li>
+</ul>
+</li>
+<li><strong>幻读 (Phantom Read)</strong>
+<ul>
+<li>事务 A 执行条件查询（比如 “余额 &gt; 100 的账户”），两次结果集数量不同。</li>
+<li>因为事务 B 插入或删除了符合条件的新行。</li>
+</ul>
+</li>
+<li><strong>丢失更新 (Lost Update)</strong>
+<ul>
+<li>事务 A 和事务 B 同时更新同一条数据，最后结果只有一个更新生效，另一个被覆盖。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h3 id="sql-标准里的隔离级别（由低到高）" tabindex="-1"><a href="#sql-%E6%A0%87%E5%87%86%E9%87%8C%E7%9A%84%E9%9A%94%E7%A6%BB%E7%BA%A7%E5%88%AB%EF%BC%88%E7%94%B1%E4%BD%8E%E5%88%B0%E9%AB%98%EF%BC%89">SQL 标准里的隔离级别（由低到高）</a></h3>
+<ol>
+<li><strong>读未提交 (Read Uncommitted)</strong>
+<ul>
+<li>可能出现：脏读、不可重复读、幻读。</li>
+</ul>
+</li>
+<li><strong>读已提交 (Read Committed)</strong>
+<ul>
+<li>避免了脏读。</li>
+<li>仍可能出现：不可重复读、幻读。</li>
+</ul>
+</li>
+<li><strong>可重复读 (Repeatable Read)</strong>
+<ul>
+<li>避免了脏读和不可重复读。</li>
+<li>仍可能出现：幻读。</li>
+<li><strong>注意</strong>：像 MySQL InnoDB 用 MVCC，其实也解决了幻读，所以它的“可重复读”比标准定义更强。</li>
+</ul>
+</li>
+<li><strong>可串行化 (Serializable)</strong>
+<ul>
+<li>最强隔离：等价于事务串行执行。</li>
+<li>不会出现脏读、不可重复读、幻读，但性能最差。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<p>👉 小测一下：
+假设事务 A 正在查“余额 &gt; 100 的所有账户”，事务 B 在这期间插入了一条新账户，余额 200。</p>
+<ul>
+<li>如果 A 用 <strong>可重复读 (Repeatable Read)</strong>，两次查询会不会把 B 新插入的账户查出来？</li>
+</ul>
+<blockquote>
+<p>会的。可重复读只保证了能读到的数据始终保持一致，但无法控制不读到增量的新数据。</p>
+</blockquote>
+<p>嗯，你的理解非常接近了，不过这里要稍微细分一下：</p>
+<ul>
+<li>在 <strong>SQL 标准的定义</strong>下，你说得对：
+<ul>
+<li><strong>可重复读</strong> 只保证“同一行两次读结果一致”，</li>
+<li>但是它不保证“结果集大小不变”，所以会出现 <strong>幻读</strong>（比如多出了一条新行）。</li>
+</ul>
+</li>
+<li>但在 <strong>MySQL InnoDB 这种 MVCC 实现</strong>里，情况更有趣：
+<ul>
+<li>事务 A 一开始就拿到一个 <strong>快照</strong>（snapshot）。</li>
+<li>后续查询只会看到快照里的数据，即使 B 插入了新行，也不会被 A 看见。</li>
+<li>所以 InnoDB 的“可重复读”比标准定义更强大，它实际上把 <strong>幻读</strong> 也解决了。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<p>所以答案要看数据库：</p>
+<ul>
+<li><strong>标准语义下：会出现幻读</strong>（你说的情况）。</li>
+<li><strong>像 InnoDB 这样的 MVCC 实现：不会出现幻读</strong>。</li>
+</ul>
+<hr>
+<p>要不我们来玩个小练习？
+我来描述一个场景，你来判断在不同隔离级别下会出现哪些问题：</p>
+<p>场景：</p>
+<ul>
+<li>事务 A：读某个用户余额两次。</li>
+<li>事务 B：在 A 的两次读之间更新了这个余额并提交。</li>
+</ul>
+<p>问题：
+在以下隔离级别下，A 会遇到什么现象？</p>
+<ol>
+<li>读未提交</li>
+<li>读已提交</li>
+<li>可重复读</li>
+</ol>
+<blockquote>
+<ol>
+<li>读未提交：能读到更新前后两次的余额，甚至更新过程中变动的余额</li>
+<li>读已提交：能读到更新前后两次的余额</li>
+<li>可重复读：只会读到更新前的余额</li>
+</ol>
+</blockquote>
+<p>完美，总结得很清楚 👏</p>
+<p>我帮你稍微精炼一下要点：</p>
+<ol>
+<li><strong>读未提交 (Read Uncommitted)</strong>
+<ul>
+<li>A 可能读到 <strong>B 未提交的数据</strong>（脏读）。</li>
+<li>所以有可能两次结果不一致，甚至读到“中间态”。</li>
+</ul>
+</li>
+<li><strong>读已提交 (Read Committed)</strong>
+<ul>
+<li>避免了脏读。</li>
+<li>但 A 在两次读之间，仍然可能看到 <strong>不同的提交值</strong>（不可重复读）。</li>
+</ul>
+</li>
+<li><strong>可重复读 (Repeatable Read)</strong>
+<ul>
+<li>A 在事务期间，读到的行值保持一致。</li>
+<li>不会有脏读和不可重复读。</li>
+<li>但在标准语义下，<strong>仍可能出现幻读</strong>（比如多了一行新数据）。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<p>到这里你其实已经把<strong>四大问题 + 四种隔离级别</strong>的对应关系梳理清楚了。</p>
+<p>要不要我给你画一个<strong>隔离级别 vs. 并发问题对照表</strong>，让你一眼就能记住？</p>
+<blockquote>
+<p>我想继续学习。</p>
+</blockquote>
+<p>好的 👍 那我们就往下一步走。</p>
+<p>你现在对 ACID 和隔离级别已经掌握得很清晰了，接下来我建议深入两个方向之一：</p>
+<ol>
+<li><strong>并发控制的机制</strong>（数据库内部是怎么实现这些隔离级别的）：
+<ul>
+<li>基于 <strong>锁 (Lock-based Concurrency Control)</strong> 的方式，比如行锁、表锁、两阶段锁协议（2PL）。</li>
+<li>基于 <strong>MVCC (Multi-Version Concurrency Control)</strong> 的方式，比如快照读、版本链。</li>
+<li>各自的优缺点、适用场景。</li>
+</ul>
+</li>
+<li><strong>事务调度与冲突检测</strong>（理论上的建模）：
+<ul>
+<li>什么是 <strong>可串行化 (Serializability)</strong>。</li>
+<li>冲突可串行化（Conflict Serializability）和视图可串行化（View Serializability）。</li>
+<li>如何通过调度图 (precedence graph) 判断一个事务调度是否合法。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<p>这两个方向，一个偏“系统实现”，一个偏“理论建模”。</p>
+<p>👉 你更想先学 <strong>实现原理</strong>（锁 vs MVCC），还是想先学 <strong>事务调度理论</strong>？</p>
+<blockquote>
+<p>先学事务调度理论。</p>
+</blockquote>
+<p>好，那我们进入 <strong>事务调度理论</strong> 这块。这个部分更偏数据库理论课，但学通了你会对“为什么需要隔离级别、如何判断并发调度是否合法”有更深刻的理解。</p>
+<hr>
+<h2 id="1.-什么是调度-(schedule)" tabindex="-1"><a href="#1.-%E4%BB%80%E4%B9%88%E6%98%AF%E8%B0%83%E5%BA%A6-(schedule)">1. 什么是调度 (Schedule)</a></h2>
+<ul>
+<li>一个 <strong>调度</strong>，就是多个事务的操作（读、写、提交）交织在一起的执行顺序。</li>
+<li>例如：</li>
+</ul>
+<pre class="language-markup"><code class="language-markup">事务 T1:  R1(A)   W1(A)
+事务 T2:        R2(A)   W2(A)
+
+调度可能是：R1(A) → R2(A) → W1(A) → W2(A)
+</code></pre>
+<p>这里 <code>R1(A)</code> 表示事务 T1 读数据项 A，<code>W2(A)</code> 表示事务 T2 写数据项 A。</p>
+<hr>
+<h2 id="2.-可串行化-(serializability)" tabindex="-1"><a href="#2.-%E5%8F%AF%E4%B8%B2%E8%A1%8C%E5%8C%96-(serializability)">2. 可串行化 (Serializability)</a></h2>
+<ul>
+<li>如果一个调度的最终效果 <strong>等价于某种串行执行事务的结果</strong>，我们就称这个调度是 <strong>可串行化的</strong>。</li>
+<li>这是最强的隔离级别（对应 SQL 里的 <strong>Serializable</strong>）。</li>
+</ul>
+<hr>
+<h2 id="3.-冲突可串行化-(conflict-serializability)" tabindex="-1"><a href="#3.-%E5%86%B2%E7%AA%81%E5%8F%AF%E4%B8%B2%E8%A1%8C%E5%8C%96-(conflict-serializability)">3. 冲突可串行化 (Conflict Serializability)</a></h2>
+<p>实际数据库常用的一种判定方式：</p>
+<ul>
+<li>两个操作“冲突”当且仅当：
+<ol>
+<li>它们属于不同事务；</li>
+<li>操作的是同一数据项；</li>
+<li>至少有一个是写操作。</li>
+</ol>
+</li>
+</ul>
+<p>比如：</p>
+<ul>
+<li><code>R1(A)</code> 与 <code>W2(A)</code> 冲突</li>
+<li><code>W1(A)</code> 与 <code>W2(A)</code> 冲突</li>
+<li>但 <code>R1(A)</code> 与 <code>R2(A)</code> <strong>不冲突</strong></li>
+</ul>
+<hr>
+<h2 id="4.-优先图-/-前驱图-(precedence-graph,-也叫冲突图)" tabindex="-1"><a href="#4.-%E4%BC%98%E5%85%88%E5%9B%BE-%2F-%E5%89%8D%E9%A9%B1%E5%9B%BE-(precedence-graph%2C-%E4%B9%9F%E5%8F%AB%E5%86%B2%E7%AA%81%E5%9B%BE)">4. 优先图 / 前驱图 (Precedence Graph, 也叫冲突图)</a></h2>
+<ul>
+<li>节点：事务</li>
+<li>边：如果事务 Ti 的某个操作与 Tj 的操作冲突，并且 Ti 的操作先执行，则加边 <code>Ti → Tj</code></li>
+<li>如果图中 <strong>没有环 (acyclic)</strong>，则调度是 <strong>冲突可串行化的</strong>。</li>
+</ul>
+<hr>
+<h3 id="举例" tabindex="-1"><a href="#%E4%B8%BE%E4%BE%8B">举例</a></h3>
+<p>调度：</p>
+<pre class="language-markup"><code class="language-markup">R1(A), W1(A), R2(A), W2(A)
+</code></pre>
+<ul>
+<li><code>W1(A)</code> 和 <code>R2(A)</code> 冲突，顺序是 W1 → R2，所以加边 T1 → T2。</li>
+<li><code>W1(A)</code> 和 <code>W2(A)</code> 冲突，顺序是 W1 → W2，所以加边 T1 → T2。</li>
+<li>图只有 T1 → T2，没有环，所以这是可串行化的，相当于“先 T1 再 T2”。</li>
+</ul>
+<hr>
+<p>👉 小练习：
+给你一个调度：</p>
+<pre class="language-markup"><code class="language-markup">R1(A), R2(A), W1(A), W2(A)
+</code></pre>
+<p>你能画出它的冲突图，并判断它是不是冲突可串行化的吗？</p>
+<blockquote>
+<p>R1(A) 和 W2(A) 冲突，顺序是 R1➡️W2，所以 T1➡️T2。
+R2(A) 和 W1(A) 冲突，顺序 R2➡️W1，所以 T2➡️T1。
+W1(A) 和 W2(A) 冲突，顺序是 R1➡️R2，所以 T1➡️T2。
+因为有环，所以它不是冲突可串行化的。</p>
+</blockquote>
+<p>非常棒，你已经完全抓到关键点了 🎉</p>
+<p>我们一步步梳理一下：</p>
+<p>调度：</p>
+<pre class="language-markup"><code class="language-markup">R1(A), R2(A), W1(A), W2(A)
+</code></pre>
+<ol>
+<li><strong>R1(A) 和 W2(A)</strong>
+<ul>
+<li>不同事务，访问同一项 A，其中一个是写。</li>
+<li>R1 在前，W2 在后。</li>
+<li>边：<code>T1 → T2</code></li>
+</ul>
+</li>
+<li><strong>R2(A) 和 W1(A)</strong>
+<ul>
+<li>不同事务，访问同一项 A，其中一个是写。</li>
+<li>R2 在前，W1 在后。</li>
+<li>边：<code>T2 → T1</code></li>
+</ul>
+</li>
+<li><strong>W1(A) 和 W2(A)</strong>
+<ul>
+<li>不同事务，都写 A。</li>
+<li>W1 在前，W2 在后。</li>
+<li>边：<code>T1 → T2</code></li>
+</ul>
+</li>
+</ol>
+<p>最终图：</p>
+<ul>
+<li><code>T1 → T2</code></li>
+<li><code>T2 → T1</code></li>
+</ul>
+<p>👉 有环，因此这个调度 <strong>不是冲突可串行化的</strong>。
+也就是说，它的结果不能等价于任何串行执行的顺序。</p>
+<hr>
+<p>到这里，你已经掌握了 <strong>冲突可串行化的判定方法</strong>。
+接下来可以继续深入：</p>
+<ul>
+<li><strong>视图可串行化 (View Serializability)</strong>：比冲突可串行化更宽松的判定。</li>
+<li><strong>两阶段锁协议 (2PL)</strong>：数据库怎么通过加锁保证调度是冲突可串行化的。</li>
+</ul>
+<p>要不要我先帮你讲 <strong>视图可串行化</strong>，还是你更想直接看 <strong>2PL 实现</strong>？</p>
+<blockquote>
+<p>先讲讲视图可串行化。</p>
+</blockquote>
+<p>好 👍 我们来讲 <strong>视图可串行化 (View Serializability, VS)</strong>。这是比 <strong>冲突可串行化 (Conflict Serializability, CS)</strong> 更宽松的一种判定方式。</p>
+<hr>
+<h2 id="1.-为什么需要视图可串行化" tabindex="-1"><a href="#1.-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81%E8%A7%86%E5%9B%BE%E5%8F%AF%E4%B8%B2%E8%A1%8C%E5%8C%96">1. 为什么需要视图可串行化</a></h2>
+<p>有些调度 <strong>不是冲突可串行化的</strong>（因为图里有环），
+但它的执行结果 <strong>仍然等价于某个串行执行</strong>。</p>
+<p>👉 所以，<strong>冲突可串行化 ⊂ 视图可串行化</strong>。
+也就是说，所有 CS 调度一定是 VS 调度，但反之不成立。</p>
+<hr>
+<h2 id="2.-视图等价的定义" tabindex="-1"><a href="#2.-%E8%A7%86%E5%9B%BE%E7%AD%89%E4%BB%B7%E7%9A%84%E5%AE%9A%E4%B9%89">2. 视图等价的定义</a></h2>
+<p>两个调度 <strong>视图等价</strong>，当且仅当满足以下三个条件：</p>
+<ol>
+<li><strong>初始读一致</strong>
+<ul>
+<li>对每个数据项，如果某个事务在两个调度里读的都是“初始值”，则必须一致。</li>
+</ul>
+</li>
+<li><strong>读-写一致</strong>
+<ul>
+<li>如果某个 <code>Ri(X)</code> 读到的是某个事务的 <code>Wj(X)</code>，那么在两个调度里，这个读必须都来自相同的写。</li>
+</ul>
+</li>
+<li><strong>最终写一致</strong>
+<ul>
+<li>两个调度对每个数据项的 <strong>最后一个写操作</strong> 必须是同一个事务的写。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="3.-举个例子" tabindex="-1"><a href="#3.-%E4%B8%BE%E4%B8%AA%E4%BE%8B%E5%AD%90">3. 举个例子</a></h2>
+<p>调度 S：</p>
+<pre class="language-markup"><code class="language-markup">W1(A), W2(A), R1(A)
+</code></pre>
+<ul>
+<li>冲突分析：
+<ul>
+<li><code>W1(A)</code> 与 <code>W2(A)</code> 冲突（顺序 W1→W2）</li>
+<li><code>W2(A)</code> 与 <code>R1(A)</code> 冲突（顺序 W2→R1）</li>
+<li>图中边：T1→T2, T2→T1 → 有环 ❌ → <strong>不是冲突可串行化</strong>。</li>
+</ul>
+</li>
+<li>视图分析：
+<ul>
+<li><code>R1(A)</code> 实际上读到的是 T2 写的值。</li>
+<li>最终写是 T2 的 <code>W2(A)</code>。</li>
+<li>串行顺序 [T1, T2] 与这个调度在读写效果上完全一致。</li>
+<li>所以它是 <strong>视图可串行化的</strong> ✅。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="4.-理解" tabindex="-1"><a href="#4.-%E7%90%86%E8%A7%A3">4. 理解</a></h2>
+<ul>
+<li><strong>冲突可串行化</strong>：从操作层面来判定，比较严格，检查有无冲突环。</li>
+<li><strong>视图可串行化</strong>：从结果层面来判定，只要读和写的“视图”一致，就算等价。</li>
+</ul>
+<p>因为 <strong>检测 VS 比 CS 要复杂得多（需要全局分析）</strong>，
+所以实际数据库实现时一般只保证 <strong>冲突可串行化</strong>，不会去追求更宽松的 VS。</p>
+<hr>
+<p>👉 小练习：
+调度：</p>
+<pre class="language-markup"><code class="language-markup">R1(A), W2(A), W1(A)
+</code></pre>
+<p>请你判断：</p>
+<ol>
+<li>它是不是冲突可串行化？</li>
+<li>它是不是视图可串行化？</li>
+</ol>
+<blockquote>
+<p>它不是冲突可串行化的，它是视图可串行化的。继续带我学习实现原理吧。</p>
+</blockquote>
+<p>好的 👍 我们从「理论 → 实现」切过去。前面你已经理解了 <strong>事务调度理论</strong>（ACID、隔离级别、冲突/视图可串行化）。接下来就是：数据库怎么在实践里实现这些性质？</p>
+<p>数据库里主要有两大类思路：</p>
+<hr>
+<h2 id="1.-基于锁的实现（2pl，两阶段锁协议）" tabindex="-1"><a href="#1.-%E5%9F%BA%E4%BA%8E%E9%94%81%E7%9A%84%E5%AE%9E%E7%8E%B0%EF%BC%882pl%EF%BC%8C%E4%B8%A4%E9%98%B6%E6%AE%B5%E9%94%81%E5%8D%8F%E8%AE%AE%EF%BC%89">1. 基于锁的实现（2PL，两阶段锁协议）</a></h2>
+<p><strong>核心思想</strong>：</p>
+<ul>
+<li>事务在访问数据之前，先申请锁（读锁或写锁）。</li>
+<li>在提交前，不会释放任何锁（Growing 阶段）；一旦开始释放锁，就不能再申请新锁（Shrinking 阶段）。</li>
+<li>这种协议保证所有调度都是<strong>冲突可串行化</strong>。</li>
+</ul>
+<p><strong>类型</strong>：</p>
+<ul>
+<li><strong>共享锁 (S, Shared Lock)</strong>：允许多个事务同时读。</li>
+<li><strong>排它锁 (X, Exclusive Lock)</strong>：只允许一个事务写，别人不能同时读或写。</li>
+</ul>
+<p><strong>典型问题</strong>：</p>
+<ul>
+<li><strong>死锁 (Deadlock)</strong>：T1 等待 T2 的锁，T2 又等 T1 的锁 → 系统需要检测或超时回滚。</li>
+<li><strong>长事务阻塞</strong>：锁粒度大时，可能拖慢整个系统。</li>
+</ul>
+<hr>
+<h2 id="2.-基于时间戳的实现（timestamp-ordering,-to）" tabindex="-1"><a href="#2.-%E5%9F%BA%E4%BA%8E%E6%97%B6%E9%97%B4%E6%88%B3%E7%9A%84%E5%AE%9E%E7%8E%B0%EF%BC%88timestamp-ordering%2C-to%EF%BC%89">2. 基于时间戳的实现（Timestamp Ordering, TO）</a></h2>
+<p><strong>核心思想</strong>：</p>
+<ul>
+<li>给每个事务分配一个时间戳。</li>
+<li>系统用时间戳决定读写顺序：如果某次操作违反了时间戳序，事务会被回滚。</li>
+<li>避免了锁等待，但可能导致大量回滚。</li>
+</ul>
+<p><strong>应用场景</strong>：乐观并发控制（OCC）基本就是这个思路的变种。</p>
+<hr>
+<h2 id="3.-基于-mvcc-的实现（多版本并发控制）" tabindex="-1"><a href="#3.-%E5%9F%BA%E4%BA%8E-mvcc-%E7%9A%84%E5%AE%9E%E7%8E%B0%EF%BC%88%E5%A4%9A%E7%89%88%E6%9C%AC%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6%EF%BC%89">3. 基于 MVCC 的实现（多版本并发控制）</a></h2>
+<p>这就是你熟悉的 <strong>RocksDB</strong>、MySQL InnoDB、Postgres 里的方法。</p>
+<p><strong>核心思想</strong>：</p>
+<ul>
+<li>每次写不覆盖旧值，而是生成一个新版本。</li>
+<li>每个版本带有写入的「事务号 / 时间戳」。</li>
+<li>读操作选择「对自己可见的最新版本」。</li>
+</ul>
+<p><strong>好处</strong>：</p>
+<ul>
+<li>读不阻塞写，写也不阻塞读（相比锁来说更高并发）。</li>
+<li>可方便实现不同的隔离级别：
+<ul>
+<li><strong>读已提交 (RC)</strong>：读总是能看到已经提交事务写的最新版本。</li>
+<li><strong>可重复读 (RR)</strong>：读在事务启动时确定一个「快照」，后续始终从这个快照里读取。</li>
+<li><strong>串行化 (Serializable)</strong>：需要在 MVCC 上再加上额外机制（如 SSI，Serializable Snapshot Isolation）。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="4.-写前日志-(wal,-write-ahead-logging)" tabindex="-1"><a href="#4.-%E5%86%99%E5%89%8D%E6%97%A5%E5%BF%97-(wal%2C-write-ahead-logging)">4. 写前日志 (WAL, Write-Ahead Logging)</a></h2>
+<p><strong>核心思想</strong>：</p>
+<ul>
+<li>在写磁盘之前，先把「意图」记录到日志里。</li>
+<li>崩溃时，可以通过日志回放（Redo）或撤销（Undo）保证 <strong>原子性和持久性</strong>。</li>
+</ul>
+<p>这就是为什么 ACID 里的 <strong>A / D</strong>（原子性、持久性）通常是通过 WAL 来保证的。</p>
+<hr>
+<h2 id="5.-综合起来" tabindex="-1"><a href="#5.-%E7%BB%BC%E5%90%88%E8%B5%B7%E6%9D%A5">5. 综合起来</a></h2>
+<ul>
+<li><strong>一致性 (Consistency)</strong>：依赖约束 + 正确事务逻辑（数据库机制只是保证不会出现部分提交、丢失写）。</li>
+<li><strong>隔离性 (Isolation)</strong>：锁（2PL）/ 时间戳 / MVCC。</li>
+<li><strong>原子性 (Atomicity)</strong> 和 <strong>持久性 (Durability)</strong>：日志（WAL）+ 崩溃恢复机制。</li>
+</ul>
+<hr>
+<p>📌 到这里，你对「实现事务的基本手段」有全景认识了：</p>
+<ul>
+<li>理论：冲突可串行化 / 视图可串行化。</li>
+<li>实现：2PL（锁）、TO（时间戳）、MVCC（多版本）、WAL（日志）。</li>
+</ul>
+<hr>
+<p>要不要我接下来帮你深入讲讲 <strong>MVCC 的内部机制</strong>？比如：</p>
+<ul>
+<li>RocksDB 是怎么用 <strong>seq number</strong> + <strong>快照</strong> 来实现不同隔离级别的？</li>
+<li>或者我们先从经典的 <strong>InnoDB</strong> MVCC 实现讲起，再对比 RocksDB？</li>
+</ul>
+<blockquote>
+<p>讲讲 RocksDB 的实现吧。</p>
+</blockquote>
+<p>好 👌 我们就从 <strong>RocksDB 的事务实现</strong> 来看，它是一个典型的 <strong>MVCC + WAL</strong> 系统。</p>
+<hr>
+<h2 id="1.-rocksdb-的基本存储模型" tabindex="-1"><a href="#1.-rocksdb-%E7%9A%84%E5%9F%BA%E6%9C%AC%E5%AD%98%E5%82%A8%E6%A8%A1%E5%9E%8B">1. RocksDB 的基本存储模型</a></h2>
+<ul>
+<li><strong>LSM-Tree</strong>：数据写入先进入内存表（memtable），再刷盘到 SST 文件。</li>
+<li><strong>WAL (Write Ahead Log)</strong>：事务写操作在提交前先写入日志，崩溃时可恢复。</li>
+<li><strong>Seq Number（序列号）</strong>：全局单调递增，每次写都会分配一个 seq number。</li>
+</ul>
+<blockquote>
+<p>这个 seq number 是 MVCC 的核心：它定义了「版本顺序」。</p>
+</blockquote>
+<hr>
+<h2 id="2.-mvcc-在-rocksdb-的实现" tabindex="-1"><a href="#2.-mvcc-%E5%9C%A8-rocksdb-%E7%9A%84%E5%AE%9E%E7%8E%B0">2. MVCC 在 RocksDB 的实现</a></h2>
+<p>在 RocksDB 中，每条 key 的值存储为 <code>(value, seq_num, type)</code> 三元组。</p>
+<ul>
+<li><code>seq_num</code>：表示这个写是第几次事务写入产生的版本。</li>
+<li><code>type</code>：比如 <code>PUT</code>、<code>DELETE</code> 等。</li>
+<li>一个 key 可能有多个版本，读时根据可见性规则选择一个。</li>
+</ul>
+<p><strong>快照 (Snapshot)</strong>：</p>
+<ul>
+<li>RocksDB 支持用户在某个时刻创建快照（snapshot），记录当前最新的 seq number。</li>
+<li>快照上的读，只能看到 <code>seq_num &lt;= snapshot_seq</code> 的数据。</li>
+<li>这样就能实现 <strong>一致性读</strong>。</li>
+</ul>
+<hr>
+<h2 id="3.-隔离级别" tabindex="-1"><a href="#3.-%E9%9A%94%E7%A6%BB%E7%BA%A7%E5%88%AB">3. 隔离级别</a></h2>
+<p>RocksDB 提供的事务（<code>TransactionDB</code>）默认用的是 <strong>快照隔离 (Snapshot Isolation, SI)</strong>，相当于介于 <strong>可重复读</strong> 和 <strong>串行化</strong> 之间：</p>
+<ul>
+<li><strong>读未提交 (RU)</strong>：可以直接用普通 <code>Get</code> 读取最新 memtable 内容。</li>
+<li><strong>读已提交 (RC)</strong>：通过读取最新 seq number ≤ 已提交事务的快照来实现。</li>
+<li><strong>可重复读 (RR)</strong>：事务开始时绑定一个 snapshot seq，后续读操作都基于它。</li>
+<li><strong>串行化 (Serializable)</strong>：需要额外启用 <strong>事务锁 (WritePrepared / WriteCommitted 机制)</strong> 来检测写冲突，否则默认 SI 下会有幻读问题。</li>
+</ul>
+<hr>
+<h2 id="4.-事务写入流程" tabindex="-1"><a href="#4.-%E4%BA%8B%E5%8A%A1%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B">4. 事务写入流程</a></h2>
+<p>事务写入时的关键步骤：</p>
+<ol>
+<li><strong>分配 seq number</strong>
+<ul>
+<li>RocksDB 有个全局的 seq counter。</li>
+<li>每次写都会生成一个新的 seq number。</li>
+</ul>
+</li>
+<li><strong>写入 WAL</strong>
+<ul>
+<li>把事务修改序列化写入 WAL，保证崩溃恢复。</li>
+</ul>
+</li>
+<li><strong>写入 MemTable</strong>
+<ul>
+<li>数据写入 MemTable，并带上 <code>seq_num</code>。</li>
+<li>提交后可见。</li>
+</ul>
+</li>
+<li><strong>提交</strong>
+<ul>
+<li>如果是事务（<code>TransactionDB</code>），提交时会检查冲突（根据 <code>WriteOptions</code>，可能用锁或乐观冲突检测）。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="5.-rocksdb-的事务模式" tabindex="-1"><a href="#5.-rocksdb-%E7%9A%84%E4%BA%8B%E5%8A%A1%E6%A8%A1%E5%BC%8F">5. RocksDB 的事务模式</a></h2>
+<p>RocksDB 提供了几种不同的事务引擎：</p>
+<ul>
+<li><strong>OptimisticTransactionDB</strong>
+<ul>
+<li>乐观事务：读的时候不加锁，提交时检测冲突。</li>
+<li>冲突检测：看事务读到的数据的 seq number 是否被别的事务改过。</li>
+</ul>
+</li>
+<li><strong>TransactionDB</strong>
+<ul>
+<li>支持悲观事务（锁），可以更严格地避免写冲突。</li>
+</ul>
+</li>
+<li><strong>WritePrepared / WriteCommitted</strong> 模式
+<ul>
+<li>处理分布式或 WAL 重放时的一致性问题，优化 commit 性能。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="6.-举例：转账场景" tabindex="-1"><a href="#6.-%E4%B8%BE%E4%BE%8B%EF%BC%9A%E8%BD%AC%E8%B4%A6%E5%9C%BA%E6%99%AF">6. 举例：转账场景</a></h2>
+<p>假设要转账：</p>
+<pre class="language-markup"><code class="language-markup">T1: A = A - 100
+T1: B = B + 100
+</code></pre>
+<p>执行步骤：</p>
+<ol>
+<li>T1 开启事务，获取 snapshot（seq=100）。</li>
+<li>T1 读 A（从 snapshot=100 可见的版本读取）。</li>
+<li>T1 写 A-100，写入 memtable（带 seq=101）。</li>
+<li>T1 写 B+100，写入 memtable（带 seq=102）。</li>
+<li>T1 提交：写 WAL，释放锁（如果是悲观事务）。</li>
+<li>其他事务的 snapshot &lt; 101，看不到更新；snapshot ≥ 102，就能看到更新。</li>
+</ol>
+<hr>
+<p>✅ 总结</p>
+<ul>
+<li><strong>seq number = MVCC 的时间戳</strong>。</li>
+<li><strong>快照隔离</strong>：事务用 snapshot_seq 限定可见版本。</li>
+<li><strong>原子性 + 持久性</strong>：通过 WAL 保证。</li>
+<li><strong>隔离性</strong>：用 MVCC（快照）+ 可选锁实现。</li>
+</ul>
+<hr>
+<p>要不要我帮你画一张 <strong>图解 RocksDB MVCC 的时间线</strong>（事务 seq number 演进 + snapshot 可见性）？</p>
+<blockquote>
+<p>RocksDB 使用 snapshot 预期应该不会出现幻读？</p>
+</blockquote>
+<p>对，这里需要仔细区分 <strong>RocksDB 的 snapshot（快照隔离，SI）</strong> 与<strong>串行化隔离</strong>的区别。</p>
+<hr>
+<h2 id="1.-rocksdb-snapshot（快照隔离）" tabindex="-1"><a href="#1.-rocksdb-snapshot%EF%BC%88%E5%BF%AB%E7%85%A7%E9%9A%94%E7%A6%BB%EF%BC%89">1. RocksDB snapshot（快照隔离）</a></h2>
+<ul>
+<li>每个事务在开始时获取一个 <strong>snapshot seq number</strong>。</li>
+<li>读操作只会看到 <code>seq_num &lt;= snapshot_seq</code> 的版本。</li>
+<li>写操作生成新的 seq number，并提交时更新 WAL/ MemTable。</li>
+</ul>
+<p><strong>效果</strong>：</p>
+<ul>
+<li><strong>可重复读 (Repeatable Read)</strong>：事务内多次读同一 key，看到的值一致 ✅</li>
+<li><strong>读已提交 (Read Committed)</strong>：事务看到最新已经提交的 seq number</li>
+</ul>
+<hr>
+<h2 id="2.-幻读（phantom-read）问题" tabindex="-1"><a href="#2.-%E5%B9%BB%E8%AF%BB%EF%BC%88phantom-read%EF%BC%89%E9%97%AE%E9%A2%98">2. 幻读（Phantom Read）问题</a></h2>
+<p><strong>幻读定义</strong>：</p>
+<blockquote>
+<p>同一个事务中，两次相同查询条件（如 <code>SELECT * FROM users WHERE age&gt;30</code>）返回的行数不同，出现“幻影行”。</p>
+</blockquote>
+<ul>
+<li>关键点：幻读是 <strong>新增或删除了满足条件的行</strong>，而不仅是 key 的值被改。</li>
+<li>RocksDB 的 snapshot 只针对 <strong>已存在 key 的版本</strong>，它不会阻止事务外部新增或删除 key 从而满足查询条件。</li>
+</ul>
+<p><strong>举例</strong>：</p>
+<ol>
+<li>T1 获取 snapshot（seq=100）。</li>
+<li>T1 执行 range scan：<code>SELECT * FROM A BETWEEN 1 AND 10</code>，看到 keys {1,2,3}。</li>
+<li>T2 在 seq&gt;100 提交新写入 key=4。</li>
+<li>T1 再次执行相同 range scan，只会看到 snapshot seq=100 的 key {1,2,3}，<strong>不会看到 key=4</strong> ✅
+<ul>
+<li>这对于 <strong>单 key 访问</strong>是可重复的。</li>
+</ul>
+</li>
+<li>但如果 T1 的查询条件是某个动态计算（如 <code>WHERE balance&gt;100</code>），而 T2 在 seq&gt;100 更新了 key=2，使它满足条件，T1 再 scan 还是不会看到，因为 snapshot seq 限定了可见版本。</li>
+</ol>
+<blockquote>
+<p>总结：<strong>快照隔离可以防止幻读（逻辑上）吗？</strong></p>
+</blockquote>
+<ul>
+<li><strong>单 key 精确访问</strong>：不会出现幻读 ✅</li>
+<li><strong>范围查询 / 条件查询</strong>：在快照隔离下，只看到 snapshot seq 的版本，不会看到事务外新增的行 ✅</li>
+<li><strong>但是</strong>：如果没有显式索引或事务锁保护，实际串行化下，SI 并不能保证完全防止幻读（尤其是涉及 predicate scan 的情况下），可能需要 <strong>Serializable Snapshot Isolation (SSI)</strong> 才能完全防幻读。</li>
+</ul>
+<hr>
+<h3 id="3.-rocksdb-的设计" tabindex="-1"><a href="#3.-rocksdb-%E7%9A%84%E8%AE%BE%E8%AE%A1">3. RocksDB 的设计</a></h3>
+<ul>
+<li>RocksDB 默认快照隔离，足够保证 <strong>可重复读和事务一致性</strong>。</li>
+<li>对于多行范围查询或复杂 predicate 的完全串行化，需要额外机制，比如：
+<ul>
+<li><strong>锁定范围</strong></li>
+<li><strong>冲突检测（OptimisticTransactionDB）</strong></li>
+<li><strong>Serializable Snapshot Isolation (SSI)</strong></li>
+</ul>
+</li>
+</ul>
+<hr>
+<p>💡 <strong>结论</strong>：</p>
+<ul>
+<li><strong>单 key 读写</strong>：RocksDB snapshot 不会出现幻读 ✅</li>
+<li><strong>范围 / 条件查询</strong>：snapshot 本身不会看到事务外新增/删除 key（对已存在 snapshot 可见范围），但要保证完全串行化和避免所有幻读，需额外机制</li>
+</ul>
+<hr>
+<p>如果你愿意，我可以帮你画一张 <strong>RocksDB snapshot + seq number + range scan 幻读示意图</strong>，直观展示为什么单 key 不会幻读，但复杂 predicate 下仍需 SSI。</p>
+<p>你想让我画吗？</p>
+<blockquote>
+<p>举例说明为什么需要 SSI 才能完全预防幻读。</p>
+</blockquote>
+<p>好的，我们来用一个<strong>具体例子</strong>说明为什么 <strong>快照隔离 (SI)</strong> 不能完全防止幻读，而 <strong>Serializable Snapshot Isolation (SSI)</strong> 能做到。</p>
+<hr>
+<h2 id="1.-场景设定" tabindex="-1"><a href="#1.-%E5%9C%BA%E6%99%AF%E8%AE%BE%E5%AE%9A">1. 场景设定</a></h2>
+<p>假设我们有一个数据库表 <code>Account</code>：</p>
+<table>
+<thead>
+<tr>
+<th>id</th>
+<th>balance</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>100</td>
+</tr>
+<tr>
+<td>2</td>
+<td>200</td>
+</tr>
+</tbody>
+</table>
+<p>事务 T1 希望执行一个范围查询，统计所有 balance &gt; 150 的账户总额，然后在事务内部做某些操作：</p>
+<pre class="language-sql"><code class="language-sql">SELECT SUM(balance) FROM Account WHERE balance &gt; 150;
+</code></pre>
+<hr>
+<h2 id="2.-快照隔离下的幻读" tabindex="-1"><a href="#2.-%E5%BF%AB%E7%85%A7%E9%9A%94%E7%A6%BB%E4%B8%8B%E7%9A%84%E5%B9%BB%E8%AF%BB">2. 快照隔离下的幻读</a></h2>
+<ul>
+<li><strong>事务 T1</strong> 在开始时获取 snapshot seq=100。</li>
+<li>T1 执行查询：balance &gt; 150 的账户是 {id=2}，总额=200。</li>
+</ul>
+<p>在 T1 执行期间：</p>
+<ul>
+<li><strong>事务 T2</strong> 新增一个账户 <code>id=3, balance=300</code> 并提交（seq=101）。</li>
+<li>T1 再次执行相同查询（在同一个事务里）：
+<ul>
+<li>因为 T1 的 snapshot seq=100，只能看到 seq ≤100 的版本</li>
+<li>T1 <strong>看不到 id=3</strong>，所以幻读没有发生 ✅</li>
+</ul>
+</li>
+</ul>
+<p>这就是单事务内部基于快照的可重复读效果。</p>
+<hr>
+<h3 id="3.-快照隔离下的幻读示例（真正问题出现）" tabindex="-1"><a href="#3.-%E5%BF%AB%E7%85%A7%E9%9A%94%E7%A6%BB%E4%B8%8B%E7%9A%84%E5%B9%BB%E8%AF%BB%E7%A4%BA%E4%BE%8B%EF%BC%88%E7%9C%9F%E6%AD%A3%E9%97%AE%E9%A2%98%E5%87%BA%E7%8E%B0%EF%BC%89">3. 快照隔离下的幻读示例（真正问题出现）</a></h3>
+<p>问题出现在<strong>并发事务间逻辑依赖</strong>：</p>
+<ul>
+<li>T1：统计 balance&gt;150 的账户总额，如果总额&lt;400，则新增一条记录 <code>id=4, balance=100</code>。</li>
+<li>T2：同时新增 <code>id=3, balance=300</code> 并提交。</li>
+</ul>
+<p>并发执行顺序（按真实 commit 时间）：</p>
+<ol>
+<li>T1 开始 snapshot seq=100，查询总额=200</li>
+<li>T2 提交 seq=101，新增 id=3, balance=300</li>
+<li>T1 根据查询结果总额=200，决定插入 id=4, balance=100</li>
+<li>T1 提交 seq=102</li>
+</ol>
+<p><strong>结果</strong>：</p>
+<ul>
+<li>系统最终状态：</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>id</th>
+<th>balance</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>100</td>
+</tr>
+<tr>
+<td>2</td>
+<td>200</td>
+</tr>
+<tr>
+<td>3</td>
+<td>300</td>
+</tr>
+<tr>
+<td>4</td>
+<td>100</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>逻辑上：T1 的判断基于 snapshot seq=100，认为总额=200 &lt; 400 → 插入 id=4</li>
+<li>但如果按串行执行，T2 应该在 T1 前或者后，最终总额可能不同</li>
+<li><strong>幻读产生</strong>：T1 在事务中做决策时“看不到” T2 的写，导致逻辑不一致</li>
+</ul>
+<blockquote>
+<p>核心问题：快照隔离保证 <strong>单事务内部视图一致</strong>，但<strong>并发事务之间的逻辑依赖可能导致幻读</strong>。</p>
+</blockquote>
+<hr>
+<h2 id="4.-ssi（serializable-snapshot-isolation）如何解决" tabindex="-1"><a href="#4.-ssi%EF%BC%88serializable-snapshot-isolation%EF%BC%89%E5%A6%82%E4%BD%95%E8%A7%A3%E5%86%B3">4. SSI（Serializable Snapshot Isolation）如何解决</a></h2>
+<p><strong>SSI 核心思想</strong>：</p>
+<ol>
+<li>事务仍然使用 snapshot 隔离读取版本</li>
+<li>系统跟踪事务之间的<strong>潜在冲突（依赖关系）</strong>：
+<ul>
+<li>写-读依赖</li>
+<li>写-写冲突</li>
+</ul>
+</li>
+<li>如果检测到可能导致非串行化行为（如上例 T1/T2 逻辑依赖冲突），<strong>回滚其中一个事务</strong>，迫使其重试</li>
+</ol>
+<blockquote>
+<p>在上例中，T1 与 T2 之间存在潜在的写-读冲突（T1 基于旧 snapshot 做了决策，而 T2 已修改相关数据）。
+SSI 会检测到这种依赖，并回滚 T1 或 T2，保证最终结果和某个串行顺序一致 → 幻读被完全避免。</p>
+</blockquote>
+<hr>
+<h2 id="5.-总结" tabindex="-1"><a href="#5.-%E6%80%BB%E7%BB%93">5. 总结</a></h2>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>SI（快照隔离）</th>
+<th>SSI（串行化快照隔离）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单事务可重复读</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>幻读（跨事务逻辑依赖）</td>
+<td>❌（可能出现）</td>
+<td>✅（通过冲突检测回滚解决）</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>高</td>
+<td>略低（可能回滚重试）</td>
+</tr>
+<tr>
+<td>实现</td>
+<td>MVCC + snapshot seq</td>
+<td>MVCC + snapshot seq + 冲突检测</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p>💡 <strong>一句话理解</strong>：</p>
+<ul>
+<li>SI 只保证<strong>每个事务内部看到的版本一致</strong>，不能防止事务间逻辑依赖导致的幻读。</li>
+<li>SSI 在 SI 基础上检测事务间冲突，必要时回滚事务，保证结果等价于某个串行调度，从而完全避免幻读。</li>
+</ul>
+<hr>
+<p>如果你愿意，我可以画一张 <strong>T1/T2 并发幻读 + SSI 回滚示意图</strong>，直观展示快照隔离下的问题和 SSI 的解决办法。</p>
+<p>你想看这个图吗？</p>
+<blockquote>
+<p>我知道你的意思了。我们继续学习吧。</p>
+</blockquote>
+<p>好 👍，我们可以继续深入 <strong>RocksDB / MVCC 事务的实现细节</strong>，结合你之前对 seq number、快照和 ACID 的理解。下一步重点可以讲几个核心机制：</p>
+<hr>
+<h2 id="1.-rocksdb-事务内部的版本管理" tabindex="-1"><a href="#1.-rocksdb-%E4%BA%8B%E5%8A%A1%E5%86%85%E9%83%A8%E7%9A%84%E7%89%88%E6%9C%AC%E7%AE%A1%E7%90%86">1. RocksDB 事务内部的版本管理</a></h2>
+<p>每个 key 存储 <code>(value, seq_num, type)</code>：</p>
+<ul>
+<li><strong>value</strong>：数据本身</li>
+<li><strong>seq_num</strong>：全局单调递增的序列号，决定版本顺序</li>
+<li><strong>type</strong>：操作类型，例如 <code>PUT</code>、<code>DELETE</code></li>
+</ul>
+<p><strong>读取规则</strong>：</p>
+<ul>
+<li>读事务持有一个 snapshot seq number</li>
+<li>对 key 的访问只看到 <strong>seq_num ≤ snapshot_seq</strong> 的最新版本</li>
+<li>写操作生成新的 seq number，并提交后对其他事务可见</li>
+</ul>
+<p>这就保证了 <strong>单 key 可重复读</strong>。</p>
+<hr>
+<h2 id="2.-事务提交流程" tabindex="-1"><a href="#2.-%E4%BA%8B%E5%8A%A1%E6%8F%90%E4%BA%A4%E6%B5%81%E7%A8%8B">2. 事务提交流程</a></h2>
+<ol>
+<li><strong>开始事务</strong>：获取 snapshot（决定可见性）</li>
+<li><strong>写操作</strong>：
+<ul>
+<li>分配 seq number</li>
+<li>写入 MemTable</li>
+<li>记录到 WAL</li>
+</ul>
+</li>
+<li><strong>提交</strong>：
+<ul>
+<li>如果是 <strong>悲观事务</strong>：检查锁冲突，释放锁</li>
+<li>如果是 <strong>乐观事务</strong>：冲突检测（基于读取版本 seq）</li>
+</ul>
+</li>
+<li><strong>可见性</strong>：事务提交后，新的 seq number 对后续 snapshot 可见</li>
+</ol>
+<hr>
+<h2 id="3.-冲突检测（乐观事务）" tabindex="-1"><a href="#3.-%E5%86%B2%E7%AA%81%E6%A3%80%E6%B5%8B%EF%BC%88%E4%B9%90%E8%A7%82%E4%BA%8B%E5%8A%A1%EF%BC%89">3. 冲突检测（乐观事务）</a></h2>
+<ul>
+<li>乐观事务不加锁</li>
+<li>在提交时检查 <strong>读版本是否被修改</strong>：
+<ul>
+<li>对每个事务读取的 key，如果 seq number 已被其他事务写过，则事务回滚</li>
+</ul>
+</li>
+<li>这种方法可以避免 SI 下的<strong>写-写冲突</strong>，保证数据一致性</li>
+</ul>
+<hr>
+<h2 id="4.-range-/-多-key-的问题" tabindex="-1"><a href="#4.-range-%2F-%E5%A4%9A-key-%E7%9A%84%E9%97%AE%E9%A2%98">4. Range / 多 key 的问题</a></h2>
+<ul>
+<li>单 key 读写 → snapshot 足够</li>
+<li>多 key / 范围查询 → 可能出现幻读</li>
+<li>如果需要<strong>串行化隔离</strong>：
+<ul>
+<li>使用锁或 SSI</li>
+<li>在乐观事务里可以检测读依赖冲突，必要时回滚</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="5.-wal-+-memtable-+-lsm-tree-结合保证-acid" tabindex="-1"><a href="#5.-wal-%2B-memtable-%2B-lsm-tree-%E7%BB%93%E5%90%88%E4%BF%9D%E8%AF%81-acid">5. WAL + MemTable + LSM-Tree 结合保证 ACID</a></h2>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>实现机制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>原子性 (Atomicity)</td>
+<td>事务操作写 WAL，失败回滚</td>
+</tr>
+<tr>
+<td>一致性 (Consistency)</td>
+<td>事务逻辑 + 冲突检测</td>
+</tr>
+<tr>
+<td>隔离性 (Isolation)</td>
+<td>MVCC + snapshot / 锁</td>
+</tr>
+<tr>
+<td>持久性 (Durability)</td>
+<td>WAL + MemTable flush 到 SST 文件</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p>💡 重点总结：</p>
+<ul>
+<li><strong>seq number</strong> 是 MVCC 的核心，定义版本顺序</li>
+<li><strong>snapshot</strong> 决定事务可见性</li>
+<li><strong>WAL</strong> 保证原子性和持久性</li>
+<li><strong>冲突检测 / 锁</strong> 保证隔离</li>
+<li><strong>单 key 可重复读</strong>完全由 snapshot 控制</li>
+<li><strong>多 key 幻读</strong>需要 SSI 或范围锁来解决</li>
+</ul>
+<hr>
+<p>我可以下一步帮你画一个 <strong>RocksDB 事务执行时间线图</strong>，展示：</p>
+<ul>
+<li>seq number 变化</li>
+<li>snapshot 可见性</li>
+<li>事务提交前后 MemTable 与 WAL 的状态</li>
+</ul>
+<p>这样你能直观理解整个流程。</p>
+<p>你希望我画这个图吗？</p>
+<blockquote>
+<p>如何使用锁来实现事务隔离？</p>
+</blockquote>
+<p>好的，我们来系统讲讲 <strong>使用锁实现事务隔离</strong> 的原理和具体机制，这是数据库最经典的做法之一。</p>
+<hr>
+<h2 id="1.-基本思路" tabindex="-1"><a href="#1.-%E5%9F%BA%E6%9C%AC%E6%80%9D%E8%B7%AF">1. 基本思路</a></h2>
+<ul>
+<li><strong>锁（Lock）</strong> 是一种控制对共享数据并发访问的手段。</li>
+<li>每个数据对象（行、表、页、甚至整个数据库）都可以加锁。</li>
+<li>事务在访问数据前必须获得锁，访问结束后释放锁。</li>
+</ul>
+<p><strong>目标</strong>：通过锁序列控制事务执行顺序，避免读写冲突，从而实现隔离性。</p>
+<hr>
+<h2 id="2.-锁类型" tabindex="-1"><a href="#2.-%E9%94%81%E7%B1%BB%E5%9E%8B">2. 锁类型</a></h2>
+<table>
+<thead>
+<tr>
+<th>锁类型</th>
+<th>含义</th>
+<th>能否并发</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>共享锁 (S, Shared Lock)</td>
+<td>用于读操作</td>
+<td>可以多个事务同时持有共享锁</td>
+</tr>
+<tr>
+<td>排它锁 (X, Exclusive Lock)</td>
+<td>用于写操作</td>
+<td>只能一个事务持有，同时阻止其他读写</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>读-读</strong>：S-S → 可以并发</li>
+<li><strong>读-写</strong>：S-X → 阻塞写</li>
+<li><strong>写-写</strong>：X-X → 阻塞写</li>
+<li><strong>写-读</strong>：X-S → 阻塞读</li>
+</ul>
+<hr>
+<h2 id="3.-两阶段锁协议（2pl,-two-phase-locking）" tabindex="-1"><a href="#3.-%E4%B8%A4%E9%98%B6%E6%AE%B5%E9%94%81%E5%8D%8F%E8%AE%AE%EF%BC%882pl%2C-two-phase-locking%EF%BC%89">3. 两阶段锁协议（2PL, Two-Phase Locking）</a></h2>
+<p>这是锁实现事务隔离的核心策略：</p>
+<ol>
+<li><strong>增长阶段（Growing Phase）</strong>
+<ul>
+<li>事务可以申请锁，但不能释放锁。</li>
+<li>保证事务在执行过程中不会看到不完整的数据。</li>
+</ul>
+</li>
+<li><strong>收缩阶段（Shrinking Phase）</strong>
+<ul>
+<li>事务开始释放锁后，不能再申请新锁。</li>
+<li>保证锁释放顺序不会破坏可串行性。</li>
+</ul>
+</li>
+</ol>
+<p>✅ <strong>特点</strong>：所有遵循 2PL 的事务调度都是<strong>冲突可串行化</strong>的。</p>
+<hr>
+<h2 id="4.-实现不同隔离级别" tabindex="-1"><a href="#4.-%E5%AE%9E%E7%8E%B0%E4%B8%8D%E5%90%8C%E9%9A%94%E7%A6%BB%E7%BA%A7%E5%88%AB">4. 实现不同隔离级别</a></h2>
+<table>
+<thead>
+<tr>
+<th>隔离级别</th>
+<th>需要的锁策略</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>读未提交 (RU)</td>
+<td>读不加锁，写加 X 锁（脏读可能发生）</td>
+</tr>
+<tr>
+<td>读已提交 (RC)</td>
+<td>读加 S 锁，读完立即释放（防止脏读）</td>
+</tr>
+<tr>
+<td>可重复读 (RR)</td>
+<td>读加 S 锁，事务结束前不释放（防止不可重复读）</td>
+</tr>
+<tr>
+<td>串行化 (Serializable)</td>
+<td>范围锁 + 行锁，保证 phantom 不发生</td>
+</tr>
+</tbody>
+</table>
+<p><strong>解释</strong>：</p>
+<ul>
+<li><strong>不可重复读</strong>：同一事务读同一行两次值不一致
+→ RR 通过持有 S 锁防止其他事务写该行</li>
+<li><strong>幻读</strong>：事务两次查询返回的行集合不同
+→ 串行化通过 <strong>范围锁（Range Lock）</strong> 或 <strong>索引锁</strong> 来防止新行插入到查询范围</li>
+</ul>
+<hr>
+<h2 id="5.-死锁问题" tabindex="-1"><a href="#5.-%E6%AD%BB%E9%94%81%E9%97%AE%E9%A2%98">5. 死锁问题</a></h2>
+<ul>
+<li>当两个事务相互等待对方的锁时，就会发生死锁。</li>
+<li>解决方式：
+<ol>
+<li><strong>超时回滚</strong></li>
+<li><strong>等待图检测</strong> → 回滚其中一个事务</li>
+<li><strong>资源排序</strong> → 按固定顺序申请锁</li>
+</ol>
+</li>
+</ul>
+<hr>
+<h2 id="6.-举例" tabindex="-1"><a href="#6.-%E4%B8%BE%E4%BE%8B">6. 举例</a></h2>
+<p>假设有两个事务 T1、T2 对同一条记录 A 执行：</p>
+<ul>
+<li><strong>T1</strong>：<code>R(A) → W(A)</code>
+<ul>
+<li>申请 S 锁读 A → 升级为 X 锁写 A</li>
+</ul>
+</li>
+<li><strong>T2</strong>：<code>R(A)</code>
+<ul>
+<li>尝试加 S 锁 → 被阻塞，直到 T1 提交释放锁</li>
+</ul>
+</li>
+</ul>
+<p>这样就保证了：</p>
+<ul>
+<li>T2 读到的数据是 <strong>T1 提交前的旧值</strong></li>
+<li>避免了脏读、不可重复读</li>
+</ul>
+<hr>
+<p>💡 <strong>总结</strong></p>
+<ol>
+<li>锁是控制并发访问的工具</li>
+<li>共享锁用于读，排它锁用于写</li>
+<li>两阶段锁协议（2PL）保证冲突可串行化</li>
+<li>通过调整锁粒度、持有时长，可以实现不同隔离级别</li>
+<li>幻读需要范围锁来处理</li>
+<li>死锁是使用锁必须面对的问题，需要检测或策略解决</li>
+</ol>
+<hr>
+<p>如果你愿意，我可以画一张 <strong>锁与事务执行时间线图</strong>，展示 S/X 锁如何实现可重复读和串行化，这样会更直观。</p>
+<p>你希望我画吗？</p>
+<blockquote>
+<p>详细解释下两阶段锁协议。</p>
+</blockquote>
+<p>好的，我们来深入讲解 <strong>两阶段锁协议（2PL, Two-Phase Locking）</strong>，这是数据库锁机制的核心，也是保证 <strong>冲突可串行化</strong> 的基础。</p>
+<hr>
+<h2 id="1.-核心思想" tabindex="-1"><a href="#1.-%E6%A0%B8%E5%BF%83%E6%80%9D%E6%83%B3">1. 核心思想</a></h2>
+<p>两阶段锁协议把事务获取和释放锁的行为分为 <strong>两个阶段</strong>：</p>
+<ol>
+<li><strong>增长阶段（Growing Phase）</strong>
+<ul>
+<li>事务可以申请 <strong>新锁</strong>（共享锁或排它锁）</li>
+<li>事务 <strong>不能释放锁</strong></li>
+<li>这个阶段保证事务在执行过程中获取所需锁，从而保证对数据访问的可控性</li>
+</ul>
+</li>
+<li><strong>收缩阶段（Shrinking Phase）</strong>
+<ul>
+<li>事务可以 <strong>释放锁</strong></li>
+<li>事务 <strong>不能再申请新锁</strong></li>
+<li>这个阶段保证锁的释放顺序不会破坏事务的可串行性</li>
+</ul>
+</li>
+</ol>
+<blockquote>
+<p>简单记忆：<strong>先拿锁 → 不放 → 用完开始放锁 → 不再拿新锁</strong></p>
+</blockquote>
+<hr>
+<h2 id="2.-为什么-2pl-能保证冲突可串行化" tabindex="-1"><a href="#2.-%E4%B8%BA%E4%BB%80%E4%B9%88-2pl-%E8%83%BD%E4%BF%9D%E8%AF%81%E5%86%B2%E7%AA%81%E5%8F%AF%E4%B8%B2%E8%A1%8C%E5%8C%96">2. 为什么 2PL 能保证冲突可串行化</a></h2>
+<p>回忆<strong>冲突可串行化</strong>的概念：</p>
+<ul>
+<li>如果事务之间有 <strong>读-写、写-读、写-写冲突</strong>，则必须保证它们的执行顺序与某种串行顺序一致。</li>
+</ul>
+<p>2PL 的作用：</p>
+<ol>
+<li>一个事务在写数据前必须拿到 X 锁，读数据前必须拿 S 锁</li>
+<li>因为锁在增长阶段不会释放，冲突事务必须等待锁 → <strong>自动形成冲突顺序</strong></li>
+<li>锁释放阶段结束后，事务已经完成所有操作 → 所有冲突顺序稳定</li>
+<li>因此调度等价于某个串行调度</li>
+</ol>
+<p>✅ 结论：<strong>所有遵循 2PL 的事务调度都是冲突可串行化的</strong></p>
+<hr>
+<h2 id="3.-2pl-的类型" tabindex="-1"><a href="#3.-2pl-%E7%9A%84%E7%B1%BB%E5%9E%8B">3. 2PL 的类型</a></h2>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>特点</th>
+<th>隔离性 / 风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>基本 2PL</strong></td>
+<td>标准增长 + 收缩阶段</td>
+<td>冲突可串行化，但可能死锁</td>
+</tr>
+<tr>
+<td><strong>严格 2PL (Strict 2PL)</strong></td>
+<td>所有 X 锁直到事务提交才释放</td>
+<td>保证可重复读 + 严格隔离，简化恢复</td>
+</tr>
+<tr>
+<td><strong>严格可重复 2PL (Rigorous 2PL)</strong></td>
+<td>所有 S/X 锁直到事务提交才释放</td>
+<td>保证串行化、可重复读和恢复简单</td>
+</tr>
+<tr>
+<td><strong>宽松 2PL</strong></td>
+<td>某些锁可以提前释放</td>
+<td>提高并发，但不保证串行化</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>数据库系统常用 <strong>严格 2PL</strong> 或 <strong>Rigorous 2PL</strong>，这样 WAL + 锁结合可以简化崩溃恢复。</p>
+</blockquote>
+<hr>
+<h2 id="4.-举例说明" tabindex="-1"><a href="#4.-%E4%B8%BE%E4%BE%8B%E8%AF%B4%E6%98%8E">4. 举例说明</a></h2>
+<p>假设有两个事务 T1 和 T2，操作同一条记录 A：</p>
+<ul>
+<li><strong>T1</strong>：R(A) → W(A)</li>
+<li><strong>T2</strong>：R(A)</li>
+</ul>
+<h3 id="执行过程（严格-2pl）：" tabindex="-1"><a href="#%E6%89%A7%E8%A1%8C%E8%BF%87%E7%A8%8B%EF%BC%88%E4%B8%A5%E6%A0%BC-2pl%EF%BC%89%EF%BC%9A">执行过程（严格 2PL）：</a></h3>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>T1</th>
+<th>T2</th>
+<th>锁状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>申请 S 锁读 A</td>
+<td>-</td>
+<td>S 锁 held by T1</td>
+</tr>
+<tr>
+<td>2</td>
+<td>升级为 X 锁写 A</td>
+<td>-</td>
+<td>X 锁 held by T1</td>
+</tr>
+<tr>
+<td>3</td>
+<td>T2 尝试申请 S 锁读 A</td>
+<td>阻塞</td>
+<td>X 锁 held by T1</td>
+</tr>
+<tr>
+<td>4</td>
+<td>T1 提交，释放所有锁</td>
+<td>继续</td>
+<td>T2 获得 S 锁，读 A</td>
+</tr>
+</tbody>
+</table>
+<p>✅ 效果：</p>
+<ul>
+<li>T2 永远读到 T1 提交前的版本 → 防止脏读</li>
+<li>T1 内部 R/W 一致 → 可重复读</li>
+<li>冲突顺序自动决定 → 冲突可串行化</li>
+</ul>
+<hr>
+<h2 id="5.-处理死锁" tabindex="-1"><a href="#5.-%E5%A4%84%E7%90%86%E6%AD%BB%E9%94%81">5. 处理死锁</a></h2>
+<ul>
+<li><strong>死锁</strong>：T1 等 T2，T2 等 T1 → 两个事务无限等待</li>
+<li>解决方式：
+<ol>
+<li><strong>超时回滚</strong>：事务等待超过一定时间回滚</li>
+<li><strong>等待图检测</strong>：建立事务等待图，发现环回滚其中一个事务</li>
+<li><strong>固定资源顺序</strong>：事务按固定顺序申请锁，避免环</li>
+</ol>
+</li>
+</ul>
+<hr>
+<h2 id="6.-总结" tabindex="-1"><a href="#6.-%E6%80%BB%E7%BB%93">6. 总结</a></h2>
+<ol>
+<li><strong>两阶段锁协议</strong>分为 <strong>增长阶段</strong>（只拿锁）和 <strong>收缩阶段</strong>（只释放锁）</li>
+<li><strong>严格 2PL</strong>：X 锁直到提交才释放，保证可重复读</li>
+<li><strong>2PL 的调度必然冲突可串行化</strong></li>
+<li>并发控制问题：
+<ul>
+<li>死锁 → 需要检测或回滚</li>
+<li>幻读 → 需要范围锁或其他机制</li>
+</ul>
+</li>
+<li>数据库结合 <strong>WAL + 2PL</strong> 可以同时保证 <strong>ACID</strong></li>
+</ol>
+<hr>
+<p>我可以帮你画一张 <strong>2PL 时间线图</strong>，展示事务的增长阶段、收缩阶段，以及锁如何保证冲突可串行化，这样会更直观。</p>
+<p>你希望我画吗？</p>
+<blockquote>
+<p>对于严格 2PL 来说，它的 S 锁什么时候释放的？如何保证可重复读？</p>
+</blockquote>
+<p>好的，我们来仔细分析 <strong>严格两阶段锁协议（Strict 2PL, S2PL）</strong> 中 <strong>共享锁（S 锁）</strong> 的释放时机，以及它如何保证 <strong>可重复读</strong>。</p>
+<hr>
+<h2 id="1.-严格-2pl-的核心规则" tabindex="-1"><a href="#1.-%E4%B8%A5%E6%A0%BC-2pl-%E7%9A%84%E6%A0%B8%E5%BF%83%E8%A7%84%E5%88%99">1. 严格 2PL 的核心规则</a></h2>
+<p>严格 2PL 的定义：</p>
+<ol>
+<li><strong>X 锁（排它锁）</strong>：事务提交之前 <strong>不释放</strong></li>
+<li><strong>S 锁（共享锁）</strong>：事务提交之前 <strong>不释放</strong></li>
+</ol>
+<blockquote>
+<p>简单记忆：<strong>所有锁到提交才释放</strong></p>
+</blockquote>
+<p>相比普通 2PL，严格 2PL 的区别是：普通 2PL 中 S 锁在事务读取后可以释放，而严格 2PL 一律等事务提交才释放。</p>
+<hr>
+<h2 id="2.-s-锁什么时候释放" tabindex="-1"><a href="#2.-s-%E9%94%81%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E9%87%8A%E6%94%BE">2. S 锁什么时候释放</a></h2>
+<ul>
+<li>事务开始 → 获取 S 锁读取数据</li>
+<li>事务执行完所有操作 → 提交或回滚</li>
+<li><strong>提交/回滚时统一释放 S/X 锁</strong></li>
+</ul>
+<pre class="language-text"><code class="language-text">事务 T:
+1. 申请 S 锁读取 key A
+2. 事务执行其他操作
+3. 事务提交
+4. 释放所有锁（包括 S 锁）
+</code></pre>
+<p><strong>要点</strong>：S 锁不在读取后立即释放，而是持有到事务结束。</p>
+<hr>
+<h2 id="3.-如何保证可重复读" tabindex="-1"><a href="#3.-%E5%A6%82%E4%BD%95%E4%BF%9D%E8%AF%81%E5%8F%AF%E9%87%8D%E5%A4%8D%E8%AF%BB">3. 如何保证可重复读</a></h2>
+<p><strong>可重复读要求</strong>：同一事务内多次读取同一行数据，读到的值一致，不受其他事务写操作影响。</p>
+<p>严格 2PL 保证可重复读的机制：</p>
+<ol>
+<li>事务 T1 读取 A，获得 S 锁</li>
+<li>其他事务 T2 想写 A → 申请 X 锁被阻塞，直到 T1 提交</li>
+<li>T1 再次读取 A → 仍然持有 S 锁，没有被其他事务修改</li>
+<li>T1 提交 → 所有锁释放</li>
+</ol>
+<p>✅ 因此，T1 内部多次读取的值完全一致，满足可重复读</p>
+<hr>
+<h3 id="4.-举例" tabindex="-1"><a href="#4.-%E4%B8%BE%E4%BE%8B">4. 举例</a></h3>
+<p>假设有两条事务：</p>
+<ul>
+<li><strong>T1</strong>：R(A) → R(A) → 提交</li>
+<li><strong>T2</strong>：W(A) → 提交</li>
+</ul>
+<p>执行流程（严格 2PL）：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>T1</th>
+<th>T2</th>
+<th>锁状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>申请 S 锁读 A</td>
+<td>-</td>
+<td>S 锁 held by T1</td>
+</tr>
+<tr>
+<td>2</td>
+<td>T1 再次读取 A</td>
+<td>-</td>
+<td>S 锁仍 held by T1</td>
+</tr>
+<tr>
+<td>3</td>
+<td>T2 尝试申请 X 锁写 A</td>
+<td>阻塞</td>
+<td>S 锁 held by T1</td>
+</tr>
+<tr>
+<td>4</td>
+<td>T1 提交，释放 S 锁</td>
+<td>继续</td>
+<td>T2 获得 X 锁写 A</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>T1 两次读取 A → 值一致</li>
+<li>T2 等待 T1 提交 → 不会覆盖 T1 的读</li>
+<li>可重复读实现 ✅</li>
+</ul>
+<hr>
+<h2 id="5.-总结-1" tabindex="-1"><a href="#5.-%E6%80%BB%E7%BB%93-1">5. 总结</a></h2>
+<ol>
+<li><strong>严格 2PL</strong>：S/X 锁在事务提交前都不释放</li>
+<li><strong>S 锁不提前释放</strong> → 防止其他事务修改数据</li>
+<li><strong>可重复读保证</strong>：同一事务内多次读同一行，总是看到事务开始时的版本</li>
+<li>X 锁也一样，持有到提交 → 防止写入被中途看到，保证原子性和隔离性</li>
+</ol>
+<hr>
+<p>如果你愿意，我可以画一张 <strong>严格 2PL S/X 锁时间线图</strong>，直观展示锁如何保证可重复读和防止脏写，这样更容易理解。</p>
+<p>你希望我画吗？</p>
+<blockquote>
+<p>它和严格可重复 2PL 具体区别是啥？可以举例吗？</p>
+</blockquote>
+<p>好的，我们来深入分析 <strong>严格 2PL（Strict 2PL）</strong> 和 <strong>严格可重复 2PL（Rigorous 2PL）</strong> 的区别，并通过例子说明。</p>
+<hr>
+<h2 id="1.-定义对比" tabindex="-1"><a href="#1.-%E5%AE%9A%E4%B9%89%E5%AF%B9%E6%AF%94">1. 定义对比</a></h2>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>严格 2PL (S2PL)</th>
+<th>严格可重复 2PL (Rigorous 2PL)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>X 锁</td>
+<td>提交前不释放</td>
+<td>提交前不释放</td>
+</tr>
+<tr>
+<td>S 锁</td>
+<td>提交前不释放（防止可重复读）</td>
+<td>提交前不释放（和 X 锁一起持有）</td>
+</tr>
+<tr>
+<td>保证</td>
+<td>冲突可串行化 + 可重复读</td>
+<td>串行化 + 可重复读 + 简化崩溃恢复</td>
+</tr>
+<tr>
+<td>特点</td>
+<td>读写锁分开持有</td>
+<td>所有锁统一持有直到提交</td>
+</tr>
+<tr>
+<td>优势</td>
+<td>并发稍高</td>
+<td>严格串行化保证，恢复简单</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>核心区别：严格可重复 2PL <strong>连 S 锁和 X 锁都统一到提交时释放</strong>，而严格 2PL 的概念更宽松一点，S 锁持有时间可以稍有灵活（一些文献区分可能略有不同）。在很多教材中，严格 2PL 已经等于严格可重复 2PL，只是强调 X/S 锁释放策略上有微差。</p>
+</blockquote>
+<hr>
+<h2 id="2.-举例说明" tabindex="-1"><a href="#2.-%E4%B8%BE%E4%BE%8B%E8%AF%B4%E6%98%8E">2. 举例说明</a></h2>
+<p>假设有两条事务操作同一条记录 A：</p>
+<ul>
+<li><strong>T1</strong>：R(A) → W(A) → 提交</li>
+<li><strong>T2</strong>：R(A) → W(A) → 提交</li>
+</ul>
+<h3 id="情况-1：严格-2pl" tabindex="-1"><a href="#%E6%83%85%E5%86%B5-1%EF%BC%9A%E4%B8%A5%E6%A0%BC-2pl">情况 1：严格 2PL</a></h3>
+<ul>
+<li>T1 申请 S 锁读 A → 升级 X 锁写 A</li>
+<li>T1 提交时释放锁</li>
+<li>T2 在 T1 提交前申请锁被阻塞</li>
+<li>T1 提交后，T2 获得锁执行</li>
+</ul>
+<p>✅ 冲突可串行化，T1 内部可重复读</p>
+<hr>
+<h3 id="情况-2：严格可重复-2pl（rigorous-2pl）" tabindex="-1"><a href="#%E6%83%85%E5%86%B5-2%EF%BC%9A%E4%B8%A5%E6%A0%BC%E5%8F%AF%E9%87%8D%E5%A4%8D-2pl%EF%BC%88rigorous-2pl%EF%BC%89">情况 2：严格可重复 2PL（Rigorous 2PL）</a></h3>
+<ul>
+<li>T1 事务开始
+<ul>
+<li>无论是读还是写，申请的 S/X 锁都持有到提交</li>
+</ul>
+</li>
+<li>T2 事务开始
+<ul>
+<li>尝试访问 A → 被阻塞</li>
+</ul>
+</li>
+<li>T1 提交 → 所有锁一次性释放</li>
+<li>T2 才能访问</li>
+</ul>
+<p><strong>效果</strong>：</p>
+<ul>
+<li>所有冲突操作自动按照某个串行顺序执行 → <strong>严格串行化</strong></li>
+<li>可重复读和范围操作的幻读都可通过额外范围锁解决</li>
+<li>恢复 WAL 时更简单，因为没有事务中途释放锁</li>
+</ul>
+<hr>
+<h2 id="3.-总结对比" tabindex="-1"><a href="#3.-%E6%80%BB%E7%BB%93%E5%AF%B9%E6%AF%94">3. 总结对比</a></h2>
+<table>
+<thead>
+<tr>
+<th>方面</th>
+<th>严格 2PL</th>
+<th>严格可重复 2PL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S 锁释放</td>
+<td>提交前或事务内可释放（教材差异）</td>
+<td>统一提交时释放</td>
+</tr>
+<tr>
+<td>X 锁释放</td>
+<td>提交前不释放</td>
+<td>提交前不释放</td>
+</tr>
+<tr>
+<td>隔离性</td>
+<td>可重复读</td>
+<td>串行化（更严格）</td>
+</tr>
+<tr>
+<td>恢复简易性</td>
+<td>中等</td>
+<td>简单（事务锁不会中途释放）</td>
+</tr>
+<tr>
+<td>幻读</td>
+<td>需要额外机制</td>
+<td>需要额外机制或范围锁</td>
+</tr>
+</tbody>
+</table>
+<p>💡 <strong>核心理解</strong>：</p>
+<ul>
+<li><strong>严格 2PL</strong>：保证可重复读，冲突可串行化</li>
+<li><strong>严格可重复 2PL</strong>：在严格 2PL 基础上更严格，所有锁到提交才释放 → 保证串行化，方便崩溃恢复</li>
+</ul>
+<hr>
+<p>如果你愿意，我可以画一张 <strong>时间线对比图</strong>，显示两者事务锁的获取/释放和事务执行顺序，让区别更直观。</p>
+<p>你想看这个图吗？</p>
+<blockquote>
+<p>继续学习。</p>
+</blockquote>
+<p>好的 👍 我们继续。上一步我们讲完了 <strong>两阶段锁协议（2PL）</strong>，特别是 <strong>严格 2PL</strong> 和 <strong>严格可重复 2PL</strong>。
+接下来学习事务实现里更核心的内容，可以分几个方向逐步展开：</p>
+<hr>
+<h2 id="学习路线（实现原理）" tabindex="-1"><a href="#%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF%EF%BC%88%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%EF%BC%89">学习路线（实现原理）</a></h2>
+<ol>
+<li><strong>锁管理器 (Lock Manager)</strong>
+<ul>
+<li>锁的粒度：行锁、页锁、表锁</li>
+<li>意向锁 (Intention Locks)</li>
+<li>死锁检测和死锁预防</li>
+</ul>
+</li>
+<li><strong>多版本并发控制 (MVCC)</strong>
+<ul>
+<li>快照读 / 当前读</li>
+<li>Undo 日志链 (回滚指针)</li>
+<li>可见性判断（基于事务 ID）</li>
+</ul>
+</li>
+<li><strong>隔离级别的实现</strong>
+<ul>
+<li>Read Uncommitted / Read Committed</li>
+<li>Repeatable Read (防止不可重复读)</li>
+<li>Serializable (通过锁或 SSI 实现)</li>
+</ul>
+</li>
+<li><strong>日志与恢复</strong>
+<ul>
+<li>Write-Ahead Logging (WAL)</li>
+<li>Redo / Undo 日志</li>
+<li>Checkpoint</li>
+<li>崩溃恢复流程</li>
+</ul>
+</li>
+<li><strong>现代数据库实现案例</strong>
+<ul>
+<li>MySQL InnoDB：MVCC + Next-Key Lock</li>
+<li>PostgreSQL：MVCC + SSI</li>
+<li>RocksDB：Snapshot + WriteBatch（更贴近 LSM Tree 系统）</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="建议学习顺序" tabindex="-1"><a href="#%E5%BB%BA%E8%AE%AE%E5%AD%A6%E4%B9%A0%E9%A1%BA%E5%BA%8F">建议学习顺序</a></h2>
+<p>先从 <strong>锁管理器</strong> 入手，因为它是两阶段锁的落地实现；再看 <strong>MVCC</strong>，因为这是大多数现代数据库的核心机制；最后才是日志、恢复和具体数据库实现。</p>
+<hr>
+<p>要不要我先带你深入讲 <strong>锁管理器（Lock Manager）是如何工作的</strong>？
+比如锁的兼容矩阵、意向锁、死锁检测的实现。</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>好嘞 👍 那我们先进入 <strong>锁管理器 (Lock Manager)</strong> 的世界。它是数据库里专门负责<strong>分配、维护和释放锁</strong>的模块。</p>
+<hr>
+<h2 id="1.-锁的基本类型" tabindex="-1"><a href="#1.-%E9%94%81%E7%9A%84%E5%9F%BA%E6%9C%AC%E7%B1%BB%E5%9E%8B">1. 锁的基本类型</a></h2>
+<p>最常见的锁有两种：</p>
+<ul>
+<li><strong>共享锁 (S Lock)</strong>
+<ul>
+<li>读锁。多个事务可以同时持有共享锁来读取数据。</li>
+<li>但不能有事务在这个数据上加写锁。</li>
+</ul>
+</li>
+<li><strong>排他锁 (X Lock)</strong>
+<ul>
+<li>写锁。某个事务独占数据，可以读也可以写。</li>
+<li>其他事务既不能读也不能写。</li>
+</ul>
+</li>
+</ul>
+<p>👉 锁的兼容性表（核心规则）：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>S</th>
+<th>X</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>S</strong></td>
+<td>✔️</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>X</strong></td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="2.-锁的粒度" tabindex="-1"><a href="#2.-%E9%94%81%E7%9A%84%E7%B2%92%E5%BA%A6">2. 锁的粒度</a></h2>
+<p>数据库不是对“整个数据库”加一把大锁，而是有不同的<strong>粒度</strong>：</p>
+<ul>
+<li><strong>行锁</strong>：最细粒度，控制单条记录。并发度高，开销大。</li>
+<li><strong>页锁</strong>：锁住一个页（通常 4KB/8KB）。开销比行锁小，但冲突可能多。</li>
+<li><strong>表锁</strong>：整张表，开销小但并发度最低。</li>
+</ul>
+<p>👉 如果数据库只用行锁/表锁，效率会很差。为了解决这个问题，引入了 <strong>意向锁</strong>。</p>
+<hr>
+<h2 id="3.-意向锁-(intention-locks)" tabindex="-1"><a href="#3.-%E6%84%8F%E5%90%91%E9%94%81-(intention-locks)">3. 意向锁 (Intention Locks)</a></h2>
+<p>意向锁是加在 <strong>更高层级</strong>（比如表）上的锁，用来标记在更细粒度（比如行）上打算加什么锁。</p>
+<p>常见的意向锁：</p>
+<ul>
+<li><strong>IS (Intention Shared)</strong>：事务打算在某些行上加 S 锁</li>
+<li><strong>IX (Intention Exclusive)</strong>：事务打算在某些行上加 X 锁</li>
+</ul>
+<p>兼容性表（简化版）：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>IS</th>
+<th>IX</th>
+<th>S</th>
+<th>X</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>IS</strong></td>
+<td>✔️</td>
+<td>✔️</td>
+<td>✔️</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>IX</strong></td>
+<td>✔️</td>
+<td>✔️</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>S</strong></td>
+<td>✔️</td>
+<td>❌</td>
+<td>✔️</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>X</strong></td>
+<td>❌</td>
+<td>❌</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+</tbody>
+</table>
+<p>👉 意向锁的目的：
+比如某事务要对一行加 X 锁，它会先在表级加 IX 锁。这样，其他事务如果想对整个表加 S 锁时，立刻会发现冲突，避免“扫表检查每一行”的低效。</p>
+<hr>
+<h2 id="4.-死锁问题" tabindex="-1"><a href="#4.-%E6%AD%BB%E9%94%81%E9%97%AE%E9%A2%98">4. 死锁问题</a></h2>
+<p>有了锁之后，必然会出现<strong>死锁</strong>：</p>
+<ul>
+<li>T1: 拿了 A 的锁，想要 B</li>
+<li>T2: 拿了 B 的锁，想要 A
+结果互相等待，谁也不释放。</li>
+</ul>
+<p>解决方法：</p>
+<ol>
+<li><strong>死锁检测</strong>
+<ul>
+<li>构建等待图 (Wait-for Graph)</li>
+<li>如果发现有环，就挑一个事务回滚</li>
+</ul>
+</li>
+<li><strong>死锁预防</strong>
+<ul>
+<li>按顺序申请锁（比如总是先锁小 ID，再锁大 ID）</li>
+<li>或者用时间戳策略：
+<ul>
+<li><strong>Wait-Die</strong>：老事务等，年轻事务死</li>
+<li><strong>Wound-Wait</strong>：老事务抢，年轻事务等</li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+<hr>
+<p>到这里你已经知道：</p>
+<ul>
+<li>锁的基本种类（S/X）</li>
+<li>粒度（行/页/表）</li>
+<li>意向锁解决层级冲突</li>
+<li>死锁问题及解决</li>
+</ul>
+<hr>
+<p>要不要我接下来带你看 <strong>一个具体的例子</strong>，演示在 <strong>表 + 行锁 + 意向锁</strong> 下两个事务并发时，锁是怎么一步步加上的？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>好，我们来做一个<strong>具体例子</strong>，演示一下 <strong>表锁 + 行锁 + 意向锁</strong> 在事务并发下的行为。</p>
+<hr>
+<h2 id="场景" tabindex="-1"><a href="#%E5%9C%BA%E6%99%AF">场景</a></h2>
+<p>表：<code>accounts(id, balance)</code>
+里面有两行：</p>
+<ul>
+<li><code>id=1, balance=100</code></li>
+<li><code>id=2, balance=200</code></li>
+</ul>
+<p>两个事务并发执行：</p>
+<ul>
+<li><strong>T1</strong>：想更新 <code>id=1</code> 的余额</li>
+<li><strong>T2</strong>：想给整张表加共享锁 (S)，用来跑一个“统计余额总和”的查询</li>
+</ul>
+<hr>
+<h2 id="步骤过程" tabindex="-1"><a href="#%E6%AD%A5%E9%AA%A4%E8%BF%87%E7%A8%8B">步骤过程</a></h2>
+<h3 id="t1:-更新一行" tabindex="-1"><a href="#t1%3A-%E6%9B%B4%E6%96%B0%E4%B8%80%E8%A1%8C"><strong>T1: 更新一行</strong></a></h3>
+<ol>
+<li>T1 计划更新 <code>id=1</code> → 需要给 <code>id=1</code> 加 <strong>X 锁</strong></li>
+<li>在加行级 X 锁之前，T1 先在 <strong>表级别</strong>加 <strong>IX（意向排他锁）</strong>，表示“我会在某些行上加 X 锁”</li>
+<li>现在锁情况：
+<ul>
+<li>表：IX(T1)</li>
+<li>行 <code>id=1</code>：X(T1)</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h3 id="t2:-给整表加共享锁" tabindex="-1"><a href="#t2%3A-%E7%BB%99%E6%95%B4%E8%A1%A8%E5%8A%A0%E5%85%B1%E4%BA%AB%E9%94%81"><strong>T2: 给整表加共享锁</strong></a></h3>
+<ol>
+<li>T2 想给整个表加 <strong>S 锁</strong></li>
+<li>系统要检查：表上是否允许加 S 锁？
+<ul>
+<li>当前表锁是 IX(T1)</li>
+<li>查锁兼容矩阵：S vs IX ❌（冲突）</li>
+</ul>
+</li>
+<li>因此，T2 <strong>必须等待</strong> T1 释放锁。</li>
+</ol>
+<hr>
+<h3 id="结果" tabindex="-1"><a href="#%E7%BB%93%E6%9E%9C"><strong>结果</strong></a></h3>
+<ul>
+<li>因为有意向锁，数据库在 T2 申请表锁时，只需要检查 <strong>表级锁</strong>（IX vs S），就立刻知道冲突。</li>
+<li>它不需要去逐行扫描检查每一行是否被 X 锁住，大大提高了效率。</li>
+</ul>
+<hr>
+<h2 id="总结" tabindex="-1"><a href="#%E6%80%BB%E7%BB%93">总结</a></h2>
+<ul>
+<li><strong>意向锁的作用</strong>：在多粒度锁（表/页/行）情况下，用于快速判断冲突。</li>
+<li><strong>事务 T1</strong> 更新单行时 → 表级 IX + 行级 X</li>
+<li><strong>事务 T2</strong> 想加整表 S → 发现和 IX 冲突，直接等待。</li>
+</ul>
+<hr>
+<p>要不要我再给你一个<strong>死锁的例子</strong>，展示 Lock Manager 如何检测出等待图里的环？</p>
+<blockquote>
+<p>意向锁是不是相当于提前在表级给多个行加锁了？</p>
+</blockquote>
+<p>你理解得很接近了 👍，但还有一点差别，我帮你捋清楚：</p>
+<hr>
+<h3 id="✅-意向锁不是“真的锁住了行”" tabindex="-1"><a href="#%E2%9C%85-%E6%84%8F%E5%90%91%E9%94%81%E4%B8%8D%E6%98%AF%E2%80%9C%E7%9C%9F%E7%9A%84%E9%94%81%E4%BD%8F%E4%BA%86%E8%A1%8C%E2%80%9D">✅ 意向锁不是“真的锁住了行”</a></h3>
+<ul>
+<li><strong>它本身不锁行数据</strong>，只是一种<strong>声明/标记</strong>。</li>
+<li>意向锁加在 <strong>表级</strong> 或 <strong>页级</strong>，表示“这个事务在更低一层（行/页）上打算加什么锁”。</li>
+</ul>
+<hr>
+<h3 id="🔒-举个例子" tabindex="-1"><a href="#%F0%9F%94%92-%E4%B8%BE%E4%B8%AA%E4%BE%8B%E5%AD%90">🔒 举个例子</a></h3>
+<p>事务 T1 要对行 A 加 X 锁：</p>
+<ol>
+<li><strong>表级</strong>：先加 IX（意向排他锁）</li>
+<li><strong>行级</strong>：再加 X 锁</li>
+</ol>
+<p>如果另一个事务 T2 想对<strong>整张表</strong>加 S 锁：</p>
+<ul>
+<li>系统检查：表级 S vs IX → 冲突</li>
+<li>立刻知道“表里有行被事务排他占用”，所以 T2 不能成功。</li>
+</ul>
+<p>👉 这就避免了 <strong>逐行扫描</strong>。</p>
+<hr>
+<h3 id="🧠-可以这么理解" tabindex="-1"><a href="#%F0%9F%A7%A0-%E5%8F%AF%E4%BB%A5%E8%BF%99%E4%B9%88%E7%90%86%E8%A7%A3">🧠 可以这么理解</a></h3>
+<ul>
+<li>
+<p><strong>行锁</strong>：真正在行数据上锁，阻止别人读/写这行。</p>
+</li>
+<li>
+<p><strong>意向锁</strong>：只是在表级“打个旗子”，告诉别人：</p>
+<blockquote>
+<p>“别急，我在这张表的某些行上已经或者将要加锁了。”</p>
+</blockquote>
+</li>
+</ul>
+<hr>
+<h3 id="🌟-对比你的说法" tabindex="-1"><a href="#%F0%9F%8C%9F-%E5%AF%B9%E6%AF%94%E4%BD%A0%E7%9A%84%E8%AF%B4%E6%B3%95">🌟 对比你的说法</a></h3>
+<p>你说的“相当于提前在表级给多个行加锁了”，可以作为<strong>直观比喻</strong>理解，但严格来说：</p>
+<ul>
+<li>它并不是“直接锁住所有那些行”</li>
+<li>而是“声明自己会在一些行上加锁”，从而让表级锁的判断更高效</li>
+</ul>
+<hr>
+<p>要不要我接下来给你画一个 <strong>兼容矩阵的实际应用流程图</strong>，演示不同事务加锁时，Lock Manager 如何一步步判定冲突？</p>
+<blockquote>
+<p>继续学习。</p>
+</blockquote>
+<p>好 👍 我们继续往下走。
+刚刚学了 <strong>锁的基本机制</strong>（S/X 锁、意向锁、死锁检测），接下来进入 <strong>事务隔离的实现层面</strong>。</p>
+<p>数据库里实现隔离的两大“流派”：</p>
+<hr>
+<h2 id="1.-基于锁的并发控制" tabindex="-1"><a href="#1.-%E5%9F%BA%E4%BA%8E%E9%94%81%E7%9A%84%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6">1. 基于锁的并发控制</a></h2>
+<ul>
+<li><strong>两阶段锁协议 (2PL)</strong>
+<ul>
+<li>严格 2PL 保证了可恢复性和可串行化</li>
+<li>锁在提交前持有，避免脏读、不可重复读</li>
+</ul>
+</li>
+<li><strong>Next-Key Lock（间隙锁）</strong>
+<ul>
+<li>InnoDB 里用来防止幻读：
+<ul>
+<li>锁住记录本身 + 相邻之间的间隙</li>
+<li>插入新行也会被阻止</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>👉 优点：简单、直观，容易保证事务隔离。
+👉 缺点：高并发时锁竞争严重，容易死锁。</p>
+<hr>
+<h2 id="2.-基于多版本的并发控制-(mvcc)" tabindex="-1"><a href="#2.-%E5%9F%BA%E4%BA%8E%E5%A4%9A%E7%89%88%E6%9C%AC%E7%9A%84%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6-(mvcc)">2. 基于多版本的并发控制 (MVCC)</a></h2>
+<ul>
+<li><strong>核心思想</strong>：
+每次写入生成新版本，不阻塞读操作。读事务只读自己可见的版本（快照）。</li>
+<li><strong>快照隔离 (Snapshot Isolation)</strong>
+<ul>
+<li>每个事务开始时，拿到一个数据快照（由事务 ID / seq number 管理）。</li>
+<li>读操作只读快照，不阻塞写。</li>
+<li>写操作失败时回滚。</li>
+</ul>
+</li>
+<li><strong>幻读问题</strong>：
+<ul>
+<li>MVCC 单靠快照不能防止幻读，因为“新插入的行”并不是在老版本中可见。</li>
+<li>所以需要 <strong>Next-Key Lock</strong> 或 <strong>Serializable Snapshot Isolation (SSI)</strong> 来彻底解决。</li>
+</ul>
+</li>
+</ul>
+<p>👉 优点：读不阻塞写，适合高并发。
+👉 缺点：需要维护 Undo 日志链 / 旧版本，存储和 GC 压力大。</p>
+<hr>
+<h2 id="3.-两者结合" tabindex="-1"><a href="#3.-%E4%B8%A4%E8%80%85%E7%BB%93%E5%90%88">3. 两者结合</a></h2>
+<p>很多数据库是 <strong>锁 + MVCC</strong> 混合实现的：</p>
+<ul>
+<li><strong>MySQL InnoDB</strong>
+<ul>
+<li>RC / RR 级别用 <strong>MVCC</strong></li>
+<li>防止幻读时，靠 <strong>Next-Key Lock</strong></li>
+</ul>
+</li>
+<li><strong>PostgreSQL</strong>
+<ul>
+<li>基于 MVCC，但 Serializable 级别用 <strong>SSI</strong>（依赖事务冲突检测）</li>
+</ul>
+</li>
+<li><strong>RocksDB</strong>
+<ul>
+<li>更偏向于 LSM Tree + Snapshot 的 MVCC，不带行级锁管理器</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="4.-接下来学习路线" tabindex="-1"><a href="#4.-%E6%8E%A5%E4%B8%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF">4. 接下来学习路线</a></h2>
+<p>你已经有 RocksDB 背景了，所以我建议接下来可以深入：</p>
+<ul>
+<li>🔑 <strong>Next-Key Lock 的原理</strong>（幻读是怎么被锁解决的）</li>
+<li>🔑 <strong>MVCC 的内部实现细节</strong>（undo 链、可见性判断）</li>
+<li>🔑 <strong>日志与恢复（WAL、ARIES 算法）</strong>，理解持久性</li>
+</ul>
+<hr>
+<p>要不要我先从 <strong>Next-Key Lock 如何防止幻读</strong> 给你举例详细展开？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>太好了 👍 那我们就来讲 <strong>Next-Key Lock（间隙锁）</strong> —— 它是 InnoDB 用来防止幻读的核心机制。</p>
+<hr>
+<h2 id="1.-幻读问题回顾" tabindex="-1"><a href="#1.-%E5%B9%BB%E8%AF%BB%E9%97%AE%E9%A2%98%E5%9B%9E%E9%A1%BE">1. 幻读问题回顾</a></h2>
+<p>假设表 <code>accounts(id, balance)</code>，里面有两条记录：</p>
+<pre class="language-markup"><code class="language-markup">id = 1, balance = 100
+id = 5, balance = 200
+</code></pre>
+<ul>
+<li><strong>T1</strong>: <code>SELECT * FROM accounts WHERE id BETWEEN 1 AND 5;</code>
+（假设事务隔离级别是可重复读 RR）</li>
+<li><strong>T2</strong>: 插入一行 <code>id = 3, balance = 300</code></li>
+</ul>
+<p>👉 如果没有额外机制，T1 再次执行查询时会发现多了一行 <code>id=3</code>，这就是 <strong>幻读</strong>。</p>
+<hr>
+<h2 id="2.-next-key-lock-的思路" tabindex="-1"><a href="#2.-next-key-lock-%E7%9A%84%E6%80%9D%E8%B7%AF">2. Next-Key Lock 的思路</a></h2>
+<p>InnoDB 在执行范围查询时，不仅锁定已有的行，还会<strong>锁住行与行之间的间隙 (gap)</strong>。</p>
+<p>比如上面例子里：</p>
+<ul>
+<li>现有行：<code>id=1</code> 和 <code>id=5</code></li>
+<li>查询条件：<code>WHERE id BETWEEN 1 AND 5</code></li>
+<li>InnoDB 会加锁：
+<ul>
+<li><code>id=1</code> 这一行（记录锁）</li>
+<li><code>(1, 5)</code> 之间的间隙（间隙锁）</li>
+<li><code>id=5</code> 这一行（记录锁）</li>
+</ul>
+</li>
+</ul>
+<p>这样：</p>
+<ul>
+<li><strong>T2 插入 id=3</strong> → 需要写入 <code>(1, 5)</code> 的间隙 → 被 T1 的间隙锁阻止</li>
+<li>所以 T1 在事务结束前不会看到幻影行</li>
+</ul>
+<p>👉 这就是 <strong>Next-Key Lock：记录锁 + 间隙锁</strong> 的组合。</p>
+<hr>
+<h2 id="3.-next-key-lock-的规则" tabindex="-1"><a href="#3.-next-key-lock-%E7%9A%84%E8%A7%84%E5%88%99">3. Next-Key Lock 的规则</a></h2>
+<p>在 InnoDB 里：</p>
+<ul>
+<li>范围查询会对涉及的范围加 Next-Key Lock</li>
+<li>唯一索引点查询，如果命中行，只加记录锁，不加间隙锁</li>
+<li>范围扫描时，可能会锁住比你预期更多的间隙（悲观但安全）</li>
+</ul>
+<hr>
+<h2 id="4.-举例子：避免幻读" tabindex="-1"><a href="#4.-%E4%B8%BE%E4%BE%8B%E5%AD%90%EF%BC%9A%E9%81%BF%E5%85%8D%E5%B9%BB%E8%AF%BB">4. 举例子：避免幻读</a></h2>
+<pre class="language-markup"><code class="language-markup">T1: SELECT * FROM accounts WHERE id >= 1 AND id &lt; 5 FOR UPDATE;
+
+T2: INSERT INTO accounts VALUES (3, 300);  -- 阻塞！
+</code></pre>
+<p>原因：</p>
+<ul>
+<li>T1 的范围查询给 <code>(1,5)</code> 加了间隙锁</li>
+<li>T2 想往间隙里插入数据 → 冲突 → 阻塞</li>
+</ul>
+<p>👉 直到 T1 提交，锁释放后，T2 才能执行。</p>
+<hr>
+<h2 id="5.-总结-2" tabindex="-1"><a href="#5.-%E6%80%BB%E7%BB%93-2">5. 总结</a></h2>
+<ul>
+<li><strong>幻读的本质</strong>：读到“新插入的行”</li>
+<li><strong>Next-Key Lock 的办法</strong>：锁住间隙，防止别人插入</li>
+<li><strong>效果</strong>：保证 RR（可重复读）下没有幻读</li>
+</ul>
+<hr>
+<p>要不要我接下来帮你对比一下 <strong>InnoDB 的 Next-Key Lock</strong> 和 <strong>PostgreSQL 的 SSI（序列化快照隔离）</strong>，看看它们解决幻读的不同策略？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>好，我们来对比一下 <strong>InnoDB 的 Next-Key Lock</strong> 和 <strong>PostgreSQL 的 SSI（Serializable Snapshot Isolation）</strong>，它们都是为了防止幻读，但走了两条完全不同的路。</p>
+<hr>
+<h2 id="1.-innodb-的方式：next-key-lock（悲观）" tabindex="-1"><a href="#1.-innodb-%E7%9A%84%E6%96%B9%E5%BC%8F%EF%BC%9Anext-key-lock%EF%BC%88%E6%82%B2%E8%A7%82%EF%BC%89">1. InnoDB 的方式：Next-Key Lock（悲观）</a></h2>
+<ul>
+<li><strong>机制</strong>：
+范围查询时，不仅锁住已有的记录，还锁住“间隙”。
+<ul>
+<li>例如：<code>SELECT * FROM t WHERE id BETWEEN 1 AND 5 FOR UPDATE;</code></li>
+<li>锁住：<code>id=1</code>，<code>id=5</code>，以及 <code>(1,5)</code> 的间隙</li>
+</ul>
+</li>
+<li><strong>效果</strong>：
+其他事务无法在 <code>(1,5)</code> 范围内插入新数据，从而避免幻读。</li>
+<li><strong>特点</strong>：
+<ul>
+<li><strong>悲观并发控制</strong>（直接阻止潜在冲突）</li>
+<li>好处：简单可靠，符合 2PL 思路</li>
+<li>坏处：锁粒度可能较大，容易导致<strong>锁竞争、阻塞甚至死锁</strong></li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="2.-postgresql-的方式：ssi（乐观）" tabindex="-1"><a href="#2.-postgresql-%E7%9A%84%E6%96%B9%E5%BC%8F%EF%BC%9Assi%EF%BC%88%E4%B9%90%E8%A7%82%EF%BC%89">2. PostgreSQL 的方式：SSI（乐观）</a></h2>
+<ul>
+<li><strong>机制</strong>：
+PostgreSQL 的默认隔离级别是 <strong>MVCC 快照读</strong>，读不加锁。
+在 <strong>Serializable 隔离级别</strong>下，它采用 <strong>SSI (Serializable Snapshot Isolation)</strong>：
+<ul>
+<li>每个事务在开始时拿到快照，不阻塞其他事务</li>
+<li>系统会跟踪事务之间的依赖关系，检测是否可能导致非串行化结果</li>
+<li>如果检测到危险冲突，直接<strong>中止其中一个事务</strong></li>
+</ul>
+</li>
+<li><strong>效果</strong>：
+不需要加 Next-Key Lock，也能保证没有幻读</li>
+<li><strong>特点</strong>：
+<ul>
+<li><strong>乐观并发控制</strong>（允许操作，事后检测冲突）</li>
+<li>好处：读写不互相阻塞，适合高并发</li>
+<li>坏处：某些事务会被强制回滚，写多读少的场景开销大</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="3.-类比总结" tabindex="-1"><a href="#3.-%E7%B1%BB%E6%AF%94%E6%80%BB%E7%BB%93">3. 类比总结</a></h2>
+<table>
+<thead>
+<tr>
+<th>特点</th>
+<th>InnoDB (Next-Key Lock)</th>
+<th>PostgreSQL (SSI)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>思路</td>
+<td>悲观：提前加锁防止问题</td>
+<td>乐观：先执行再检测冲突</td>
+</tr>
+<tr>
+<td>并发性</td>
+<td>较低，可能阻塞</td>
+<td>较高，读写几乎不阻塞</td>
+</tr>
+<tr>
+<td>代价</td>
+<td>更多锁开销，可能死锁</td>
+<td>冲突检测开销，可能回滚</td>
+</tr>
+<tr>
+<td>防幻读</td>
+<td>依赖锁住间隙</td>
+<td>依赖事务依赖图检测</td>
+</tr>
+</tbody>
+</table>
+<p>👉 可以这么理解：</p>
+<ul>
+<li>InnoDB：<strong>“宁可大家都排队，也别出错。”</strong></li>
+<li>PostgreSQL：<strong>“大家先干，出问题了再撤销一个。”</strong></li>
+</ul>
+<hr>
+<p>要不要我接下来帮你更深入地讲讲 <strong>MVCC 在 PostgreSQL 中是怎么实现的</strong>？比如版本链、事务 ID 可见性判断？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>好，我们就深入到 <strong>PostgreSQL 的 MVCC 实现</strong>，这块和你熟悉的 RocksDB snapshot/seq number 有点相似，但更系统化。</p>
+<hr>
+<h2 id="1.-mvcc-的核心思路" tabindex="-1"><a href="#1.-mvcc-%E7%9A%84%E6%A0%B8%E5%BF%83%E6%80%9D%E8%B7%AF">1. MVCC 的核心思路</a></h2>
+<p>在 PostgreSQL 里，<strong>每一行数据并不是唯一版本</strong>，而是可能有多个版本：</p>
+<ul>
+<li>每次更新/删除时，并不会直接修改原来的行，而是 <strong>生成一个新版本</strong>（tuple）。</li>
+<li>系统通过事务 ID（<code>XID</code>）来判断某个版本是否对某个事务可见。</li>
+</ul>
+<hr>
+<h2 id="2.-tuple-结构里的关键字段" tabindex="-1"><a href="#2.-tuple-%E7%BB%93%E6%9E%84%E9%87%8C%E7%9A%84%E5%85%B3%E9%94%AE%E5%AD%97%E6%AE%B5">2. Tuple 结构里的关键字段</a></h2>
+<p>每条数据行（tuple）带有两个重要的事务标记：</p>
+<ul>
+<li><code>xmin</code>：插入该行的事务 ID</li>
+<li><code>xmax</code>：删除（或更新覆盖掉该行）的事务 ID</li>
+</ul>
+<p>这样一来，一条行记录的生命周期就被事务 ID 标记了。</p>
+<hr>
+<h2 id="3.-可见性规则（简化）" tabindex="-1"><a href="#3.-%E5%8F%AF%E8%A7%81%E6%80%A7%E8%A7%84%E5%88%99%EF%BC%88%E7%AE%80%E5%8C%96%EF%BC%89">3. 可见性规则（简化）</a></h2>
+<p>假设事务 T 的 ID 是 <code>X</code>：</p>
+<ul>
+<li>如果 <code>xmin</code> 的事务在 T 开始前已经提交 → 可见</li>
+<li>如果 <code>xmin</code> 的事务在 T 开始后才提交 → 不可见</li>
+<li>如果 <code>xmax</code> 的事务在 T 开始前已经提交 → 该行对 T 来说已删除，不可见</li>
+<li>如果 <code>xmax</code> 的事务在 T 开始后才提交 → 对 T 仍然可见</li>
+</ul>
+<p>👉 这样，每个事务在自己的快照里，就能“看到”一致的数据状态。</p>
+<hr>
+<h2 id="4.-版本链" tabindex="-1"><a href="#4.-%E7%89%88%E6%9C%AC%E9%93%BE">4. 版本链</a></h2>
+<ul>
+<li>
+<p>如果一行被频繁更新，就会形成一个<strong>版本链</strong>：</p>
+<pre class="language-markup"><code class="language-markup">v1 --(更新)---> v2 --(更新)---> v3 ...
+</code></pre>
+</li>
+<li>
+<p>查询时 PostgreSQL 会顺着版本链找到对当前事务可见的版本。</p>
+</li>
+<li>
+<p>老版本会被标记为过期，等待 <strong>VACUUM</strong> 来清理。</p>
+</li>
+</ul>
+<hr>
+<h2 id="5.-举个例子" tabindex="-1"><a href="#5.-%E4%B8%BE%E4%B8%AA%E4%BE%8B%E5%AD%90">5. 举个例子</a></h2>
+<p>表里原来有一行：</p>
+<pre class="language-markup"><code class="language-markup">(id=1, balance=100, xmin=10, xmax=null)
+</code></pre>
+<p>事务 10 插入的，没人删除。</p>
+<ul>
+<li>事务 20 更新这行，把 balance 改为 200：
+<ul>
+<li>新行：<code>(id=1, balance=200, xmin=20, xmax=null)</code></li>
+<li>旧行：<code>(id=1, balance=100, xmin=10, xmax=20)</code></li>
+</ul>
+</li>
+</ul>
+<p>现在：</p>
+<ul>
+<li>事务 15 的快照里 → 只能看到旧版本（因为 20 &gt; 15，还没提交）</li>
+<li>事务 25 的快照里 → 能看到新版本</li>
+</ul>
+<hr>
+<h2 id="6.-好处" tabindex="-1"><a href="#6.-%E5%A5%BD%E5%A4%84">6. 好处</a></h2>
+<ul>
+<li><strong>读操作不用加锁</strong>，直接根据事务 ID 规则判断可见性</li>
+<li><strong>写操作也不会阻塞读</strong>，因为写只是生成新版本</li>
+<li>高并发场景下性能很好</li>
+</ul>
+<hr>
+<h2 id="7.-缺点" tabindex="-1"><a href="#7.-%E7%BC%BA%E7%82%B9">7. 缺点</a></h2>
+<ul>
+<li>旧版本需要垃圾回收（VACUUM）</li>
+<li>XID 是有限的（32 位），所以 PostgreSQL 需要做 <strong>事务 ID wraparound 保护</strong></li>
+</ul>
+<hr>
+<p>👉 总结一下：
+PostgreSQL 的 MVCC 本质上是 <strong>“行版本 + 事务 ID 可见性规则”</strong>，保证了在同一时刻不同事务看到的是一致的快照。</p>
+<hr>
+<p>要不要我接下来给你讲 <strong>事务 ID 可见性判断的完整流程</strong>（也就是 PostgreSQL 的 snapshot 数据结构）？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>那我们继续深入吧 🚀。</p>
+<p>在前面我们聊了 <strong>锁</strong> 和 <strong>多粒度控制 (意向锁)</strong>。下一步，可以学习 <strong>死锁 (Deadlock) 与死锁检测/预防</strong>，因为一旦系统使用两阶段锁协议，就必然可能出现死锁。</p>
+<h3 id="🔒-死锁产生的条件（经典-4-条）" tabindex="-1"><a href="#%F0%9F%94%92-%E6%AD%BB%E9%94%81%E4%BA%A7%E7%94%9F%E7%9A%84%E6%9D%A1%E4%BB%B6%EF%BC%88%E7%BB%8F%E5%85%B8-4-%E6%9D%A1%EF%BC%89">🔒 死锁产生的条件（经典 4 条）</a></h3>
+<p>一个系统若同时满足以下 4 个条件，就可能进入死锁：</p>
+<ol>
+<li><strong>互斥</strong>：某些资源一次只能被一个事务占用。</li>
+<li><strong>不可剥夺</strong>：事务持有的锁不能被强行剥夺，只能自己释放。</li>
+<li><strong>占有且等待</strong>：事务在持有部分锁的同时，还在等待其他锁。</li>
+<li><strong>循环等待</strong>：事务之间形成了环形等待关系。</li>
+</ol>
+<p>例子：</p>
+<ul>
+<li>T1 获取了行 A 的 S 锁，然后想要 B 的 S 锁。</li>
+<li>T2 获取了行 B 的 S 锁，然后想要 A 的 S 锁。
+→ T1 等 T2 释放，T2 等 T1 释放，循环等待，死锁。</li>
+</ul>
+<hr>
+<h3 id="🔍-解决死锁的两大思路" tabindex="-1"><a href="#%F0%9F%94%8D-%E8%A7%A3%E5%86%B3%E6%AD%BB%E9%94%81%E7%9A%84%E4%B8%A4%E5%A4%A7%E6%80%9D%E8%B7%AF">🔍 解决死锁的两大思路</a></h3>
+<ol>
+<li><strong>预防 (Prevention)</strong>：在加锁阶段就避免可能的死锁。
+<ul>
+<li><strong>规定加锁顺序</strong>：所有事务必须按同样的顺序申请锁，比如先锁 A，再锁 B。</li>
+<li><strong>一次性申请所有锁</strong>：事务一开始就声明所需的所有锁，不允许“占一部分再等”。</li>
+<li><strong>超时策略</strong>：等锁超过 X 秒就回滚重试。</li>
+</ul>
+</li>
+<li><strong>检测 (Detection)</strong>：允许死锁发生，但要检测并打破。
+<ul>
+<li>系统会维护一个 <strong>等待图 (Wait-For Graph)</strong>：节点是事务，边表示事务等待另一个事务的锁。</li>
+<li>如果发现图中有 <strong>环</strong>，说明死锁，必须回滚一个事务打破循环。</li>
+<li>比如 MySQL/InnoDB 就会自动做死锁检测。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h3 id="🔑-实际系统选择" tabindex="-1"><a href="#%F0%9F%94%91-%E5%AE%9E%E9%99%85%E7%B3%BB%E7%BB%9F%E9%80%89%E6%8B%A9">🔑 实际系统选择</a></h3>
+<ul>
+<li>高性能系统一般用 <strong>死锁检测</strong>（更灵活）。</li>
+<li>一些简单场景会用 <strong>预防策略</strong>（实现容易）。</li>
+</ul>
+<hr>
+<p>要不要我接着帮你把 <strong>等待图 (Wait-for Graph) 的检测算法</strong>详细展开，讲讲数据库是怎么找到死锁的？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>好 👍 那我们继续。刚才说到 <strong>死锁检测</strong>，核心数据结构就是 <strong>等待图 (Wait-for Graph, WFG)</strong>。</p>
+<hr>
+<h2 id="🔍-等待图-(wait-for-graph)" tabindex="-1"><a href="#%F0%9F%94%8D-%E7%AD%89%E5%BE%85%E5%9B%BE-(wait-for-graph)">🔍 等待图 (Wait-for Graph)</a></h2>
+<ul>
+<li><strong>节点</strong>：每个正在运行的事务 (T_i)。</li>
+<li><strong>有向边</strong>：如果事务 (T_i) 等待事务 (T_j) 持有的锁，就画一条边 (T_i \to T_j)。</li>
+<li><strong>死锁判断</strong>：如果图中出现了 <strong>环 (cycle)</strong>，说明存在死锁。</li>
+</ul>
+<h3 id="例子：" tabindex="-1"><a href="#%E4%BE%8B%E5%AD%90%EF%BC%9A">例子：</a></h3>
+<ul>
+<li>T1 持有 X 锁(A)，请求 X 锁(B)，等待 T2。</li>
+<li>T2 持有 X 锁(B)，请求 X 锁(A)，等待 T1。</li>
+</ul>
+<p>等待图：</p>
+<pre class="language-markup"><code class="language-markup">T1 → T2
+T2 → T1
+</code></pre>
+<p>出现环 → 死锁。</p>
+<hr>
+<h2 id="🧮-死锁检测算法" tabindex="-1"><a href="#%F0%9F%A7%AE-%E6%AD%BB%E9%94%81%E6%A3%80%E6%B5%8B%E7%AE%97%E6%B3%95">🧮 死锁检测算法</a></h2>
+<p>通常数据库会周期性或在请求锁时进行检测。常见实现方式：</p>
+<ol>
+<li><strong>DFS/拓扑排序法</strong>：
+<ul>
+<li>对等待图做深度优先遍历 (DFS)。</li>
+<li>如果在 DFS 中发现回到已访问的节点 → 存在环 → 死锁。</li>
+</ul>
+</li>
+<li><strong>Tarjan 强连通分量算法</strong>：
+<ul>
+<li>更高效，能一次性找到图中所有环。</li>
+<li>复杂度 (O(V+E))，适合锁竞争多的大型系统。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="⚡-打破死锁：选择牺牲者" tabindex="-1"><a href="#%E2%9A%A1-%E6%89%93%E7%A0%B4%E6%AD%BB%E9%94%81%EF%BC%9A%E9%80%89%E6%8B%A9%E7%89%BA%E7%89%B2%E8%80%85">⚡ 打破死锁：选择牺牲者</a></h2>
+<p>发现死锁后，系统必须回滚一个事务，释放它持有的锁，打破循环。通常的选择策略：</p>
+<ul>
+<li><strong>回滚代价最小</strong>：回滚工作量少的事务。</li>
+<li><strong>事务优先级低</strong>：长事务优先保留，短事务被牺牲。</li>
+<li><strong>等待时间最短</strong>：刚开始的事务更容易被杀掉。</li>
+</ul>
+<p>例如 InnoDB 的策略：<strong>回滚 undo log 最小的事务</strong>，这样成本最低。</p>
+<hr>
+<h2 id="📌-实际情况" tabindex="-1"><a href="#%F0%9F%93%8C-%E5%AE%9E%E9%99%85%E6%83%85%E5%86%B5">📌 实际情况</a></h2>
+<ul>
+<li><strong>InnoDB</strong>：每次锁等待时，都会动态更新等待图并做死锁检测，一旦发现环，立即回滚一个事务。</li>
+<li><strong>PostgreSQL</strong>：也会维护等待图，发现环时抛 <code>deadlock detected</code> 错误。</li>
+</ul>
+<hr>
+<p>👉 下一步学习路线可以进入 <strong>并发控制的另一条线：多版本并发控制 (MVCC)</strong>，它是现代数据库替代部分锁机制的重要手段。</p>
+<p>要不要我接着帮你讲 <strong>MVCC 的实现原理</strong>？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>好，那我们进入 <strong>MVCC（多版本并发控制）</strong> 🚀。</p>
+<hr>
+<h2 id="🔑-mvcc-的核心思想" tabindex="-1"><a href="#%F0%9F%94%91-mvcc-%E7%9A%84%E6%A0%B8%E5%BF%83%E6%80%9D%E6%83%B3">🔑 MVCC 的核心思想</a></h2>
+<ul>
+<li>每条数据（tuple/row/key）不止有一个版本，而是随事务更新不断产生新版本。</li>
+<li>不同事务根据自己的“时间戳”或“快照点”来决定能看到哪个版本。</li>
+<li>这样：
+<ul>
+<li><strong>读操作不用加锁</strong>（读旧版本即可）。</li>
+<li><strong>写操作产生新版本</strong>（旧版本保留，直到没人需要）。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="🧩-mvcc-的关键元素" tabindex="-1"><a href="#%F0%9F%A7%A9-mvcc-%E7%9A%84%E5%85%B3%E9%94%AE%E5%85%83%E7%B4%A0">🧩 MVCC 的关键元素</a></h2>
+<ol>
+<li><strong>版本号（时间戳 / 事务 ID / sequence number）</strong>
+<ul>
+<li>每个事务在开始时获得一个唯一的 ID（例如 PostgreSQL 的 Transaction ID，RocksDB 的 Sequence Number）。</li>
+<li>每条记录的版本都带有创建事务 ID 和删除事务 ID。</li>
+</ul>
+</li>
+<li><strong>可见性规则</strong>
+<ul>
+<li>事务 T 读取数据时，只能看到在 T 开始前已经提交的版本。</li>
+<li>新版本若是由未提交事务产生的，则对 T 不可见。</li>
+</ul>
+</li>
+<li><strong>垃圾回收（GC / Vacuum）</strong>
+<ul>
+<li>随着时间推移，旧版本不再需要，会被清理掉。</li>
+<li>PostgreSQL 使用 <strong>VACUUM</strong>，RocksDB 使用 <strong>compaction</strong>。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="📖-举个例子" tabindex="-1"><a href="#%F0%9F%93%96-%E4%B8%BE%E4%B8%AA%E4%BE%8B%E5%AD%90">📖 举个例子</a></h2>
+<p>假设有一条数据：</p>
+<pre class="language-markup"><code class="language-markup">Row: balance = 100
+</code></pre>
+<p>事务分配的 ID：</p>
+<ul>
+<li>T1: 事务 ID = 1</li>
+<li>T2: 事务 ID = 2</li>
+</ul>
+<h3 id="过程：" tabindex="-1"><a href="#%E8%BF%87%E7%A8%8B%EF%BC%9A">过程：</a></h3>
+<ol>
+<li><strong>T1 开始 (ID=1)</strong>，读 balance = 100。</li>
+<li><strong>T2 开始 (ID=2)</strong>，更新 balance = 200，写一个新版本。
+<ul>
+<li>Row1: balance = 100, created_by = 0, deleted_by = 2</li>
+<li>Row2: balance = 200, created_by = 2, deleted_by = ∞</li>
+</ul>
+</li>
+<li><strong>T1 再次读</strong> balance：
+<ul>
+<li>按可见性规则，T1 只能看到事务 ID &lt; 1 的已提交版本。</li>
+<li>所以它仍然读到 <strong>100</strong>。</li>
+</ul>
+</li>
+<li><strong>T2 提交</strong>，Row2 对后续事务可见。</li>
+<li><strong>T3 (ID=3)</strong> 开始，读 balance：
+<ul>
+<li>它看到的是最新已提交版本，即 <strong>200</strong>。</li>
+</ul>
+</li>
+</ol>
+<p>👉 这样，T1 实现了 <strong>可重复读</strong>（始终看到 100），而 T3 看到更新后的值。</p>
+<hr>
+<h2 id="⚖️-mvcc-的优势" tabindex="-1"><a href="#%E2%9A%96%EF%B8%8F-mvcc-%E7%9A%84%E4%BC%98%E5%8A%BF">⚖️ MVCC 的优势</a></h2>
+<ul>
+<li>读写分离：读不阻塞写，写不阻塞读。</li>
+<li>支持 <strong>快照隔离 (Snapshot Isolation, SI)</strong>，是很多现代数据库默认的隔离级别（如 PostgreSQL、RocksDB、Oracle）。</li>
+</ul>
+<hr>
+<p>要不要我帮你对比一下 <strong>MVCC 与两阶段锁 (2PL)</strong> 的区别，看看它们是如何解决并发冲突的？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>太好了 👍 我来帮你系统对比一下 <strong>MVCC 和两阶段锁 (2PL)</strong>。</p>
+<hr>
+<h1 id="🔍-mvcc-vs-2pl-对比" tabindex="-1"><a href="#%F0%9F%94%8D-mvcc-vs-2pl-%E5%AF%B9%E6%AF%94">🔍 MVCC vs 2PL 对比</a></h1>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th><strong>MVCC (多版本并发控制)</strong></th>
+<th><strong>2PL (两阶段锁协议)</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>基本思路</strong></td>
+<td>数据维护多个版本，事务根据快照读对应版本，不阻塞</td>
+<td>数据访问时加锁，所有冲突通过锁来协调</td>
+</tr>
+<tr>
+<td><strong>读操作</strong></td>
+<td>读旧版本，无需加锁，读写不冲突</td>
+<td>读需要加 S 锁，可能阻塞写事务</td>
+</tr>
+<tr>
+<td><strong>写操作</strong></td>
+<td>创建新版本，不立即覆盖旧数据</td>
+<td>需要加 X 锁，阻塞所有并发访问</td>
+</tr>
+<tr>
+<td><strong>隔离保证</strong></td>
+<td>默认支持 <strong>快照隔离 (SI)</strong>，能防止脏读、不可重复读，但不能防止幻读（除非扩展为 SSI）</td>
+<td>严格 2PL 可以实现 <strong>可串行化</strong>，但并发度低</td>
+</tr>
+<tr>
+<td><strong>死锁</strong></td>
+<td>理论上不存在（因为读不加锁，写时也只是版本切换），但某些实现中写写冲突仍可能等待</td>
+<td>常见问题，需要死锁检测或超时</td>
+</tr>
+<tr>
+<td><strong>性能</strong></td>
+<td>高读并发，写放大（因为会产生多个版本，依赖 GC/compaction）</td>
+<td>读写阻塞，事务等待时间可能长</td>
+</tr>
+<tr>
+<td><strong>实现复杂度</strong></td>
+<td>高，需要维护版本链 + 可见性检查 + GC</td>
+<td>相对简单，锁表 + 死锁检测即可</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="🎯-直观理解" tabindex="-1"><a href="#%F0%9F%8E%AF-%E7%9B%B4%E8%A7%82%E7%90%86%E8%A7%A3">🎯 直观理解</a></h2>
+<ul>
+<li><strong>MVCC</strong>：好比“影分身”，每个事务看到的都是自己进入世界时的数据影子，不会被别人打扰。</li>
+<li><strong>2PL</strong>：好比“借书馆”，谁先拿到书（锁），谁才能操作，别人只能等。</li>
+</ul>
+<hr>
+<h2 id="📖-例子：两个事务并发修改账户" tabindex="-1"><a href="#%F0%9F%93%96-%E4%BE%8B%E5%AD%90%EF%BC%9A%E4%B8%A4%E4%B8%AA%E4%BA%8B%E5%8A%A1%E5%B9%B6%E5%8F%91%E4%BF%AE%E6%94%B9%E8%B4%A6%E6%88%B7">📖 例子：两个事务并发修改账户</a></h2>
+<p>初始数据：<code>balance = 100</code></p>
+<ul>
+<li><strong>MVCC</strong>：
+<ul>
+<li>T1 开始，读 balance = 100。</li>
+<li>T2 更新 balance = 200，写新版本。</li>
+<li>T1 继续读 balance，还是看到 100。</li>
+<li>T2 提交后，T3 新事务才会看到 balance = 200。</li>
+</ul>
+</li>
+<li><strong>2PL</strong>：
+<ul>
+<li>T1 读 balance，需要 S 锁。</li>
+<li>T2 想写 balance，需要 X 锁，但被 T1 阻塞。</li>
+<li>T1 提交释放锁后，T2 才能继续写 balance = 200。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="📌-适用场景" tabindex="-1"><a href="#%F0%9F%93%8C-%E9%80%82%E7%94%A8%E5%9C%BA%E6%99%AF">📌 适用场景</a></h2>
+<ul>
+<li><strong>MVCC</strong>：高并发读多写少的 OLTP 场景（PostgreSQL、MySQL InnoDB、RocksDB）。</li>
+<li><strong>2PL</strong>：需要严格可串行化一致性的场景（例如银行核心账务系统、分布式数据库的强一致事务）。</li>
+</ul>
+<hr>
+<p>👉 下一步学习，我可以帮你深入讲 <strong>快照隔离 (SI) 和可串行化隔离级别的区别</strong>，也就是 MVCC 能保证什么、不能保证什么，要不要往这个方向？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>好 👍 那我们就来系统梳理 <strong>快照隔离 (Snapshot Isolation, SI)</strong> 和 <strong>可串行化隔离级别 (Serializable)</strong> 的区别。</p>
+<hr>
+<h2 id="🔑-1.-快照隔离-(si)-是什么？" tabindex="-1"><a href="#%F0%9F%94%91-1.-%E5%BF%AB%E7%85%A7%E9%9A%94%E7%A6%BB-(si)-%E6%98%AF%E4%BB%80%E4%B9%88%EF%BC%9F">🔑 1. 快照隔离 (SI) 是什么？</a></h2>
+<ul>
+<li>每个事务在 <strong>开始时拿一个快照</strong>（即事务开始那一刻的已提交数据视图）。</li>
+<li>在整个事务中，所有读操作都基于这个快照。</li>
+<li><strong>写时冲突检测</strong>：提交时检查是否和其他事务对同一行有写冲突，如果有 → 回滚。</li>
+</ul>
+<p>👉 这样事务不会读到脏数据，也能保证可重复读。</p>
+<hr>
+<h2 id="📖-例子：si-的行为" tabindex="-1"><a href="#%F0%9F%93%96-%E4%BE%8B%E5%AD%90%EF%BC%9Asi-%E7%9A%84%E8%A1%8C%E4%B8%BA">📖 例子：SI 的行为</a></h2>
+<p>初始数据：账户 A=100, B=100，总额=200</p>
+<ul>
+<li><strong>T1</strong>：转账 50 元，从 A 扣除</li>
+<li><strong>T2</strong>：转账 50 元，从 B 扣除</li>
+</ul>
+<p>执行过程：</p>
+<ol>
+<li>T1 开始，看到 A=100, B=100</li>
+<li>T2 开始，也看到 A=100, B=100</li>
+<li>T1 更新 A=50</li>
+<li>T2 更新 B=50</li>
+<li>两个事务几乎同时提交，由于它们更新的是 <strong>不同的行</strong>，所以不会触发写写冲突。</li>
+<li>最终结果：A=50, B=50，总额=100 ❌ （丢失一致性）</li>
+</ol>
+<p>这种现象叫 <strong>写偏差 (Write Skew)</strong>，SI 无法避免。</p>
+<hr>
+<h2 id="🔑-2.-可串行化-(serializable)" tabindex="-1"><a href="#%F0%9F%94%91-2.-%E5%8F%AF%E4%B8%B2%E8%A1%8C%E5%8C%96-(serializable)">🔑 2. 可串行化 (Serializable)</a></h2>
+<ul>
+<li>保证并发执行的结果 <strong>等价于某个串行顺序</strong>。</li>
+<li>不仅防止脏读、不可重复读、幻读，还能防止 <strong>写偏差</strong>。</li>
+</ul>
+<p>在上面的例子里：</p>
+<ul>
+<li>如果用可串行化，系统必须让 <strong>T1 和 T2 中至少一个等待或回滚</strong>，结果只能是：
+<ul>
+<li>串行执行 T1 后 T2（或反过来），最终总额保持 150 ✅。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="📊-3.-si-vs-serializable-对比" tabindex="-1"><a href="#%F0%9F%93%8A-3.-si-vs-serializable-%E5%AF%B9%E6%AF%94">📊 3. SI vs Serializable 对比</a></h2>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th><strong>快照隔离 (SI)</strong></th>
+<th><strong>可串行化 (Serializable)</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>脏读</td>
+<td>❌ 不可能</td>
+<td>❌ 不可能</td>
+</tr>
+<tr>
+<td>不可重复读</td>
+<td>❌ 不可能</td>
+<td>❌ 不可能</td>
+</tr>
+<tr>
+<td>幻读</td>
+<td>❌ 不可能（只读基于快照）</td>
+<td>❌ 不可能</td>
+</tr>
+<tr>
+<td>写偏差</td>
+<td>✅ 可能发生</td>
+<td>❌ 不可能</td>
+</tr>
+<tr>
+<td>并发性能</td>
+<td>高（读不加锁，写只检测冲突）</td>
+<td>低（需要更多冲突检测/锁/SSI）</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="📌-总结" tabindex="-1"><a href="#%F0%9F%93%8C-%E6%80%BB%E7%BB%93">📌 总结</a></h2>
+<ul>
+<li><strong>SI</strong>：比可重复读更强，但弱于串行化，可能出现金额不守恒等逻辑错误。</li>
+<li><strong>Serializable</strong>：最强隔离级别，完全避免并发异常，但代价是性能降低。</li>
+<li>实际中，很多数据库（PostgreSQL、Oracle、RocksDB）默认使用 <strong>SI</strong>，而不是 Serializable。</li>
+</ul>
+<hr>
+<p>👉 接下来我可以帮你讲 <strong>数据库实现 Serializable 的两种方式</strong>：</p>
+<ol>
+<li><strong>锁 (Strict 2PL)</strong></li>
+<li><strong>基于 MVCC 的 Serializable Snapshot Isolation (SSI)</strong></li>
+</ol>
+<p>要不要我展开这个？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>太好了 👍 我们就来深入讲讲 <strong>数据库如何实现 Serializable</strong>，也就是“最强隔离级别”。</p>
+<hr>
+<h1 id="🔑-两种主要实现方式" tabindex="-1"><a href="#%F0%9F%94%91-%E4%B8%A4%E7%A7%8D%E4%B8%BB%E8%A6%81%E5%AE%9E%E7%8E%B0%E6%96%B9%E5%BC%8F">🔑 两种主要实现方式</a></h1>
+<h2 id="1.-基于锁的-严格两阶段锁-(strict-2pl)" tabindex="-1"><a href="#1.-%E5%9F%BA%E4%BA%8E%E9%94%81%E7%9A%84-%E4%B8%A5%E6%A0%BC%E4%B8%A4%E9%98%B6%E6%AE%B5%E9%94%81-(strict-2pl)">1. 基于锁的 <strong>严格两阶段锁 (Strict 2PL)</strong></a></h2>
+<ul>
+<li><strong>原理</strong>：所有事务对读的对象加 S 锁，对写的对象加 X 锁。</li>
+<li><strong>锁释放</strong>：直到事务提交时，所有锁才释放。</li>
+<li><strong>效果</strong>：保证事务之间的执行等价于某个串行顺序。</li>
+</ul>
+<p>📖 例子：</p>
+<ul>
+<li>T1 读 A（加 S 锁），T2 想写 A（要 X 锁） → 被阻塞。</li>
+<li>直到 T1 提交释放 S 锁，T2 才能写。</li>
+<li>这种强制串行化避免了写偏差，但可能导致死锁和高阻塞。</li>
+</ul>
+<hr>
+<h2 id="2.-基于-mvcc-的-可串行化快照隔离-(serializable-snapshot-isolation,-ssi)" tabindex="-1"><a href="#2.-%E5%9F%BA%E4%BA%8E-mvcc-%E7%9A%84-%E5%8F%AF%E4%B8%B2%E8%A1%8C%E5%8C%96%E5%BF%AB%E7%85%A7%E9%9A%94%E7%A6%BB-(serializable-snapshot-isolation%2C-ssi)">2. 基于 MVCC 的 <strong>可串行化快照隔离 (Serializable Snapshot Isolation, SSI)</strong></a></h2>
+<ul>
+<li><strong>原理</strong>：
+<ul>
+<li>事务仍然基于快照读（像普通 SI 一样，不阻塞）。</li>
+<li>系统在后台监控事务之间的 <strong>依赖关系</strong>。</li>
+<li>如果发现可能导致非串行化结果（例如写偏差），就强制回滚一个事务。</li>
+</ul>
+</li>
+<li><strong>关键思想</strong>：
+<ul>
+<li>SI 允许 <strong>写偏差</strong>，因为不同事务在快照里看到的数据是一致的，但更新时错过了相互影响。</li>
+<li>SSI 检测这种“危险结构 (dangerous structure)”——通常是 <strong>读-写依赖形成的环</strong>。</li>
+<li>一旦出现这种情况，就回滚其中一个事务。</li>
+</ul>
+</li>
+</ul>
+<p>📖 例子（写偏差的银行账户）：</p>
+<ul>
+<li>T1 检查“总余额 ≥ 200”，看到 A=100, B=100，条件成立，于是减 A=50。</li>
+<li>T2 同时检查“总余额 ≥ 200”，也成立，于是减 B=50。</li>
+<li>SI 下最后余额=100（错误）。</li>
+<li>SSI 会检测到：
+<ul>
+<li>T1 读了 B，T2 写了 B → 存在 <strong>读-写依赖</strong>。</li>
+<li>T2 读了 A，T1 写了 A → 存在 <strong>读-写依赖</strong>。</li>
+<li>形成一个环 → 不可串行化。</li>
+<li>系统会回滚其中一个事务，避免错误结果。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h1 id="📊-对比-strict-2pl-vs-ssi" tabindex="-1"><a href="#%F0%9F%93%8A-%E5%AF%B9%E6%AF%94-strict-2pl-vs-ssi">📊 对比 Strict 2PL vs SSI</a></h1>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th><strong>Strict 2PL</strong></th>
+<th><strong>SSI</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>串行化保证</td>
+<td>✅ 严格保证</td>
+<td>✅ 严格保证</td>
+</tr>
+<tr>
+<td>读是否加锁</td>
+<td>✅ 读写都加锁</td>
+<td>❌ 读不加锁（只监控依赖）</td>
+</tr>
+<tr>
+<td>并发性能</td>
+<td>较低，读写冲突严重，容易死锁</td>
+<td>较高，读多写少场景优势明显</td>
+</tr>
+<tr>
+<td>死锁</td>
+<td>✅ 可能发生，需要检测</td>
+<td>❌ 理论上没有（冲突时直接回滚）</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>高安全性，OLTP 强一致核心账务</td>
+<td>读多写少的系统，PostgreSQL 默认实现</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="📌-实际数据库选择" tabindex="-1"><a href="#%F0%9F%93%8C-%E5%AE%9E%E9%99%85%E6%95%B0%E6%8D%AE%E5%BA%93%E9%80%89%E6%8B%A9">📌 实际数据库选择</a></h2>
+<ul>
+<li><strong>PostgreSQL</strong>：默认用 SI，用户选择 Serializable 时用 SSI 实现。</li>
+<li><strong>MySQL InnoDB</strong>：Serializable 隔离级别是用锁 (Strict 2PL) 实现的。</li>
+<li><strong>Oracle</strong>：Serializable 本质是 SSI 的一种。</li>
+</ul>
+<hr>
+<p>👉 下一步我可以帮你把 <strong>事务调度理论（冲突/视图可串行化）和实际实现（2PL/SSI/MVCC）联系起来</strong>，形成完整的闭环学习路径。要不要我继续？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>好 👌 我们现在来把 <strong>事务调度理论</strong> 和 <strong>实际实现机制</strong> 串起来，这样你就能形成一个“从理论到工程”的闭环。</p>
+<hr>
+<h1 id="🔗-理论-→-实现-映射关系" tabindex="-1"><a href="#%F0%9F%94%97-%E7%90%86%E8%AE%BA-%E2%86%92-%E5%AE%9E%E7%8E%B0-%E6%98%A0%E5%B0%84%E5%85%B3%E7%B3%BB">🔗 理论 → 实现 映射关系</a></h1>
+<h2 id="1.-调度理论回顾" tabindex="-1"><a href="#1.-%E8%B0%83%E5%BA%A6%E7%90%86%E8%AE%BA%E5%9B%9E%E9%A1%BE">1. <strong>调度理论回顾</strong></a></h2>
+<ul>
+<li><strong>冲突可串行化 (Conflict-serializable)</strong>
+<ul>
+<li>用 <strong>冲突图 (precedence graph)</strong> 检查是否有环。</li>
+<li>如果无环，则调度等价于某个串行执行。</li>
+</ul>
+</li>
+<li><strong>视图可串行化 (View-serializable)</strong>
+<ul>
+<li>更宽松，允许某些“非冲突可串行化”但仍然结果等价的调度。</li>
+</ul>
+</li>
+<li><strong>目标</strong>：找到一个等价于 <strong>串行调度</strong> 的执行。</li>
+</ul>
+<hr>
+<h2 id="2.-实现技术" tabindex="-1"><a href="#2.-%E5%AE%9E%E7%8E%B0%E6%8A%80%E6%9C%AF">2. <strong>实现技术</strong></a></h2>
+<p>数据库系统在实现事务时，会选择不同的并发控制机制来保证理论上的串行化或接近串行化：</p>
+<h3 id="🔒-基于锁-(2pl)" tabindex="-1"><a href="#%F0%9F%94%92-%E5%9F%BA%E4%BA%8E%E9%94%81-(2pl)">🔒 基于锁 (2PL)</a></h3>
+<ul>
+<li><strong>Strict 2PL</strong>：保证 <strong>冲突可串行化</strong>。</li>
+<li>原因：加锁使得冲突操作 <strong>顺序固定</strong>，避免形成环。</li>
+<li>直观：等价于通过加锁手段，强制系统只产生“无环调度”。</li>
+</ul>
+<h3 id="📜-基于-mvcc-(si)" tabindex="-1"><a href="#%F0%9F%93%9C-%E5%9F%BA%E4%BA%8E-mvcc-(si)">📜 基于 MVCC (SI)</a></h3>
+<ul>
+<li>默认只提供 <strong>快照隔离 (SI)</strong>。</li>
+<li>SI 保证：
+<ul>
+<li>没有脏读</li>
+<li>没有不可重复读</li>
+<li>没有幻读</li>
+<li>但 <strong>可能不是冲突可串行化</strong>（写偏差）。</li>
+</ul>
+</li>
+<li>所以，SI 对应于调度理论中 <strong>比可串行化弱</strong>的一种类别。</li>
+</ul>
+<h3 id="🌀-mvcc-+-ssi" tabindex="-1"><a href="#%F0%9F%8C%80-mvcc-%2B-ssi">🌀 MVCC + SSI</a></h3>
+<ul>
+<li>检测事务间的 <strong>依赖图</strong>。</li>
+<li>如果检测到环，就回滚一个事务。</li>
+<li>这样动态保证 <strong>无环</strong> → 相当于实现了 <strong>冲突可串行化</strong>。</li>
+<li>理论层面的“可串行化”映射到工程上就是 <strong>SSI</strong> 的冲突检测。</li>
+</ul>
+<hr>
+<h2 id="3.-对应关系表" tabindex="-1"><a href="#3.-%E5%AF%B9%E5%BA%94%E5%85%B3%E7%B3%BB%E8%A1%A8">3. 对应关系表</a></h2>
+<table>
+<thead>
+<tr>
+<th>理论概念</th>
+<th>实现方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>冲突可串行化</td>
+<td>严格 2PL、SSI</td>
+</tr>
+<tr>
+<td>视图可串行化（比冲突更宽）</td>
+<td>很少直接实现（开销太大），实际系统通常追求冲突可串行化</td>
+</tr>
+<tr>
+<td>快照隔离 (SI)</td>
+<td>MVCC 基础版本，不保证完全串行化</td>
+</tr>
+<tr>
+<td>可重复读</td>
+<td>MVCC 快照读 + 严格 S 锁</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="4.-图解直观理解" tabindex="-1"><a href="#4.-%E5%9B%BE%E8%A7%A3%E7%9B%B4%E8%A7%82%E7%90%86%E8%A7%A3">4. 图解直观理解</a></h2>
+<ul>
+<li>
+<p><strong>理论</strong>：</p>
+<blockquote>
+<p>“一个调度是合法的，当且仅当它的依赖图无环。”</p>
+</blockquote>
+</li>
+<li>
+<p><strong>2PL</strong>：</p>
+<blockquote>
+<p>“通过加锁，保证图不会形成环（用等待代替环）。”</p>
+</blockquote>
+</li>
+<li>
+<p><strong>SSI</strong>：</p>
+<blockquote>
+<p>“先允许事务自由执行，如果形成环，再回滚一个，打破环。”</p>
+</blockquote>
+</li>
+</ul>
+<hr>
+<h2 id="📌-总结-1" tabindex="-1"><a href="#%F0%9F%93%8C-%E6%80%BB%E7%BB%93-1">📌 总结</a></h2>
+<ul>
+<li><strong>理论上</strong>：我们用“调度无环”来定义可串行化。</li>
+<li><strong>工程上</strong>：
+<ul>
+<li>2PL：通过“锁”避免环的生成。</li>
+<li>SSI：通过“检测 + 回滚”打破已经生成的环。</li>
+<li>SI：不检测环，所以可能非串行化。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<p>👉 下一步学习，可以进入 <strong>分布式事务</strong>（Paxos/Raft + 两阶段提交）部分，把单机事务理论推广到分布式系统。</p>
+<p>要不要我带你进入 <strong>分布式事务</strong>的世界？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>好 👍 那我们就进入 <strong>分布式事务</strong> 的世界。单机事务依赖锁/日志/MVCC 就能保证 ACID，但一旦数据分布在多个节点上，问题就更复杂了。</p>
+<hr>
+<h1 id="🌍-分布式事务的挑战" tabindex="-1"><a href="#%F0%9F%8C%8D-%E5%88%86%E5%B8%83%E5%BC%8F%E4%BA%8B%E5%8A%A1%E7%9A%84%E6%8C%91%E6%88%98">🌍 分布式事务的挑战</a></h1>
+<p>在分布式数据库或服务中，事务可能跨越多个节点：</p>
+<ul>
+<li><strong>一致性问题</strong>：不同节点可能同时提交/回滚，必须保持整体一致。</li>
+<li><strong>故障问题</strong>：某个节点挂掉，事务状态不能卡死或丢失。</li>
+<li><strong>网络问题</strong>：消息丢失、延迟，导致事务无法同步。</li>
+</ul>
+<p>这时，单机的事务控制机制（锁/MVCC）不够，需要额外的 <strong>分布式协议</strong>。</p>
+<hr>
+<h1 id="🔑-1.-两阶段提交-(2pc)" tabindex="-1"><a href="#%F0%9F%94%91-1.-%E4%B8%A4%E9%98%B6%E6%AE%B5%E6%8F%90%E4%BA%A4-(2pc)">🔑 1. 两阶段提交 (2PC)</a></h1>
+<p>最经典的分布式事务协议。</p>
+<ul>
+<li><strong>流程</strong>：
+<ol>
+<li><strong>准备阶段 (prepare)</strong>
+<ul>
+<li>协调者询问所有参与者：“能否提交？”</li>
+<li>每个参与者写日志并回复“可以”或“失败”。</li>
+</ul>
+</li>
+<li><strong>提交阶段 (commit/abort)</strong>
+<ul>
+<li>如果所有人都同意 → 协调者通知提交。</li>
+<li>如果有人拒绝或超时 → 协调者通知回滚。</li>
+</ul>
+</li>
+</ol>
+</li>
+<li><strong>优点</strong>：简单直观，工业界广泛使用。</li>
+<li><strong>缺点</strong>：阻塞问题（协调者挂掉，参与者可能一直卡住）。</li>
+</ul>
+<hr>
+<h1 id="🔑-2.-三阶段提交-(3pc)" tabindex="-1"><a href="#%F0%9F%94%91-2.-%E4%B8%89%E9%98%B6%E6%AE%B5%E6%8F%90%E4%BA%A4-(3pc)">🔑 2. 三阶段提交 (3PC)</a></h1>
+<p>对 2PC 的改进，增加一个 <strong>预提交阶段</strong>，降低阻塞风险。</p>
+<ul>
+<li>如果协调者挂掉，参与者能根据状态自主决定 commit/abort。</li>
+<li>但在网络分区下仍然可能不一致。</li>
+</ul>
+<hr>
+<h1 id="🔑-3.-分布式一致性协议-(paxos-/-raft)" tabindex="-1"><a href="#%F0%9F%94%91-3.-%E5%88%86%E5%B8%83%E5%BC%8F%E4%B8%80%E8%87%B4%E6%80%A7%E5%8D%8F%E8%AE%AE-(paxos-%2F-raft)">🔑 3. 分布式一致性协议 (Paxos / Raft)</a></h1>
+<p>现代分布式数据库常结合 <strong>共识协议</strong> 来解决 2PC 的不足。</p>
+<ul>
+<li><strong>思路</strong>：把“事务的提交决议”交给一个共识组来投票（Paxos/Raft）。</li>
+<li><strong>效果</strong>：即使协调者挂掉，也能保证全局一致性。</li>
+<li>典型方案：
+<ul>
+<li>Google Spanner：2PC + Paxos</li>
+<li>TiDB：2PC + Raft</li>
+<li>FoundationDB：多层事务协议 + Paxos</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h1 id="🔑-4.-分布式事务的隔离性" tabindex="-1"><a href="#%F0%9F%94%91-4.-%E5%88%86%E5%B8%83%E5%BC%8F%E4%BA%8B%E5%8A%A1%E7%9A%84%E9%9A%94%E7%A6%BB%E6%80%A7">🔑 4. 分布式事务的隔离性</a></h1>
+<p>在分布式环境中，同样需要事务隔离级别：</p>
+<ul>
+<li><strong>分布式 2PL</strong>：全局锁，开销大。</li>
+<li><strong>分布式 MVCC</strong>：基于全局时间戳（如 Spanner 的 TrueTime）。</li>
+<li><strong>混合方案</strong>：分区内用 MVCC，本地事务；跨分区用 2PC 协调。</li>
+</ul>
+<hr>
+<h1 id="📖-举例：银行跨库转账" tabindex="-1"><a href="#%F0%9F%93%96-%E4%B8%BE%E4%BE%8B%EF%BC%9A%E9%93%B6%E8%A1%8C%E8%B7%A8%E5%BA%93%E8%BD%AC%E8%B4%A6">📖 举例：银行跨库转账</a></h1>
+<ul>
+<li>A 在节点 1，B 在节点 2。</li>
+<li>用户要从 A 转 100 元到 B。</li>
+</ul>
+<p>流程（2PC + 日志）：</p>
+<ol>
+<li>协调者发送 prepare(A=-100, B=+100)。</li>
+<li>节点 1 和节点 2 预写日志，返回 OK。</li>
+<li>协调者发送 commit。</li>
+<li>两个节点都提交事务。</li>
+</ol>
+<p>如果节点 2 在提交时宕机：</p>
+<ul>
+<li>因为有日志，重启后会继续执行 commit，保持全局一致。</li>
+</ul>
+<hr>
+<h1 id="📌-总结-2" tabindex="-1"><a href="#%F0%9F%93%8C-%E6%80%BB%E7%BB%93-2">📌 总结</a></h1>
+<ul>
+<li><strong>单机事务</strong>：锁 (2PL) / MVCC / SSI 保证 ACID。</li>
+<li><strong>分布式事务</strong>：必须额外用 <strong>2PC/3PC + 共识协议</strong> 来协调多个节点。</li>
+<li><strong>工程实践</strong>：
+<ul>
+<li>OLTP 系统（银行、支付）：强一致，常用 2PC + 共识。</li>
+<li>大规模分布式数据库（Spanner, TiDB, FoundationDB）：用全局时间戳 + MVCC + 共识。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<p>👉 下一步我可以帮你讲 <strong>Google Spanner 的实现</strong>（全局事务 + TrueTime），或者 <strong>TiDB 的实现</strong>（Percolator 协议 + Raft）。你想先学哪个？</p>
+<blockquote>
+<p>RocksDB 实现了 MVCC，但它有实现 SSI 吗？</p>
+</blockquote>
+<p>好问题 👍</p>
+<p>RocksDB 确实实现了 <strong>MVCC</strong>（多版本并发控制），但它 <strong>没有实现 SSI（Serializable Snapshot Isolation）</strong>。</p>
+<p>我们来仔细拆解一下：</p>
+<hr>
+<h3 id="1.-rocksdb-的-mvcc-能力" tabindex="-1"><a href="#1.-rocksdb-%E7%9A%84-mvcc-%E8%83%BD%E5%8A%9B">1. RocksDB 的 MVCC 能力</a></h3>
+<ul>
+<li>RocksDB 的每条记录都带有一个 <strong>sequence number（全局递增）</strong>，用来标识写入顺序。</li>
+<li><strong>快照（snapshot）</strong> 就是某个时间点的 sequence number。读取时只看不超过这个 snapshot sequence 的版本 → 这样能保证 <strong>一致性快照读</strong>。</li>
+<li>这本质上给用户提供了 <strong>Snapshot Isolation (SI)</strong>。</li>
+</ul>
+<hr>
+<h3 id="2.-si-的特征" tabindex="-1"><a href="#2.-si-%E7%9A%84%E7%89%B9%E5%BE%81">2. SI 的特征</a></h3>
+<p>在 SI 下：</p>
+<ul>
+<li>不会有 <strong>脏读</strong>（读到未提交数据）；</li>
+<li>不会有 <strong>不可重复读</strong>（读同一个键时快照不变）；</li>
+<li>不会有 <strong>读已提交的写丢失</strong>；</li>
+<li>但依然可能出现 <strong>幻读（Phantom Read）</strong> 和 <strong>写偏序（Write Skew）</strong>。</li>
+</ul>
+<hr>
+<h3 id="3.-为什么-rocksdb-没有-ssi" tabindex="-1"><a href="#3.-%E4%B8%BA%E4%BB%80%E4%B9%88-rocksdb-%E6%B2%A1%E6%9C%89-ssi">3. 为什么 RocksDB 没有 SSI</a></h3>
+<p><strong>SSI（Serializable Snapshot Isolation）</strong> 是在 SI 的基础上，额外检测事务间的依赖冲突（如读写依赖、反依赖），并在必要时中止事务，从而避免幻读和写偏序。</p>
+<p>要实现 SSI，存储引擎需要：</p>
+<ul>
+<li>追踪事务的 <strong>读集（read set）</strong> 和 <strong>写集（write set）</strong>；</li>
+<li>在提交时检查是否存在 <strong>危险结构（dangerous structure）</strong>（比如 T1 读了 A，T2 写了 A，然后 T1 写了 B，T2 也写了 B → 写偏序）；</li>
+<li>必要时 abort 某些事务。</li>
+</ul>
+<p>而 RocksDB 是一个 <strong>通用 KV 存储引擎</strong>，它只提供基础的 MVCC + 快照，不会替应用层实现 SSI 所需的冲突检测和事务 abort 逻辑。</p>
+<hr>
+<h3 id="4.-总结" tabindex="-1"><a href="#4.-%E6%80%BB%E7%BB%93">4. 总结</a></h3>
+<ul>
+<li><strong>RocksDB：</strong> 提供 <strong>Snapshot Isolation (SI)</strong>；</li>
+<li><strong>没有 SSI：</strong> 不能保证完全的串行化；</li>
+<li>如果要实现 SSI，需要在 RocksDB 上层（比如 TiDB、CockroachDB、FoundationDB 这种分布式数据库系统）额外实现冲突检测。</li>
+</ul>
+<hr>
+<p>要不要我给你举一个 <strong>RocksDB 在 SI 下仍然可能出现写偏序的例子</strong>，让你直观感受为什么它没做到 SSI？</p>
+<blockquote>
+<p>好的。</p>
+</blockquote>
+<p>那我给你举一个 <strong>RocksDB 提供 SI 但可能出现写偏序的例子</strong>。</p>
+<hr>
+<h3 id="场景：医院值班系统" tabindex="-1"><a href="#%E5%9C%BA%E6%99%AF%EF%BC%9A%E5%8C%BB%E9%99%A2%E5%80%BC%E7%8F%AD%E7%B3%BB%E7%BB%9F">场景：医院值班系统</a></h3>
+<p>假设我们有两条记录：</p>
+<ul>
+<li><code>DoctorA_on_duty = true</code></li>
+<li><code>DoctorB_on_duty = true</code></li>
+</ul>
+<p>规则：至少要有一个医生在值班。
+每个事务要么让 A 下班，要么让 B 下班，但绝不能两人同时下班。</p>
+<hr>
+<h3 id="rocksdb-+-snapshot-isolation-(si)-下的执行" tabindex="-1"><a href="#rocksdb-%2B-snapshot-isolation-(si)-%E4%B8%8B%E7%9A%84%E6%89%A7%E8%A1%8C">RocksDB + Snapshot Isolation (SI) 下的执行</a></h3>
+<ol>
+<li><strong>事务 T1（让 A 下班）</strong>
+<ul>
+<li>T1 开始，读快照：<code>DoctorB_on_duty = true</code></li>
+<li>于是 T1 觉得“B 在值班，我可以让 A 下班”</li>
+<li>T1 更新：<code>DoctorA_on_duty = false</code></li>
+</ul>
+</li>
+<li><strong>事务 T2（让 B 下班）</strong>
+<ul>
+<li>T2 开始，读快照：<code>DoctorA_on_duty = true</code></li>
+<li>于是 T2 觉得“A 在值班，我可以让 B 下班”</li>
+<li>T2 更新：<code>DoctorB_on_duty = false</code></li>
+</ul>
+</li>
+<li><strong>提交</strong>
+<ul>
+<li>在 SI 下，T1 和 T2 都能成功提交，因为它们没有写同一条记录（没有直接冲突）。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h3 id="结果-1" tabindex="-1"><a href="#%E7%BB%93%E6%9E%9C-1">结果</a></h3>
+<p>最终：</p>
+<ul>
+<li><code>DoctorA_on_duty = false</code></li>
+<li><code>DoctorB_on_duty = false</code>
+即 <strong>没有医生在值班</strong> → 违反业务规则。</li>
+</ul>
+<hr>
+<h3 id="分析" tabindex="-1"><a href="#%E5%88%86%E6%9E%90">分析</a></h3>
+<ul>
+<li><strong>在 SI 下：</strong> RocksDB 没有检测到问题，因为它只保证快照一致性（每个事务看到的读集内部一致），但没阻止跨事务的“写偏序”。</li>
+<li><strong>在 SSI 下：</strong> 系统会检测到这种危险结构（T1 依赖 T2 的写，T2 依赖 T1 的写），会强制 abort 至少一个事务，从而避免这种错误结果。</li>
+</ul>
+<hr>
+<p>✅ 所以结论：
+RocksDB 的 MVCC + Snapshot <strong>不等于 SSI</strong>，它没法避免写偏序或幻读。</p>
+<p>要不要我接下来帮你画一个 <strong>时间线图（事务并发执行的过程）</strong>，让这个写偏序更直观？</p>
+<blockquote>
+<p>RocksDB 自己有事务的接口，是否能实现 SSI？</p>
+</blockquote>
+<p>严格来说，<strong>RocksDB 自身的事务接口只能提供 Snapshot Isolation (SI)，不能直接实现 SSI</strong>，原因如下：</p>
+<hr>
+<h2 id="1.-rocksdb-事务接口能力" tabindex="-1"><a href="#1.-rocksdb-%E4%BA%8B%E5%8A%A1%E6%8E%A5%E5%8F%A3%E8%83%BD%E5%8A%9B">1. RocksDB 事务接口能力</a></h2>
+<p>RocksDB 的 <code>TransactionDB</code> 提供：</p>
+<ul>
+<li><strong>事务的开始/提交/回滚</strong></li>
+<li><strong>快照读</strong>（read at snapshot）</li>
+<li><strong>写入缓存和 commit log</strong></li>
+<li><strong>冲突检测</strong>：在提交时，支持检测写-写冲突（如果同一 key 被两个事务写，会冲突并 abort）</li>
+</ul>
+<p>特点：</p>
+<ul>
+<li>读操作 <strong>不会阻塞</strong>写操作</li>
+<li>写操作冲突仅针对 <strong>同一 key</strong></li>
+<li>没有对 <strong>读集</strong> 的监控</li>
+</ul>
+<hr>
+<h2 id="2.-为什么无法直接实现-ssi" tabindex="-1"><a href="#2.-%E4%B8%BA%E4%BB%80%E4%B9%88%E6%97%A0%E6%B3%95%E7%9B%B4%E6%8E%A5%E5%AE%9E%E7%8E%B0-ssi">2. 为什么无法直接实现 SSI</a></h2>
+<p>SSI 要求：</p>
+<ol>
+<li><strong>记录每个事务的读集和写集</strong>
+<ul>
+<li>用来检测危险结构（读-写、反向依赖）</li>
+</ul>
+</li>
+<li><strong>在提交阶段检查依赖图</strong>
+<ul>
+<li>如果发现潜在非串行化的环 → abort 一个事务</li>
+</ul>
+</li>
+</ol>
+<p>RocksDB 事务接口只对 <strong>写-写冲突</strong> 做了检测，并没有追踪 <strong>读集</strong>，也没有在提交时做依赖环的分析。</p>
+<hr>
+<h2 id="3.-能否在-rocksdb-上实现-ssi" tabindex="-1"><a href="#3.-%E8%83%BD%E5%90%A6%E5%9C%A8-rocksdb-%E4%B8%8A%E5%AE%9E%E7%8E%B0-ssi">3. 能否在 RocksDB 上实现 SSI</a></h2>
+<ul>
+<li><strong>答案：可以，但需要上层实现</strong></li>
+<li>方法：</li>
+</ul>
+<ol>
+<li><strong>在应用层或数据库层</strong>维护每个事务的 <strong>读集/写集</strong></li>
+<li><strong>提交时检查依赖冲突</strong>（危险结构）</li>
+<li><strong>必要时 abort 事务</strong></li>
+</ol>
+<p>例子：</p>
+<ul>
+<li>TiDB、CockroachDB、FoundationDB 都是用 RocksDB 或类似 KV 存储作为底层存储</li>
+<li>上层自己实现 <strong>Serializable Snapshot Isolation (SSI)</strong></li>
+</ul>
+<p>也就是说：RocksDB 本身不提供 SSI，但它提供的 MVCC 和事务接口可以作为 <strong>构建 SSI 的底层能力</strong>。</p>
+<hr>
+<p>✅ 总结：</p>
+<table>
+<thead>
+<tr>
+<th>功能</th>
+<th>RocksDB TransactionDB</th>
+<th>SSI 所需</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MVCC 快照读</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>写-写冲突检测</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>读集追踪</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>危险结构检测</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>自动 abort 防止写偏序</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p>如果你愿意，我可以帮你画一个 <strong>RocksDB + 应用层实现 SSI 的架构示意图</strong>，让你直观理解事务流和冲突检测是怎么叠加在 RocksDB 之上的。</p>
+<p>你想看吗？</p>
+<blockquote>
+<p>RocksDB 的 Transaction 接口提供了 GetForUpdate 用来检测读写冲突，应该可以实现事务才对？</p>
+</blockquote>
+<p>你说得没错，RocksDB 的 <code>Transaction</code> 接口确实提供了 <code>GetForUpdate</code>，它可以在读的时候 <strong>加上一个隐式的写锁</strong> 来检测读写冲突，从而支持一定程度的事务控制。我们来仔细分析一下它的能力与限制：</p>
+<hr>
+<h2 id="1.-getforupdate-的作用" tabindex="-1"><a href="#1.-getforupdate-%E7%9A%84%E4%BD%9C%E7%94%A8">1. <code>GetForUpdate</code> 的作用</a></h2>
+<ul>
+<li>当你调用 <code>GetForUpdate(key)</code> 时：
+<ol>
+<li>如果 key 被其他事务修改过但未提交，当前事务会 <strong>阻塞或失败</strong>（根据事务设置）。</li>
+<li>相当于给 key 加了一个 <strong>排它锁</strong>（X-lock）或者写锁，确保其他事务不能同时修改这个 key。</li>
+</ol>
+</li>
+<li>这样可以检测 <strong>读写冲突（RW-conflict）</strong>，保证同一个 key 的事务不会出现写入丢失。</li>
+</ul>
+<hr>
+<h2 id="2.-能否实现完整的事务（可串行化-/-ssi）" tabindex="-1"><a href="#2.-%E8%83%BD%E5%90%A6%E5%AE%9E%E7%8E%B0%E5%AE%8C%E6%95%B4%E7%9A%84%E4%BA%8B%E5%8A%A1%EF%BC%88%E5%8F%AF%E4%B8%B2%E8%A1%8C%E5%8C%96-%2F-ssi%EF%BC%89">2. 能否实现完整的事务（可串行化 / SSI）</a></h2>
+<ul>
+<li><strong>优点</strong>：
+<ul>
+<li><code>GetForUpdate</code> 可以避免 <strong>简单的写偏序</strong>，例如两个事务同时修改同一个 key 时，其中一个会失败。</li>
+<li>对于 <strong>单 key 事务</strong> 或者 key 非常独立的事务，它可以保证 <strong>强一致性</strong>。</li>
+</ul>
+</li>
+<li><strong>限制</strong>：
+<ol>
+<li><strong>只能针对已读/写的 key 检测冲突</strong>
+<ul>
+<li>对于涉及多个 key 或跨 key 的 <strong>写偏序问题</strong>，仍可能出现异常。</li>
+<li>例如前面医院值班的例子，如果 T1 读 B 写 A，T2 读 A 写 B，<code>GetForUpdate</code> 只能保护它们各自读写的 key，但不会阻止跨 key 的写偏序。</li>
+</ul>
+</li>
+<li><strong>没有全局依赖检测</strong>
+<ul>
+<li>RocksDB 不追踪完整的 <strong>读集/写集图</strong>，也就无法像 SSI 那样检测“危险结构”。</li>
+</ul>
+</li>
+<li><strong>需要应用层主动调用</strong>
+<ul>
+<li><code>GetForUpdate</code> 不是默认行为，应用层必须明确调用，否则读操作仍然是快照读（SI）。</li>
+</ul>
+</li>
+</ol>
+</li>
+</ul>
+<hr>
+<h2 id="3.-实现-ssi-的条件" tabindex="-1"><a href="#3.-%E5%AE%9E%E7%8E%B0-ssi-%E7%9A%84%E6%9D%A1%E4%BB%B6">3. 实现 SSI 的条件</a></h2>
+<p>要在 RocksDB 上实现 SSI，需要在应用层做：</p>
+<ol>
+<li><strong>记录每个事务的读集和写集</strong></li>
+<li><strong>在提交阶段检测读写依赖冲突</strong>（跨 key）</li>
+<li><strong>必要时回滚事务</strong>，确保冲突环不会形成</li>
+</ol>
+<ul>
+<li><code>GetForUpdate</code> 可以作为 <strong>RW 冲突检测的基础</strong></li>
+<li>但 <strong>单靠 RocksDB 内置接口</strong>，无法完成完整 SSI，因为它不做跨 key / 跨事务的依赖环检测。</li>
+</ul>
+<hr>
+<h3 id="✅-总结" tabindex="-1"><a href="#%E2%9C%85-%E6%80%BB%E7%BB%93">✅ 总结</a></h3>
+<table>
+<thead>
+<tr>
+<th>功能</th>
+<th>RocksDB Transaction + GetForUpdate</th>
+<th>完整 SSI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单 key 写冲突检测</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>多 key 写偏序检测</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>读集追踪</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>危险结构检测</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p>所以结论是：</p>
+<ul>
+<li><strong>RocksDB 自身提供了事务接口 + GetForUpdate</strong>，可以实现 <strong>部分事务控制</strong>（尤其是单 key 事务），并保证 SI。</li>
+<li><strong>真正的 SSI（可串行化）</strong> 仍需上层实现跨 key 的依赖检测和事务 abort。</li>
+</ul>
+<hr>
+<p>如果你愿意，我可以帮你画一个 <strong>RocksDB Transaction + GetForUpdate 事务控制示意图</strong>，同时标出它和 SSI 的差异，让这个概念直观可视化。</p>
+<p>你想让我画吗？</p>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>
