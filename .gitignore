@@ -3,6 +3,9 @@
 /profile
 /package-lock.json
 
+# Rust
+/blog-generator/target
+
 # Logs
 logs
 *.log
