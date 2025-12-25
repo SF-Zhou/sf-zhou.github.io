@@ -22,6 +22,10 @@ pub struct Config {
     #[serde(default)]
     pub github_repo_id: Option<String>,
     #[serde(default)]
+    pub giscus_category: Option<String>,
+    #[serde(default)]
+    pub giscus_category_id: Option<String>,
+    #[serde(default)]
     pub google_analytics_id: Option<String>,
 }
 

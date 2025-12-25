@@ -34,7 +34,8 @@ pub fn generate_rss(articles: &[Article], config: &Config) -> String {
         .take(20)
         .map(|article| {
             let pub_date = parse_date_to_rfc2822(&article.date);
-            let link = format!("{}{}", config.site_url, article.url_path.as_ref().unwrap_or(&String::new()));
+            let url_path = article.url_path.as_deref().unwrap_or("");
+            let link = format!("{}{}", config.site_url, url_path);
             let guid = &link;
             let author = &article.author;
             
