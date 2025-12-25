@@ -1,0 +1,30 @@
+[package]
+name = "blog_generator"
+version = "0.1.0"
+edition = "2021"
+authors = ["SF-Zhou <sfzhou.scut@gmail.com>"]
+description = "A static blog generator that converts Markdown to HTML with syntax highlighting and math formula support"
+license = "MIT"
+
+[dependencies]
+chrono = "0.4"
+clap = { version = "4.4", features = ["derive"] }
+indoc = "2"
+katex = "0.4"
+mustache = "0.9"
+once_cell = "1.19"
+percent-encoding = "2.3"
+pulldown-cmark = { version = "0.9", features = ["simd"] }
+regex = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+syntect = "5.2"
+toml = "0.8"
+walkdir = "2.4"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "blog-generator"
+path = "src/main.rs"
