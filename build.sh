@@ -3,16 +3,16 @@ set -e
 
 mkdir -p public
 mkdir -p profile
-node src/main.js
+
+# Build Rust generator if needed
+if [ ! -f ./target/release/blog-generator ]; then
+    echo "Building Rust blog generator..."
+    cargo build --release
+fi
+
+# Build blog using Rust generator
+./target/release/blog-generator --config config.toml --templates src
+
+# Copy static assets
 cp -r posts/images public
 cp -r dist public
-
-# Less to CSS
-npx lessc dist/main.less public/dist/main.css
-
-# Highlight JS
-cp ./node_modules/prismjs/themes/prism-tomorrow.css public/dist/highlight.css
-
-# KaTeX
-cp ./node_modules/katex/dist/katex.min.css public/dist
-cp -r ./node_modules/katex/dist/fonts public/dist
