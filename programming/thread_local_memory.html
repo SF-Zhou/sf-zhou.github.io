@@ -87,6 +87,17 @@ __default_pthread_attr<span class="token punctuation">.</span>guardsize <span cl
   <span class="token function">printf</span><span class="token punctuation">(</span><span class="token string">"size %lu\n"</span><span class="token punctuation">,</span> size<span class="token punctuation">)</span><span class="token punctuation">;</span>
 <span class="token punctuation">}</span>
 </code></pre>
+<h3 id="rust-+-c++-联合编译新坑" tabindex="-1"><a href="#rust-%2B-c%2B%2B-%E8%81%94%E5%90%88%E7%BC%96%E8%AF%91%E6%96%B0%E5%9D%91">Rust + C++ 联合编译新坑</a></h3>
+<p>没想到在 2026 年还能再次遇到这个问题。项目中混合了 Rust 和 C++，Rust 侧新增了后台线程，并且单元测试启动线程一切正常，和 C++ 联合编译后就直接炸掉。使用 LLDB attach 上去排查，能看到 fault address 是 <code>0x7f6440079fe8</code>，继续查看线程启动时栈底的地址：</p>
+<pre class="language-bash"><code class="language-bash">frame <span class="token keyword">select</span> <span class="token number">23</span>
+reg <span class="token builtin class-name">read</span> rsp
+</code></pre>
+<p>栈底的地址是 <code>0x7f644007f000</code>，整个栈的可用空间太小了。查看进程内存映射：</p>
+<pre class="language-bash"><code class="language-bash"><span class="token function">cat</span> /proc/<span class="token operator">&lt;</span>PID<span class="token operator">></span>/maps <span class="token operator">|</span> <span class="token function">grep</span> 7f644007
+<span class="token comment">#> 7f6440079000-7f644007a000 ---p 00000000 00:00 0</span>
+<span class="token comment">#> 7f644007a000-7f64404a6000 rw-p 00000000 00:00 0</span>
+</code></pre>
+<p>显然线程执行之初能用的栈空间就已经没多少了。值得注意的是这段内存的大小只有 4.17MiB，并非 8MiB。简单查询后得知 Rust 默认的栈大小只有可怜的 2MiB，Rust 自身没有多少 TLS 变量，但 C++ 侧有超过 4MiB 的 TLS，所以单独跑没事，联合编译炸掉。修复方法也很简单，Rust 创建线程时将栈大小与 C++ 侧对齐即可。</p>
 <h3 id="references" tabindex="-1"><a href="#references">References</a></h3>
 <ol>
 <li><a href="https://www.uclibc.org/docs/tls.pdf">&quot;ELF Handling For Thread-Local Storage&quot;, <em>Ulrich Drepper</em></a></li>
