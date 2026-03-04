@@ -106,6 +106,42 @@
 </table>
 <p>通过每次 RDMA Read 完成后，使用第二次 RPC 向对方确认 Buffer 是否已经被复用，来避免读到脏数据的可能。代价就是会多出一次 RTT。至于处理流程，则可以通过 Server 端给 Client 发反向 RPC 来简化，Server 端的处理步骤可以放到一个协程里顺序执行，<a href="https://github.com/deepseek-ai/3FS/blob/main/src/common/net/RDMAControl.cc">3FS RDMA Control</a> 有类似的案例（实际上它也会增加一次 RTT😉）。</p>
 <p>本质上，这套方案是在 One-sided RDMA + Two-sided RPC 的组合里，用 RPC 来弥补 RDMA 在 buffer 生命周期和错误语义上的不足。</p>
+<h3 id="进一步的讨论" tabindex="-1"><a href="#%E8%BF%9B%E4%B8%80%E6%AD%A5%E7%9A%84%E8%AE%A8%E8%AE%BA">进一步的讨论</a></h3>
+<p>笔者坚持不使用 RDMA Write 的另一个原因是，远端并发的 RDMA Write 会很容易触发网络上的拥塞。只有 RDMA Read 的话可以很方便地在应用层做 Receiver Driven 的流量控制，避免网络层拥塞。在 3FS 文件系统、KVCache 存储系统上都观察到这一现象：单靠网络层自身的拥塞控制算法是无法避免网络拥塞的。</p>
+<p>所以本文中提到的策略实际上是在应用层上解决这两个问题：RDMA Buffer 的生命周期管理和网络拥塞控制。在应用层上做这两件事有一些好处：对 RDMA 网卡本身基本没有要求，不需要强制断掉 QP。</p>
+<p>如果你的网络硬件环境很好，例如全 Mellanox 网卡，那么也可以试试我同事教我的另外一招：考虑使用硬件级的 Memory Window 来解决 RDMA Buffer 的生命周期管理问题。同样以本地读远端为例：</p>
+<table>
+<thead>
+<tr>
+<th>本地</th>
+<th>远端</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1. 发起 RPC</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>2. 收到 RPC，准备好 Buffer，Bind MW 同时返回 Response</td>
+</tr>
+<tr>
+<td>3. 发起 RDMA Read，附带授权的 RKey，等待完成，返回结果</td>
+<td></td>
+</tr>
+<tr>
+<td>4. 异步地发起 RPC，通知远端 Invalidate MW</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>5. 收到 RPC，提交一个 Invalidate MW 的 WR。如果指定时间内没有收到 Client 发送的 Invalidate RPC 请求，Server 端也需要提交 Invalidate MW 的 WR，完成后 Buffer 就可以复用了</td>
+</tr>
+</tbody>
+</table>
+<p>Type 2 的 Memory Window 可以将 Bind MW 操作和 RDMA Send 操作一并提交，这样这个请求过程只需要一次 RTT（Invalidate RPC 是异步的，不占用请求的延迟），延迟可以做的更低。极端情况下 Client 还没有来得及进行 RDMA Read，Server 已经超时并且 Invalidate MW 了，那么 Client 的 RDMA Read 操作会因为 MW 已经失效而失败，不会读到脏数据。同时 QP 会陷入错误的状态，需要重新建立连接。</p>
+<p>如果你的网络环境不支持 Type 2 的 Memory Window（例如阿里云），本文提到的应用层的 Buffer 管理也仍然是一条可行的退路。笔者是希望将这两套策略都实现在 RPC 框架里，开箱即可用，用户可以根据不同的网络环境自行配置。当然我现在还没有时间完成它：<a href="https://github.com/SF-Zhou/ruapc">https://github.com/SF-Zhou/ruapc</a></p>
 
       </div>
       <script src="https://giscus.app/client.js"
