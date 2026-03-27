@@ -713,7 +713,7 @@ TimerThread<span class="token double-colon punctuation">::</span><span class="to
 </code></pre>
 <p><code>TimerThread</code> 有效的原因有以下几点：</p>
 <ol>
-<li><code>Bucket</code> 锁内链表增加任务的操作是 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="script">O</mi><mo stretchy="false">(</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\mathcal{O}(1)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathcal" style="margin-right:0.02778em;">O</span><span class="mopen">(</span><span class="mord">1</span><span class="mclose">)</span></span></span></span></eq> 的，临界区短</li>
+<li><code>Bucket</code> 锁内链表增加任务的操作是 <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="script">O</mi><mo stretchy="false">(</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\mathcal{O}(1)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathcal" style="margin-right:0.0278em;">O</span><span class="mopen">(</span><span class="mord">1</span><span class="mclose">)</span></span></span></span></eq> 的，临界区短</li>
 <li>RPC 场景下超时时间一般不变，大部分插入的时间是<strong>递增</strong>的，早于 <code>nearest_run_time</code> 而唤醒线程的次数很少</li>
 <li>通过 <code>ResourcePool</code> 和版本进行删除操作，不参与全局竞争</li>
 <li><code>TimerThread</code> 自行维护小顶堆，不参与全局竞争</li>
