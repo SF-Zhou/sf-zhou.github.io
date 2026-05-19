@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/dist/favicon.ico">
+    <link rel="apple-touch-icon" href="/dist/favicon.png">
+    <link rel="stylesheet" type="text/css" href="/dist/highlight.css">
+    <link rel="stylesheet" type="text/css" href="/dist/katex.min.css">
+    <link rel="stylesheet" type="text/css" href="/dist/main.css">
+    <title>PaxosStore 源码分析「八、一些思考」 | SF-Zhou's Blog</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQ26H3JQ3G"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-GQ26H3JQ3G');
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <div class="title">
+        <h1> PaxosStore 源码分析「八、一些思考」 </h1>
+      </div>
+      <div class="info">
+        <div class="date"> 2026.05.19 </div>
+        <a href="https://github.com/SF-Zhou">
+          <div class="author"> SF-Zhou </div>
+        </a>
+      </div>
+      <div class="markdown">
+        <h3 id="一、chosen-到底是啥？" tabindex="-1"><a href="#%E4%B8%80%E3%80%81chosen-%E5%88%B0%E5%BA%95%E6%98%AF%E5%95%A5%EF%BC%9F">一、Chosen 到底是啥？</a></h3>
+<p>Chosen 即多数派通过提案。</p>
+<p>假设有 n 个节点，多数派定义为超过半数的节点。</p>
+<p>两个多数派的节点数之和：
+<section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi mathvariant="normal">∣</mi><mi>A</mi><mi mathvariant="normal">∣</mi><mo>+</mo><mi mathvariant="normal">∣</mi><mi>B</mi><mi mathvariant="normal">∣</mi><mo>≥</mo><mo stretchy="false">(</mo><mo stretchy="false">⌊</mo><mi>n</mi><mi mathvariant="normal">/</mi><mn>2</mn><mo stretchy="false">⌋</mo><mo>+</mo><mn>1</mn><mo stretchy="false">)</mo><mo>+</mo><mo stretchy="false">(</mo><mo stretchy="false">⌊</mo><mi>n</mi><mi mathvariant="normal">/</mi><mn>2</mn><mo stretchy="false">⌋</mo><mo>+</mo><mn>1</mn><mo stretchy="false">)</mo><mo>&gt;</mo><mi>n</mi></mrow><annotation encoding="application/x-tex">
+|A| + |B| \ge (\lfloor n/2 \rfloor + 1) + (\lfloor n/2 \rfloor + 1) &gt; n
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">∣</span><span class="mord mathnormal">A</span><span class="mord">∣</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">∣</span><span class="mord mathnormal" style="margin-right:0.0502em;">B</span><span class="mord">∣</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≥</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(⌊</span><span class="mord mathnormal">n</span><span class="mord">/2</span><span class="mclose">⌋</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">1</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(⌊</span><span class="mord mathnormal">n</span><span class="mord">/2</span><span class="mclose">⌋</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">1</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">&gt;</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">n</span></span></span></span></span></eqn></section>
+根据鸽巢原理，节点之和超过节点总数，必然有元素被重复计数，即交集非空。</p>
+<p>即任意两个多数派间必有交集。</p>
+<p>即任何多数派通过的决策一定会被下一轮任意多数派中至少一个节点继承。</p>
+<p>即 Chosen 的值一定会被看见、被继承、保持不变。</p>
+<h3 id="二、plog-到底是啥？" tabindex="-1"><a href="#%E4%BA%8C%E3%80%81plog-%E5%88%B0%E5%BA%95%E6%98%AF%E5%95%A5%EF%BC%9F">二、PLog 到底是啥？</a></h3>
+<p>PLog 是一串严格有序的、Chosen 的值的队列。队列中存储的值是 Command。</p>
+<p>所有状态机按照一致的顺序、执行一致的 Command，所以最终会达到一致的状态。</p>
+<p>PLog 是队列，所以如果所有状态机都已经提交了某个 Chosen 的值，那么这个值实际上是可以在队列中删掉的。PaxosStore 内部实际上是会这样处理的。</p>
+<p>想明白了就会知道，状态机和 PLog 是可以拆开的，它们不一定要强耦合。</p>
+<h3 id="三、paxos-算法距离-paxosstore-有多远？" tabindex="-1"><a href="#%E4%B8%89%E3%80%81paxos-%E7%AE%97%E6%B3%95%E8%B7%9D%E7%A6%BB-paxosstore-%E6%9C%89%E5%A4%9A%E8%BF%9C%EF%BC%9F">三、Paxos 算法距离 PaxosStore 有多远？</a></h3>
+<p>Paxos 算法只解决一个问题：如何确定一个值。</p>
+<p>现实中的状态机要的不是一个值，而是无尽的共识的流，所以引入 Entry，可以不断的、有序的达成共识。</p>
+<p>现实中的数据量大、并发高，一个状态机撑不住，所以引入 Entity，对数据进行确定性的拆分。</p>
+<p>现实中的磁盘空间是有限的，所以 PLog 要定期清理，并不能始终保证状态机可以根据全量 PLog 进行回放，所以还需要引入状态机自己的恢复逻辑。</p>
+<p>无论上层多复杂，整个大厦的根基还是没有变，仍然是那个简单的、可靠的 Paxos 共识算法。</p>
+
+      </div>
+      <script src="https://giscus.app/client.js"
+      data-repo="SF-Zhou/sf-zhou.github.io"
+      data-repo-id="MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+      data-category="Announcements"
+      data-category-id="DIC_kwDOBNDkVs4CA6GQ"
+      data-mapping="title"
+      data-reactions-enabled="0"
+      data-emit-metadata="0"
+      data-input-position="bottom"
+      data-theme="preferred_color_scheme"
+      data-lang="en"
+      crossorigin="anonymous"
+      async>
+    </script>
+      <div class="footer">
+        <div class="license">
+          Except where otherwise noted, content on this site is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> license.
+        </div>
+        <div class="copyright">
+          Copyright©2017 SF-Zhou, All Rights Reserved. Powered by <a href="https://pages.github.com/">GitHub Pages</a> and <a href="https://github.com/features/actions">GitHub Actions</a>.
+        </div>
+      </div>
+    </div>
+    <script src="/dist/main.js"></script>
+  </body>
+</html>

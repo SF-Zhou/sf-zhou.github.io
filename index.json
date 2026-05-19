@@ -1,5 +1,17 @@
 [
   {
+    "title": "PaxosStore 源码分析「八、一些思考」",
+    "date": "2026.05.19",
+    "author": "SF-Zhou",
+    "tags": [
+      "Paxos",
+      "C++",
+      "Distributed"
+    ],
+    "filename": "paxos_store_08_review",
+    "url_path": "/paxos/paxos_store_08_review.html"
+  },
+  {
     "title": "一种安全的 RDMA Buffer 复用策略",
     "date": "2025.11.19",
     "author": "SF-Zhou",
