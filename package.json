@@ -9,6 +9,7 @@
     "build": "./build.sh"
   },
   "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^11.16.0",
     "download": "^8.0.0",
     "file-type": "^22.0.0",
     "katex": "^0.18.0",

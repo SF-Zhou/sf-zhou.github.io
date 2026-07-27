@@ -188,6 +188,24 @@ body {
       font-size: 0.8rem;
     }
   }
+  figure.mermaid {
+    text-align: center;
+    svg {
+      max-width: 100%;
+      height: auto;
+    }
+    .mermaid-dark {
+      display: none;
+    }
+    @media (prefers-color-scheme: dark) {
+      .mermaid-light {
+        display: none;
+      }
+      .mermaid-dark {
+        display: block;
+      }
+    }
+  }
   p, ol, ul {
     code {
       padding: 0.1rem 0.2rem;

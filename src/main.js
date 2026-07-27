@@ -7,6 +7,7 @@ import download from 'download';
 import { fileTypeFromBuffer } from 'file-type';
 
 import marked from './marked.js';
+import { close_mermaid } from './mermaid.js';
 import list_articles from './list_articles.js';
 import analyze_article from './analyze_article.js';
 
@@ -138,7 +139,7 @@ async function main() {
     }
 
     const article = analyze_article(article_content, article_filename, config.default_author);
-    article.html = marked(article.markdown);
+    article.html = await marked(article.markdown);
     const hidden = article.tags.includes('Hidden');
     const comment = hidden ? "" : `<script src="https://giscus.app/client.js"
       data-repo="${config.github_repo}"
@@ -220,4 +221,9 @@ async function main() {
   await write_when_change(profile_path, profile);
 }
 
-main();
+main()
+  .catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(() => close_mermaid());
