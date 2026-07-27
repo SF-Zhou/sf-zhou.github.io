@@ -199,6 +199,24 @@ body {
   text-align: center;
   font-size: 0.8rem;
 }
+.markdown figure.mermaid {
+  text-align: center;
+}
+.markdown figure.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.markdown figure.mermaid .mermaid-dark {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  .markdown figure.mermaid .mermaid-light {
+    display: none;
+  }
+  .markdown figure.mermaid .mermaid-dark {
+    display: block;
+  }
+}
 .markdown p code,
 .markdown ol code,
 .markdown ul code {
