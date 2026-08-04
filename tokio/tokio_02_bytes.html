@@ -30,7 +30,7 @@
       </div>
       <div class="markdown">
         <p>网络应用的核心是处理字节流，本篇关注 Tokio 处理字节流的基础库 <a href="https://github.com/tokio-rs/bytes">bytes</a>，阅读的代码版本为 <a href="https://github.com/tokio-rs/bytes/tree/v0.6.0">v0.6.0</a>。</p>
-<figure tabindex="1"><a href="../images/5e364463cf50f41fec2e028df84f6a4a.svg"><img src="../images/5e364463cf50f41fec2e028df84f6a4a.svg" alt=""></a><figcaption>Tokio 架构图 from <a href="http://tokio.rs">tokio.rs</a></figcaption></figure>
+<figure tabindex="1"><a href="../images/5e364463cf50f41fec2e028df84f6a4a.svg"><img src="../images/5e364463cf50f41fec2e028df84f6a4a.svg" alt=""></a><figcaption>Tokio 架构图 from tokio.rs</figcaption></figure>
 <h3 id="1.-概览" tabindex="-1"><a href="#1.-%E6%A6%82%E8%A7%88">1. 概览</a></h3>
 <p>Bytes 封装了对字节流的常用操作，核心特性是使用引用计数实现内存安全的 <code>string_view</code>。<code>src</code> 目录下的文件结构为：</p>
 <pre class="language-markup"><code class="language-markup">src
