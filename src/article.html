@@ -25,9 +25,14 @@
       {{#author}}
       <div class="info">
         <div class="date"> {{{ date }}} </div>
-        <a href="https://github.com/{{{ author }}}">
+        {{#author_url}}
+        <a href="{{{ author_url }}}">
           <div class="author"> {{{ author }}} </div>
         </a>
+        {{/author_url}}
+        {{^author_url}}
+        <div class="author"> {{{ author }}} </div>
+        {{/author_url}}
       </div>
       {{/author}}
       <div class="markdown">

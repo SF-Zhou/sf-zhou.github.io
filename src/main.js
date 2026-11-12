@@ -139,6 +139,10 @@ async function main() {
     }
 
     const article = analyze_article(article_content, article_filename, config.default_author);
+    // Only GitHub-handle-looking authors get a profile link; display names
+    // (for example a model name) are rendered without one.
+    article.author_url = /^[A-Za-z0-9-]+$/.test(article.author || '')
+      ? `https://github.com/${article.author}` : '';
     article.html = await marked(article.markdown);
     const hidden = article.tags.includes('Hidden');
     const comment = hidden ? "" : `<script src="https://giscus.app/client.js"
@@ -161,6 +165,7 @@ async function main() {
       title: article.title,
       date: article.date,
       author: article.author,
+      author_url: article.author_url,
       tags: JSON.stringify(article.tags),
       article: article.html,
       comment: comment,

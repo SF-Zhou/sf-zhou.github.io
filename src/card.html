@@ -7,9 +7,14 @@
     <div class="article_info">
       <div class="article_base">
         <p class="date">{{{ date }}}</p>
-        <a href="https://github.com/{{{ author }}}">
+        {{#author_url}}
+        <a href="{{{ author_url }}}">
           <p class="author"> {{{ author }}} </p>
         </a>
+        {{/author_url}}
+        {{^author_url}}
+        <p class="author"> {{{ author }}} </p>
+        {{/author_url}}
       </div>
       <div class="tags">
         {{#tags}}
