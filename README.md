@@ -40,8 +40,8 @@ for every option.
 
 ## Deployment
 
-GitHub Actions builds the site with blogen and publishes `public/` through the
-official GitHub Pages artifact workflow (`actions/upload-pages-artifact` +
+GitHub Actions installs prebuilt blogen with the [`install-blogen` action](https://github.com/marketplace/actions/install-blogen),
+builds the site and publishes `public/` through the official GitHub Pages artifact workflow (`actions/upload-pages-artifact` +
 `actions/deploy-pages`). One-time setup: in **Settings → Pages → Build and
 deployment**, set **Source** to **GitHub Actions**. The generated profile README
 is published separately to [SF-Zhou/SF-Zhou](https://github.com/SF-Zhou/SF-Zhou)

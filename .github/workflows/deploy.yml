@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [ blog ]
+    branches: [ main ]
   workflow_dispatch:
 
 # GitHub Pages deployment uses the official artifact workflow (OIDC):
@@ -23,20 +23,19 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
-    - name: Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    # Installed from crates.io; always use the latest published release.
+    # Prebuilt binary from the latest blogen release (no Rust toolchain or
+    # compilation needed); the action adds `blogen` to PATH. `v0` is the
+    # floating major tag maintained by blogen's release workflow.
     - name: Install blogen
-      run: cargo install blogen --locked
+      uses: SF-Zhou/blogen@v0
 
     - name: Generate site
       run: blogen build
 
     - name: Upload Pages artifact
-      uses: actions/upload-pages-artifact@v3
+      uses: actions/upload-pages-artifact@v5
       with:
         path: public
 
@@ -61,4 +60,4 @@ jobs:
     steps:
     - name: Deploy to GitHub Pages
       id: deployment
-      uses: actions/deploy-pages@v4
+      uses: actions/deploy-pages@v5
