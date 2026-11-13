@@ -3,37 +3,62 @@ name: Deploy
 on:
   push:
     branches: [ blog ]
+  workflow_dispatch:
+
+# GitHub Pages deployment uses the official artifact workflow (OIDC):
+# the generated site is uploaded as an artifact and published by
+# actions/deploy-pages — no generated branch is pushed.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v7
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    # Installed from crates.io; always use the latest published release.
+    - name: Install blogen
+      run: cargo install blogen --locked
+
+    - name: Generate site
+      run: blogen build
+
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v3
       with:
-        persist-credentials: false
-        fetch-depth: 8
+        path: public
 
-    - name: 🪞Mirror
-      run: git config --global credential.username "SF-Zhou" && git push -f https://SF-Zhou:${{ secrets.GITLAB }}@gitlab.com/SF-Zhou/sf-zhou.gitlab.io.git blog
-
-    - name: 🎨Fonts
-      run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
-
-    - name: 🏗Generate
-      run: npm i && npm run build
-
-    - name: 🚀Deploy
-      uses: JamesIves/github-pages-deploy-action@v4
-      with:
-        token: ${{ secrets.TOKEN }}
-        branch: master
-        folder: public
-
-    - name: 🚀Deploy
+    # The generated profile README lives in a separate repository, which has no
+    # artifact-based deployment; this keeps publishing it automatically.
+    - name: Deploy profile README
       uses: JamesIves/github-pages-deploy-action@v4
       with:
         repository-name: SF-Zhou/SF-Zhou
         token: ${{ secrets.TOKEN }}
         branch: master
         folder: profile
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4

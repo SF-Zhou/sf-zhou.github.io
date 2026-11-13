@@ -1,6 +1,10 @@
-FROM node:20
-WORKDIR /app
+# Build the static site with blogen and serve it with nginx.
+FROM rust:1 AS builder
+RUN cargo install blogen --locked
+WORKDIR /site
 COPY . .
-RUN npm i && ./build.sh
+RUN blogen build
+
+FROM nginx:alpine
+COPY --from=builder /site/public /usr/share/nginx/html
 EXPOSE 80
-CMD [ "node", "src/server.js", "80" ]

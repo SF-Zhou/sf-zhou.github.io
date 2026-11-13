@@ -1,0 +1,54 @@
+# blogen configuration for SF-Zhou's Blog
+# See https://github.com/SF-Zhou/blogen/blob/main/docs/config-reference.md
+
+[site]
+name = "SF-Zhou's Blog"
+url = "https://sf-zhou.github.io"
+description = "SF-Zhou's Blog"
+language = "zh-CN"
+default_author = "SF-Zhou"
+web_master = "SF-Zhou"
+google_analytics_id = "G-GQ26H3JQ3G"
+
+[build]
+posts = "posts"
+output = "public"
+article_format = "md"
+images = "images"
+download_remote_images = true
+clean = true
+
+[theme]
+name = "default"
+assets = "dist"
+
+[markdown]
+toc = true
+math = true
+highlight = true
+mermaid = "static"
+
+[profile]
+path = "profile"
+limit = 5
+
+[comments.giscus]
+repo = "SF-Zhou/sf-zhou.github.io"
+repo_id = "MDEwOlJlcG9zaXRvcnk4MDc5ODgwNg=="
+category = "Announcements"
+category_id = "DIC_kwDOBNDkVs4CA6GQ"
+mapping = "title"
+reactions_enabled = "0"
+emit_metadata = "0"
+input_position = "bottom"
+theme = "preferred_color_scheme"
+lang = "en"
+
+[rss]
+enabled = true
+file = "rss.xml"
+limit = 20
+
+[serve]
+host = "127.0.0.1"
+port = 9000
